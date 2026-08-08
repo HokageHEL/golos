@@ -1,0 +1,58 @@
+{
+  "nav": { "brand": "Golos", "home": "Home", "pricing": "Pricing", "dashboard": "Account" },
+  "landing": {
+    "title": "Drop audio in.\nGet text out.",
+    "subtitle": "Voice notes, lectures, interviews — clean text in minutes. No signup for your first file.",
+    "dropzone": "Drag an audio file here",
+    "formats": "MP3, WAV, M4A — up to 2 hours",
+    "chooseFile": "Choose file"
+  },
+  "job": {
+    "uploading": "Uploading…",
+    "processing": "Transcribing…",
+    "done": "Done",
+    "etaUnknown": "Usually about {minutes} min",
+    "viewText": "View text",
+    "failed": "Transcription failed",
+    "retry": "Try again"
+  },
+  "result": {
+    "heading": "Done",
+    "stats": "{duration} · {words} words",
+    "copy": "Copy",
+    "export": "Export",
+    "copied": "Copied to clipboard",
+    "downloaded": "Downloaded {format}",
+    "speaker": "Speaker {n}"
+  },
+  "pricing": {
+    "heading": "Pricing",
+    "subheading": "Pay by the minute, whichever way suits you.",
+    "subscription": "Subscription",
+    "payg": "Pay-as-you-go",
+    "perMonth": "/mo",
+    "perMinute": "/min",
+    "subscribe": "Subscribe",
+    "topUp": "Add credit"
+  },
+  "dashboard": {
+    "heading": "Account",
+    "balance": "Balance",
+    "usedThisMonth": "Used this month",
+    "history": "History",
+    "download": "Download",
+    "empty": "Nothing here yet. Upload your first file."
+  },
+  "trial": {
+    "exhausted": "Your free transcript is used up. Sign in to continue.",
+    "tooLong": "Free transcripts are limited to 10 minutes. Sign in to process the full file.",
+    "signInToExport": "Sign in to export and save this transcript."
+  },
+  "errors": {
+    "unsupportedFormat": "That file type isn't supported. Use MP3, WAV, M4A, or MP4.",
+    "tooLarge": "File is too large. The limit is 2 hours of audio.",
+    "uploadFailed": "Upload failed. Check your connection and try again.",
+    "insufficientBalance": "Not enough credit for this file.",
+    "generic": "Something went wrong. Please try again."
+  }
+}
