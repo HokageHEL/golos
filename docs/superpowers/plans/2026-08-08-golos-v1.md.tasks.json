@@ -4,107 +4,149 @@
     {
       "id": 0,
       "subject": "Task 0: Scaffold project and test runner",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** An empty but runnable Next.js + TypeScript app with Vitest wired up and a passing smoke test.\n\n**Files:**\n- Create: `package.json`, `tsconfig.json`, `next.config.ts`, `vitest.config.ts`\n- Create: `app/layout.tsx`, `app/page.tsx`\n- Create: `lib/__tests__/smoke.test.ts`\n\n**Acceptance Criteria:**\n- [ ] `npm run dev` serves a page on localhost:3000\n- [ ] `npm test` runs Vitest and passes\n- [ ] `npx tsc --noEmit` reports no errors\n\n**Verify:** `npm test && npx tsc --noEmit`\n\n```json:metadata\n{\"files\": [\"package.json\", \"vitest.config.ts\", \"lib/__tests__/smoke.test.ts\"], \"verifyCommand\": \"npm test && npx tsc --noEmit\", \"acceptanceCriteria\": [\"npm run dev serves localhost:3000\", \"npm test passes\", \"tsc --noEmit clean\"], \"modelTier\": \"mechanical\"}\n```"
     },
     {
       "id": 1,
       "subject": "Task 1: i18n foundation (en + uk)",
       "status": "pending",
-      "blockedBy": [0],
+      "blockedBy": [
+        0
+      ],
       "description": "**Goal:** Both locales route and render, with a working language switcher and zero hardcoded UI strings.\n\n**Files:**\n- Create: `i18n/routing.ts`, `i18n/request.ts`, `middleware.ts`\n- Create: `messages/en.json`, `messages/uk.json`\n- Create: `components/LocaleSwitcher.tsx`, `components/Nav.tsx`\n- Create: `app/[locale]/layout.tsx`, `app/[locale]/page.tsx`\n- Delete: `app/layout.tsx`, `app/page.tsx`\n- Modify: `next.config.ts`\n- Test: `i18n/__tests__/routing.test.ts`\n\n**Acceptance Criteria:**\n- [ ] `/` renders English, `/uk` renders Ukrainian\n- [ ] `/pricing` has no prefix; `/uk/pricing` does (`localePrefix: 'as-needed'`)\n- [ ] Both message files have identical key sets\n- [ ] Language switcher preserves the current path\n\n**Verify:** `npm test` (key-parity test); `curl -s localhost:3000/uk | grep -q \"Завантаж\"`\n\n```json:metadata\n{\"files\": [\"i18n/routing.ts\", \"i18n/request.ts\", \"middleware.ts\", \"messages/en.json\", \"messages/uk.json\", \"components/LocaleSwitcher.tsx\", \"app/[locale]/layout.tsx\"], \"verifyCommand\": \"npm test\", \"acceptanceCriteria\": [\"/ renders English and /uk renders Ukrainian\", \"localePrefix as-needed\", \"en and uk key sets identical\", \"switcher preserves path\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 2,
       "subject": "Task 2: Database schema",
       "status": "pending",
-      "blockedBy": [0],
+      "blockedBy": [
+        0
+      ],
       "description": "**Goal:** Postgres schema with an append-only ledger and a balance that is derived, not edited.\n\n**Files:**\n- Create: `supabase/migrations/0001_init.sql`\n- Create: `lib/supabase/server.ts`\n- Create: `.env.example`\n\n**Acceptance Criteria:**\n- [ ] Migration applies cleanly to a fresh database\n- [ ] Inserting two ledger rows with the same `external_id` fails\n- [ ] `accounts.balance_cents` updates automatically when ledger rows are inserted\n- [ ] Row-level security is on for every table\n\n**Verify:** `npx supabase db reset`; duplicate-`external_id` insert fails with a unique violation.\n\n```json:metadata\n{\"files\": [\"supabase/migrations/0001_init.sql\", \"lib/supabase/server.ts\", \".env.example\"], \"verifyCommand\": \"npx supabase db reset\", \"acceptanceCriteria\": [\"migration applies cleanly\", \"duplicate external_id rejected\", \"balance_cents maintained by trigger\", \"RLS enabled on all tables\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 3,
       "subject": "Task 3: Pricing config and cost calculation",
       "status": "pending",
-      "blockedBy": [0],
+      "blockedBy": [
+        0
+      ],
       "description": "**Goal:** Cost of a job is computed by one pure, tested function reading one config file.\n\n**Files:**\n- Create: `lib/billing/pricing.ts`, `lib/billing/cost.ts`\n- Test: `lib/billing/__tests__/cost.test.ts`\n\n**Acceptance Criteria:**\n- [ ] A 0-second job bills 0; a 1-second job bills 1 minute\n- [ ] 61 seconds bills 2 minutes (round up)\n- [ ] PAYG rate is read from config, not hardcoded in the calculation\n- [ ] Subscription minutes are consumed before credit is charged\n\n**Verify:** `npx vitest run lib/billing`\n\n```json:metadata\n{\"files\": [\"lib/billing/pricing.ts\", \"lib/billing/cost.ts\", \"lib/billing/__tests__/cost.test.ts\"], \"verifyCommand\": \"npx vitest run lib/billing\", \"acceptanceCriteria\": [\"0s bills 0, 1s bills 1 minute\", \"61s bills 2 minutes\", \"rate from config\", \"plan minutes consumed before credit\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 4,
       "subject": "Task 4: Speaker turns and export formatters",
       "status": "pending",
-      "blockedBy": [0],
+      "blockedBy": [
+        0
+      ],
       "description": "**Goal:** Provider segments become readable speaker turns, and turns become `.txt`, `.srt`, and `.docx` — all pure functions with tests.\n\n**Files:**\n- Create: `lib/transcript/types.ts`, `lib/transcript/turns.ts`\n- Create: `lib/export/txt.ts`, `lib/export/srt.ts`, `lib/export/docx.ts`\n- Test: `lib/transcript/__tests__/turns.test.ts`, `lib/export/__tests__/{srt,txt,docx}.test.ts`\n\n**Acceptance Criteria:**\n- [ ] Consecutive segments from the same speaker merge into one turn\n- [ ] A speaker change always starts a new turn\n- [ ] SRT timestamps are `HH:MM:SS,mmm` and zero-padded\n- [ ] SRT cue numbering starts at 1 and increments\n- [ ] `.txt` with a single speaker has no speaker labels at all\n- [ ] `.docx` produces a non-empty buffer that unzips as a valid OOXML package\n\n**Verify:** `npx vitest run lib/transcript lib/export`\n\n```json:metadata\n{\"files\": [\"lib/transcript/types.ts\", \"lib/transcript/turns.ts\", \"lib/export/txt.ts\", \"lib/export/srt.ts\", \"lib/export/docx.ts\"], \"verifyCommand\": \"npx vitest run lib/transcript lib/export\", \"acceptanceCriteria\": [\"same-speaker segments merge\", \"speaker change starts new turn\", \"SRT timestamps HH:MM:SS,mmm zero-padded\", \"SRT cues numbered from 1\", \"single speaker means no labels\", \"docx is valid OOXML zip\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 5,
       "subject": "Task 5: Provider interface + AssemblyAI adapter",
       "status": "pending",
-      "blockedBy": [4],
+      "blockedBy": [
+        4
+      ],
       "description": "**Goal:** One narrow interface for transcription, one implementation behind it, with the response-mapping logic tested against a saved fixture.\n\n**Files:**\n- Create: `lib/transcription/types.ts`, `lib/transcription/assemblyai.ts`, `lib/transcription/index.ts`\n- Create: `lib/transcription/__fixtures__/completed.json`\n- Test: `lib/transcription/__tests__/assemblyai.test.ts`\n\n**Acceptance Criteria:**\n- [ ] `TranscriptionProvider` exposes exactly `submit`, `fetchResult`, `verifyWebhook`\n- [ ] AssemblyAI utterances map to our `Segment[]` with correct ms timings and speaker labels\n- [ ] `submit` sends `audio_end_at` when a cap is given, and omits it otherwise\n- [ ] `verifyWebhook` rejects a wrong secret and accepts the right one\n- [ ] Nothing outside `lib/transcription/` imports the AssemblyAI SDK or its URL\n\n**Verify:** `npx vitest run lib/transcription` (tests stub global fetch — no API key needed)\n\n```json:metadata\n{\"files\": [\"lib/transcription/types.ts\", \"lib/transcription/assemblyai.ts\", \"lib/transcription/index.ts\", \"lib/transcription/__fixtures__/completed.json\"], \"verifyCommand\": \"npx vitest run lib/transcription\", \"acceptanceCriteria\": [\"interface has submit/fetchResult/verifyWebhook only\", \"utterances map to Segment[] with ms timings\", \"audio_end_at sent only when capped\", \"webhook secret verified in constant time\", \"provider SDK confined to lib/transcription\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 6,
       "subject": "Task 6: Anonymous trial quota",
       "status": "pending",
-      "blockedBy": [3],
+      "blockedBy": [
+        3
+      ],
       "description": "**Goal:** One free transcript per anonymous visitor that survives a page refresh, plus a global daily spend ceiling.\n\n**Files:**\n- Create: `lib/quota/identity.ts`, `lib/quota/anon.ts`, `lib/quota/redis.ts`\n- Create: `lib/turnstile.ts`\n- Test: `lib/quota/__tests__/identity.test.ts`, `lib/quota/__tests__/anon.test.ts`\n\n**Acceptance Criteria:**\n- [ ] The same ip + fingerprint pair always yields the same key; a change in either yields a different one\n- [ ] Raw IPs are never stored — only the hash\n- [ ] A second claim by the same identity is refused\n- [ ] Once the daily budget is spent, all anonymous claims are refused regardless of identity\n- [ ] Turnstile verification failure refuses the claim WITHOUT consuming it\n\n**Verify:** `npx vitest run lib/quota` (fake QuotaStore — no Redis needed)\n\n```json:metadata\n{\"files\": [\"lib/quota/identity.ts\", \"lib/quota/anon.ts\", \"lib/quota/redis.ts\", \"lib/turnstile.ts\"], \"verifyCommand\": \"npx vitest run lib/quota\", \"acceptanceCriteria\": [\"anonKey stable per visitor, changes with either input\", \"raw IP never stored\", \"second claim refused\", \"daily budget ceiling refuses everyone\", \"failed bot check does not consume the claim\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 7,
       "subject": "Task 7: Upload and job-creation API",
       "status": "pending",
-      "blockedBy": [2, 5, 6, 10],
+      "blockedBy": [
+        2,
+        5,
+        6,
+        10
+      ],
       "description": "**Goal:** A browser can get a signed upload URL, put a file straight into Storage, and start a transcription — without the file ever touching a serverless function.\n\n**Files:**\n- Create: `app/api/jobs/init/route.ts`, `app/api/jobs/[id]/start/route.ts`, `app/api/jobs/[id]/route.ts`\n- Create: `lib/jobs/media.ts`, `supabase/migrations/0002_storage.sql`\n- Test: `lib/jobs/__tests__/media.test.ts`\n\n**Acceptance Criteria:**\n- [ ] `POST /api/jobs/init` returns `{ jobId, uploadUrl, uploadToken, maxDurationSeconds }`\n- [ ] It refuses unsupported MIME types before creating anything\n- [ ] Anonymous callers without a valid Turnstile token get 403\n- [ ] Signed-in callers with insufficient credit get 402 before any provider call\n- [ ] `POST /api/jobs/[id]/start` submits to the provider and stores `provider_job_id`\n- [ ] Anonymous jobs are submitted with `maxDurationMs = 600000`\n\n**Verify:** `npx vitest run lib/jobs`; then the curl flow — first call returns a jobId, second returns `already_used` with 403.\n\n```json:metadata\n{\"files\": [\"app/api/jobs/init/route.ts\", \"app/api/jobs/[id]/start/route.ts\", \"app/api/jobs/[id]/route.ts\", \"lib/jobs/media.ts\", \"supabase/migrations/0002_storage.sql\"], \"verifyCommand\": \"npx vitest run lib/jobs\", \"acceptanceCriteria\": [\"init returns jobId and signed upload URL\", \"unsupported MIME rejected with 415\", \"anon without Turnstile gets 403\", \"insufficient credit gets 402\", \"start stores provider_job_id\", \"anon jobs capped at 600000ms\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 8,
       "subject": "Task 8: Webhook handler",
       "status": "pending",
-      "blockedBy": [3, 4, 7],
+      "blockedBy": [
+        3,
+        4,
+        7
+      ],
       "description": "**Goal:** When the provider calls back, the transcript is stored and the account is debited exactly once, even if the callback arrives five times.\n\n**Files:**\n- Create: `app/api/webhooks/assemblyai/route.ts`\n- Create: `lib/jobs/complete.ts`, `supabase/migrations/0003_minutes.sql`\n- Test: `lib/jobs/__tests__/complete.test.ts`\n\n**Acceptance Criteria:**\n- [ ] A forged webhook (wrong secret) gets 401 and changes nothing\n- [ ] The handler responds 200 within its budget, doing the slow work after responding (`after()`)\n- [ ] A duplicate delivery does not insert a second ledger row\n- [ ] A failed transcription sets `status = 'failed'` and debits nothing\n- [ ] Plan minutes are consumed before credit\n\n**Verify:** `npx vitest run lib/jobs`; forged-webhook curl returns 401.\n\n```json:metadata\n{\"files\": [\"app/api/webhooks/assemblyai/route.ts\", \"lib/jobs/complete.ts\", \"supabase/migrations/0003_minutes.sql\"], \"verifyCommand\": \"npx vitest run lib/jobs\", \"acceptanceCriteria\": [\"forged webhook gets 401\", \"responds 200 fast, work in after()\", \"duplicate delivery inserts no second ledger row\", \"failed transcription debits nothing\", \"plan minutes consumed before credit\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 9,
       "subject": "Task 9: Reconciliation cron",
       "status": "pending",
-      "blockedBy": [8],
+      "blockedBy": [
+        8
+      ],
       "description": "**Goal:** A job whose webhook never arrived finishes anyway, instead of spinning forever.\n\n**Files:**\n- Create: `app/api/cron/reconcile/route.ts`\n- Create: `vercel.json`\n\n**Acceptance Criteria:**\n- [ ] Requests without the cron secret get 401\n- [ ] Jobs in `processing` for over 30 minutes are re-checked against the provider\n- [ ] A job the provider reports as complete gets the same treatment as a webhook delivery\n- [ ] Jobs stuck over 6 hours are marked `failed`\n\n**Verify:** `curl localhost:3000/api/cron/reconcile` → 401; with the bearer secret → 200.\n\n```json:metadata\n{\"files\": [\"app/api/cron/reconcile/route.ts\", \"vercel.json\"], \"verifyCommand\": \"curl -s -o /dev/null -w '%{http_code}' localhost:3000/api/cron/reconcile\", \"acceptanceCriteria\": [\"no secret returns 401\", \"jobs processing over 30min re-checked\", \"completed jobs applied like a webhook\", \"jobs stuck over 6h marked failed\"], \"modelTier\": \"mechanical\"}\n```"
     },
     {
       "id": 10,
       "subject": "Task 10: Authentication",
       "status": "pending",
-      "blockedBy": [1, 2],
+      "blockedBy": [
+        1,
+        2
+      ],
       "description": "**Goal:** Magic-link sign-in, and every new user gets an account row.\n\n**Files:**\n- Create: `lib/auth.ts`, `lib/supabase/browser.ts`\n- Create: `app/[locale]/login/page.tsx`, `app/auth/callback/route.ts`\n- Create: `supabase/migrations/0004_account_bootstrap.sql`\n- Modify: `messages/en.json`, `messages/uk.json` (add `login.*` keys)\n\n**Acceptance Criteria:**\n- [ ] Submitting an email sends a magic link\n- [ ] Following the link creates a session and redirects to `/dashboard`\n- [ ] A new `auth.users` row automatically produces an `accounts` row\n- [ ] `currentUser()` returns `null` when signed out, the user when signed in\n- [ ] Key-parity test still passes after adding `login.*` strings\n\n**Verify:** `npm test`; sign in via Inbucket, then `select user_id, balance_cents from accounts;` shows one row with 0.\n\n```json:metadata\n{\"files\": [\"lib/auth.ts\", \"lib/supabase/browser.ts\", \"app/[locale]/login/page.tsx\", \"app/auth/callback/route.ts\", \"supabase/migrations/0004_account_bootstrap.sql\"], \"verifyCommand\": \"npm test\", \"acceptanceCriteria\": [\"magic link sent on submit\", \"callback creates session and redirects to /dashboard\", \"new auth.users row creates accounts row\", \"currentUser null when signed out\", \"key-parity test passes with login keys\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 11,
       "subject": "Task 11: Landing page and upload flow",
       "status": "pending",
-      "blockedBy": [1, 7],
+      "blockedBy": [
+        1,
+        7
+      ],
       "description": "**Goal:** The mockup's landing page, wired to the real upload pipeline, in both locales.\n\n**Files:**\n- Create: `components/Dropzone.tsx`, `components/Toast.tsx`, `lib/upload.ts`\n- Modify: `app/[locale]/page.tsx`, `app/[locale]/layout.tsx` (Turnstile script)\n\n**Acceptance Criteria:**\n- [ ] Drag-and-drop and click-to-choose both work\n- [ ] Unsupported file types are rejected in the browser with a translated message\n- [ ] Upload shows real percentage progress (XHR, not fetch)\n- [ ] On completion the browser navigates to `/j/[id]`\n- [ ] Turnstile runs invisibly for anonymous visitors\n- [ ] The mockup's \"Записати голос замість файлу\" link is REMOVED (out of v1 scope)\n\n**Verify:** `npm run build`; upload a 30-second MP3 and confirm the newest job row reads `processing`.\n\n```json:metadata\n{\"files\": [\"components/Dropzone.tsx\", \"components/Toast.tsx\", \"lib/upload.ts\", \"app/[locale]/page.tsx\"], \"verifyCommand\": \"npm run build\", \"acceptanceCriteria\": [\"drag-drop and click both work\", \"unsupported types rejected client-side with translated message\", \"real upload percentage via XHR\", \"navigates to /j/[id]\", \"Turnstile invisible for anon\", \"voice-recording link removed\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 12,
       "subject": "Task 12: Job page — progress and result",
       "status": "pending",
-      "blockedBy": [4, 7, 8, 10],
+      "blockedBy": [
+        4,
+        7,
+        8,
+        10
+      ],
       "description": "**Goal:** One route that shows honest progress while transcribing and the editable transcript when done.\n\n**Files:**\n- Create: `app/[locale]/j/[id]/page.tsx`, `components/JobProgress.tsx`, `components/TranscriptView.tsx`, `components/ExportMenu.tsx`\n- Create: `app/api/jobs/[id]/export/route.ts`\n\n**Acceptance Criteria:**\n- [ ] While uploading, the bar shows the real upload percentage\n- [ ] While transcribing, there is NO fake percentage — a phase label and an estimate instead\n- [ ] The finished transcript renders as speaker turns, not a wall of text\n- [ ] Export produces working `.txt`, `.srt`, and `.docx` downloads\n- [ ] Anonymous users see a sign-in prompt instead of export buttons\n- [ ] A failed job shows the error and a retry button\n\n**Verify:** `npm run build`; complete a real two-speaker transcription and open all three downloads.\n\n```json:metadata\n{\"files\": [\"app/[locale]/j/[id]/page.tsx\", \"components/JobProgress.tsx\", \"components/TranscriptView.tsx\", \"components/ExportMenu.tsx\", \"app/api/jobs/[id]/export/route.ts\"], \"verifyCommand\": \"npm run build\", \"acceptanceCriteria\": [\"real upload percentage during upload\", \"no fake percentage during transcription\", \"transcript renders as speaker turns\", \"txt/srt/docx downloads work\", \"anon sees sign-in prompt instead of export\", \"failed job shows error and retry\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 13,
       "subject": "Task 13: Pricing and dashboard pages",
       "status": "pending",
-      "blockedBy": [1, 3, 10],
+      "blockedBy": [
+        1,
+        3,
+        10
+      ],
       "description": "**Goal:** The remaining two mockup screens, on real data.\n\n**Files:**\n- Create: `app/[locale]/pricing/page.tsx`, `app/[locale]/dashboard/page.tsx`\n\n**Acceptance Criteria:**\n- [ ] Pricing renders both cards from `lib/billing/pricing.ts`, never hardcoded numbers\n- [ ] Top-up chips reflect `TOPUP_OPTIONS_CENTS` and track selection\n- [ ] Dashboard shows the real balance and minutes used\n- [ ] History lists the signed-in user's jobs, newest first\n- [ ] Dates and durations are formatted with `Intl`, not string concatenation\n- [ ] An empty history shows the empty state, not a blank card\n\n**Verify:** `npm run build`; sign in, transcribe a file, confirm it appears in history with a correctly formatted date in both locales.\n\n```json:metadata\n{\"files\": [\"app/[locale]/pricing/page.tsx\", \"app/[locale]/dashboard/page.tsx\"], \"verifyCommand\": \"npm run build\", \"acceptanceCriteria\": [\"pricing reads from config not hardcoded\", \"topup chips from TOPUP_OPTIONS_CENTS\", \"dashboard shows real balance and minutes\", \"history newest first\", \"Intl formatting for dates and durations\", \"empty state renders\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 14,
       "subject": "Task 14: Billing webhook",
       "status": "pending",
-      "blockedBy": [2, 3, 10],
+      "blockedBy": [
+        2,
+        3,
+        10
+      ],
       "description": "**Goal:** A completed payment adds credit exactly once.\n\n**Files:**\n- Create: `app/api/webhooks/polar/route.ts`, `lib/billing/credit.ts`\n- Modify: `.env.example`\n- Test: `lib/billing/__tests__/credit.test.ts`\n\n**Acceptance Criteria:**\n- [ ] Signature verification failure returns 401 and credits nothing\n- [ ] A one-off payment inserts a ledger row keyed by the provider's event id\n- [ ] A replayed event inserts nothing the second time\n- [ ] A subscription activation sets plan, `minutes_included`, and `period_start`\n\n**Verify:** `npx vitest run lib/billing`; replay the same signed event twice and confirm `count(*) = 1` for `external_id like 'polar:%'`.\n\n```json:metadata\n{\"files\": [\"app/api/webhooks/polar/route.ts\", \"lib/billing/credit.ts\", \".env.example\"], \"verifyCommand\": \"npx vitest run lib/billing\", \"acceptanceCriteria\": [\"bad signature returns 401 and credits nothing\", \"one-off payment keyed by provider event id\", \"replayed event inserts nothing\", \"subscription sets plan minutes and period_start\"], \"modelTier\": \"standard\"}\n```"
     }
   ],
-  "lastUpdated": "2026-08-08T00:00:00Z"
+  "lastUpdated": "2026-08-08T15:23:47.498Z"
 }
