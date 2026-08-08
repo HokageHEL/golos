@@ -57,7 +57,10 @@ export async function applyCompletion(providerJobId: string): Promise<void> {
   });
 
   if (completion.transcript) {
-    await db.from('transcripts').upsert(completion.transcript, { onConflict: 'job_id' });
+    const { error: transcriptError } = await db
+      .from('transcripts')
+      .upsert(completion.transcript, { onConflict: 'job_id' });
+    if (transcriptError) throw transcriptError;
   }
 
   if (completion.ledgerEntry) {
@@ -67,15 +70,20 @@ export async function applyCompletion(providerJobId: string): Promise<void> {
   }
 
   if (completion.minutesUsedDelta > 0 && job.user_id) {
-    await db.rpc('add_minutes_used', {
+    const { error: minutesError } = await db.rpc('add_minutes_used', {
       p_user_id: job.user_id,
       p_minutes: completion.minutesUsedDelta,
     });
+    if (minutesError) throw minutesError;
   }
 
   if (completion.anonSpendCents > 0) {
     await recordAnonSpend(redisStore(), completion.anonSpendCents);
   }
 
-  await db.from('jobs').update(completion.job).eq('id', job.id);
+  const { error: jobUpdateError } = await db
+    .from('jobs')
+    .update(completion.job)
+    .eq('id', job.id);
+  if (jobUpdateError) throw jobUpdateError;
 }
