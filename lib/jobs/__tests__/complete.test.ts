@@ -44,8 +44,31 @@ test('uses plan minutes instead of credit when available', () => {
   const plan = { minutesIncluded: 300, minutesUsed: 0 };
   const completion = buildCompletion({ jobId: 'j1', userId: 'u1', result, plan });
 
-  expect(completion.ledgerEntry).toBeNull();
+  // Still a ledger row — it's the exactly-once claim, not just a cash entry —
+  // but the charge is zero because the plan covered the whole job.
+  expect(completion.ledgerEntry).toEqual({
+    user_id: 'u1',
+    delta_cents: 0,
+    reason: 'transcription',
+    job_id: 'j1',
+    external_id: 'job:j1:debit',
+  });
   expect(completion.minutesUsedDelta).toBe(10);
+});
+
+test('splits a job across remaining plan minutes and credit', () => {
+  const plan = { minutesIncluded: 300, minutesUsed: 295 };
+  const completion = buildCompletion({ jobId: 'j1', userId: 'u1', result, plan });
+
+  // 10-minute file, only 5 plan minutes left: 5 from the plan, 5 from credit.
+  expect(completion.minutesUsedDelta).toBe(5);
+  expect(completion.ledgerEntry).toEqual({
+    user_id: 'u1',
+    delta_cents: -25, // 5 minutes at $0.05
+    reason: 'transcription',
+    job_id: 'j1',
+    external_id: 'job:j1:debit',
+  });
 });
 
 test('anonymous jobs produce no ledger entry', () => {

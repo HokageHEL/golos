@@ -56,6 +56,9 @@ export async function applyCompletion(providerJobId: string): Promise<void> {
     },
   });
 
+  // 1. Transcript upsert first — idempotent on job_id, safe to repeat.
+  // Doing this before the claim below means a retry after a mid-way
+  // failure can still make progress instead of colliding forever.
   if (completion.transcript) {
     const { error: transcriptError } = await db
       .from('transcripts')
@@ -63,24 +66,41 @@ export async function applyCompletion(providerJobId: string): Promise<void> {
     if (transcriptError) throw transcriptError;
   }
 
+  // 2. The ledger insert IS the exactly-once claim on consumption (even a
+  // plan-covered job with delta_cents: 0 gets a row — see buildCompletion).
+  // 3. Only run consumption side-effects if this delivery is the one that
+  // actually won the claim; a 23505 collision means a prior delivery
+  // already applied them, so skip to avoid double-consuming plan minutes.
+  let claimed = true;
   if (completion.ledgerEntry) {
-    // Duplicate delivery collides on external_id; ignore that one error only.
     const { error } = await db.from('ledger').insert(completion.ledgerEntry);
-    if (error && error.code !== '23505') throw error;
+    if (error) {
+      if (error.code !== '23505') throw error;
+      claimed = false;
+    }
   }
 
-  if (completion.minutesUsedDelta > 0 && job.user_id) {
-    const { error: minutesError } = await db.rpc('add_minutes_used', {
-      p_user_id: job.user_id,
-      p_minutes: completion.minutesUsedDelta,
-    });
-    if (minutesError) throw minutesError;
+  if (claimed) {
+    if (completion.minutesUsedDelta > 0 && job.user_id) {
+      const { error: minutesError } = await db.rpc('add_minutes_used', {
+        p_user_id: job.user_id,
+        p_minutes: completion.minutesUsedDelta,
+      });
+      if (minutesError) throw minutesError;
+    }
+
+    // Anonymous jobs have no user_id, so they can never insert a ledger row
+    // to claim against — recordAnonSpend may double-count on a retry. That
+    // only tightens the daily free-trial budget ceiling; it fails safe
+    // (fewer free trials granted), never overcharges anyone, so it is left
+    // as-is rather than building a second claim mechanism for it.
+    if (completion.anonSpendCents > 0) {
+      await recordAnonSpend(redisStore(), completion.anonSpendCents);
+    }
   }
 
-  if (completion.anonSpendCents > 0) {
-    await recordAnonSpend(redisStore(), completion.anonSpendCents);
-  }
-
+  // 4. Status update runs either way so a retry after a collision can still
+  // finish the job instead of getting stuck in 'processing' forever.
   const { error: jobUpdateError } = await db
     .from('jobs')
     .update(completion.job)

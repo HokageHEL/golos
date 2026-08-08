@@ -76,14 +76,19 @@ export function buildCompletion(input: {
       segments: result.segments,
       word_count: wordCount(result.text),
     },
+    // Emitted for every signed-in job — even a plan-covered one with
+    // delta_cents: 0 — because this row, not a second mechanism, is the
+    // single exactly-once claim on consumption. A replayed webhook collides
+    // on external_id whether or not any credit was charged.
     ledgerEntry:
-      userId !== null && charge.centsFromCredit > 0
+      userId !== null
         ? {
             user_id: userId,
-            delta_cents: -charge.centsFromCredit,
+            // 0 - x, not -x: unary negation of 0 is -0, which is a
+            // different value than 0 to strict equality checks.
+            delta_cents: 0 - charge.centsFromCredit,
             reason: 'transcription',
             job_id: jobId,
-            // Job-scoped: a replayed webhook collides on the unique index.
             external_id: `job:${jobId}:debit`,
           }
         : null,
