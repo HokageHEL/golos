@@ -1,5 +1,6 @@
 import { NextIntlClientProvider, hasLocale } from 'next-intl';
 import { notFound } from 'next/navigation';
+import Script from 'next/script';
 import { routing } from '@/i18n/routing';
 import Nav from '@/components/Nav';
 
@@ -20,6 +21,7 @@ export default async function LocaleLayout({
   return (
     <html lang={locale}>
       <body style={{ margin: 0, background: '#FAFAF8', color: '#1C1B19' }}>
+        <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />
         <NextIntlClientProvider>
           <Nav />
           {children}
