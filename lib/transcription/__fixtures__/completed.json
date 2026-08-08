@@ -1,0 +1,12 @@
+{
+  "id": "abc123",
+  "status": "completed",
+  "text": "Hello there. Hi.",
+  "audio_duration": 1122,
+  "language_code": "en",
+  "error": null,
+  "utterances": [
+    { "start": 0, "end": 1500, "speaker": "A", "text": "Hello there." },
+    { "start": 1500, "end": 3000, "speaker": "B", "text": "Hi." }
+  ]
+}
