@@ -69,7 +69,14 @@ export async function POST(request: Request) {
   }
 
   const path = storagePathFor(job.id, body.filename);
-  await db.from('jobs').update({ storage_path: path }).eq('id', job.id);
+  const { error: updateError } = await db
+    .from('jobs')
+    .update({ storage_path: path })
+    .eq('id', job.id);
+
+  if (updateError) {
+    return NextResponse.json({ error: 'generic' }, { status: 500 });
+  }
 
   const { data: signed, error: signError } = await db.storage
     .from('audio')
