@@ -43,6 +43,12 @@
     "download": "Download",
     "empty": "Nothing here yet. Upload your first file."
   },
+  "login": {
+    "title": "Sign in",
+    "emailLabel": "Email",
+    "submit": "Send magic link",
+    "sent": "Check your email for a sign-in link."
+  },
   "trial": {
     "exhausted": "Your free transcript is used up. Sign in to continue.",
     "tooLong": "Free transcripts are limited to 10 minutes. Sign in to process the full file.",
