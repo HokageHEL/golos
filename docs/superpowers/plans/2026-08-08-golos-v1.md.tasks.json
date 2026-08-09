@@ -87,7 +87,7 @@
     {
       "id": 9,
       "subject": "Task 9: Reconciliation cron",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [
         8
       ],
@@ -148,5 +148,5 @@
       "description": "**Goal:** A completed payment adds credit exactly once.\n\n**Files:**\n- Create: `app/api/webhooks/polar/route.ts`, `lib/billing/credit.ts`\n- Modify: `.env.example`\n- Test: `lib/billing/__tests__/credit.test.ts`\n\n**Acceptance Criteria:**\n- [ ] Signature verification failure returns 401 and credits nothing\n- [ ] A one-off payment inserts a ledger row keyed by the provider's event id\n- [ ] A replayed event inserts nothing the second time\n- [ ] A subscription activation sets plan, `minutes_included`, and `period_start`\n\n**Verify:** `npx vitest run lib/billing`; replay the same signed event twice and confirm `count(*) = 1` for `external_id like 'polar:%'`.\n\n```json:metadata\n{\"files\": [\"app/api/webhooks/polar/route.ts\", \"lib/billing/credit.ts\", \".env.example\"], \"verifyCommand\": \"npx vitest run lib/billing\", \"acceptanceCriteria\": [\"bad signature returns 401 and credits nothing\", \"one-off payment keyed by provider event id\", \"replayed event inserts nothing\", \"subscription sets plan minutes and period_start\"], \"modelTier\": \"standard\"}\n```"
     }
   ],
-  "lastUpdated": "2026-08-08T16:48:02.533Z"
+  "lastUpdated": "2026-08-08T17:02:20.631Z"
 }
