@@ -17,9 +17,12 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
 
   const user = await currentUser();
   const anon = (await cookies()).get('golos_anon')?.value ?? null;
-  const mayRead =
-    (job.user_id !== null && job.user_id === user?.id) ||
-    (job.anon_key !== null && job.anon_key === anon);
+
+  // Export is gated on ownership by account, not on merely being able to read:
+  // a signed-in visitor holding the anon cookie can view an anonymous job but
+  // cannot export it, and the export route enforces exactly this.
+  const isOwner = job.user_id !== null && job.user_id === user?.id;
+  const mayRead = isOwner || (job.anon_key !== null && job.anon_key === anon);
 
   if (!mayRead) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
@@ -34,6 +37,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
     filename: job.filename,
     durationSeconds: job.duration_seconds,
     error: job.error,
+    canExport: isOwner,
     transcript,
   });
 }

@@ -6,6 +6,7 @@ import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import { useRouter } from '@/i18n/routing';
 import { isSupportedAudio } from '@/lib/jobs/media';
 import { uploadToStorage } from '@/lib/upload';
+import { beginUpload, reportProgress, reportFailure } from '@/lib/upload-registry';
 import Toast from '@/components/Toast';
 
 /**
@@ -69,11 +70,25 @@ export default function Dropzone() {
 
     const { jobId, uploadUrl } = (await init.json()) as { jobId: string; uploadUrl: string };
 
+    // Register before navigating: this component unmounts on push, so the
+    // job page must be able to find the upload the moment it mounts.
+    beginUpload(jobId);
+
     // Navigate before the upload finishes: the user gets a shareable URL
     // immediately, and refreshing mid-upload doesn't lose the job.
     router.push(`/j/${jobId}?uploading=1`);
-    await uploadToStorage(uploadUrl, file, () => {});
-    await fetch(`/api/jobs/${jobId}/start`, { method: 'POST' });
+
+    // Past this point the user is looking at the job page, not this toast —
+    // failures have to be reported there or they surface nowhere at all.
+    try {
+      await uploadToStorage(uploadUrl, file, (fraction) => reportProgress(jobId, fraction));
+    } catch {
+      reportFailure(jobId, 'upload');
+      return;
+    }
+
+    const started = await fetch(`/api/jobs/${jobId}/start`, { method: 'POST' }).catch(() => null);
+    if (!started?.ok) reportFailure(jobId, 'start');
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) {

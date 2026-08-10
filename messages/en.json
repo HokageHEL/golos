@@ -14,6 +14,7 @@
     "etaUnknown": "Usually about {minutes} min",
     "viewText": "View text",
     "failed": "Transcription failed",
+    "notFound": "This transcript isn't available.",
     "retry": "Try again"
   },
   "result": {
