@@ -40,11 +40,22 @@ export async function POST(request: Request) {
     }
   } else {
     anon = anonKey(ip, body.fingerprint);
-    const claim = await claimAnonTrial({
-      key: anon,
-      store: redisStore(),
-      verifyBot: () => verifyTurnstile(body.turnstileToken, ip),
-    });
+
+    // Redis holds the only record of who has already used their free trial.
+    // If it is unreachable we cannot tell a first-time visitor from a repeat
+    // one, so we refuse rather than hand out unlimited free transcriptions.
+    // Same fail-closed reasoning as verifyTurnstile, and for the same reason:
+    // an unhandled rejection here turns an outage into a 500.
+    let claim;
+    try {
+      claim = await claimAnonTrial({
+        key: anon,
+        store: redisStore(),
+        verifyBot: () => verifyTurnstile(body.turnstileToken, ip),
+      });
+    } catch {
+      return NextResponse.json({ error: 'trial_unavailable' }, { status: 503 });
+    }
 
     if (!claim.granted) {
       return NextResponse.json({ error: claim.reason }, { status: 403 });
