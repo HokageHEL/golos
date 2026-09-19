@@ -163,7 +163,13 @@ site_url = "http://localhost:3000"
 # The login page asks to be sent back to `/auth/callback`. Without that exact path on this list,
 # GoTrue silently ignores the request and falls back to site_url, dropping the code on `/` where
 # nothing exchanges it — the magic link then appears to work and leaves you signed out.
-additional_redirect_urls = ["http://localhost:3000/**", "http://127.0.0.1:3000/**"]
+additional_redirect_urls = [
+  "http://localhost:3000/**",
+  "http://127.0.0.1:3000/**",
+  # `next dev` moves to 3001 when 3000 is taken by another project.
+  "http://localhost:3001/**",
+  "http://127.0.0.1:3001/**",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -322,6 +328,21 @@ max_frequency = "5s"
 # Use an external OAuth provider. The full list of providers are: `apple`, `azure`, `bitbucket`,
 # `discord`, `facebook`, `github`, `gitlab`, `google`, `keycloak`, `linkedin_oidc`, `notion`, `twitch`,
 # `twitter`, `x`, `slack`, `spotify`, `workos`, `zoom`.
+# Needs a Google Cloud OAuth client. Export SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID
+# and _SECRET in your shell before `npx supabase start` (or pass --env-file) —
+# the CLI does not read .env.local for these. Authorised redirect URI in Google
+# Cloud must be http://127.0.0.1:54321/auth/v1/callback for local dev.
+#
+# With the vars unset the CLI passes the literal `env(...)` through as the
+# client id, so the button lands on a Google error page. The magic link is
+# unaffected either way.
+[auth.external.google]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+# Google's local sign-in does not return a usable nonce.
+skip_nonce_check = true
+
 [auth.external.apple]
 enabled = false
 client_id = ""
@@ -388,8 +409,11 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# The Logs UI only. Its container (and the vector sidecar it pulls in) fails its
+# health check on this machine and takes the whole stack down with it on `start`.
+# Nothing in the app reads it, so local dev runs without it.
 [analytics]
-enabled = true
+enabled = false
 port = 54327
 # Configure one of the supported backends: `postgres`, `bigquery`.
 backend = "postgres"

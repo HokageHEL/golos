@@ -26,35 +26,15 @@ export default function JobProgress({
   const determinate = isUploading && uploadFraction !== null;
 
   return (
-    <div
-      style={{
-        width: '100%',
-        maxWidth: 560,
-        background: '#fff',
-        border: '1px solid #ECEAE4',
-        borderRadius: 16,
-        padding: 40,
-      }}
-    >
+    <div className="card card--pad-lg" style={{ width: '100%', maxWidth: 560 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
-        <div
-          style={{
-            width: 40,
-            height: 40,
-            flexShrink: 0,
-            borderRadius: 10,
-            background: '#F1EFE9',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
+        <div className="icon-badge" style={{ width: 42, height: 42, flexShrink: 0 }}>
           <svg
             width="18"
             height="18"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#1D6F5C"
+            stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -65,34 +45,22 @@ export default function JobProgress({
           </svg>
         </div>
         <div style={{ minWidth: 0 }}>
-          <p
-            style={{
-              fontSize: 15,
-              fontWeight: 600,
-              margin: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <p className="truncate" style={{ fontSize: '0.9375rem', fontWeight: 600 }}>
             {filename}
           </p>
-          <p style={{ fontSize: 14, color: '#8C897F', margin: '2px 0 0' }}>
+          <p className="muted" style={{ fontSize: '0.875rem', marginTop: 2 }}>
             {isUploading ? t('uploading') : t('processing')}
           </p>
         </div>
       </div>
 
-      <div style={{ width: '100%', height: 6, background: '#F1EFE9', borderRadius: 100 }}>
+      <div className="progress-track" role="progressbar" aria-label={isUploading ? t('uploading') : t('processing')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={determinate ? Math.round(uploadFraction * 100) : undefined}>
         <div
+          className="progress-bar"
           style={{
-            height: '100%',
-            background: '#1D6F5C',
-            borderRadius: 100,
             width: determinate ? `${Math.round(uploadFraction * 100)}%` : '100%',
             opacity: determinate ? 1 : 0.35,
             animation: determinate ? undefined : 'golos-pulse 1.6s ease-in-out infinite',
-            transition: 'width 0.2s linear',
           }}
         />
       </div>
@@ -100,14 +68,10 @@ export default function JobProgress({
       {/* Only shown once the provider has told us how long the audio is, which
           is at completion. Before that any estimate would be invented. */}
       {!isUploading && durationSeconds !== null && (
-        <p style={{ fontSize: 13, color: '#8C897F', margin: '14px 0 0' }}>
+        <p className="small" style={{ marginTop: 14 }}>
           {t('etaUnknown', { minutes: Math.max(1, Math.round(durationSeconds / 60 / 20)) })}
         </p>
       )}
-
-      <style>{`
-        @keyframes golos-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.6; } }
-      `}</style>
     </div>
   );
 }

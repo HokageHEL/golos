@@ -15,26 +15,12 @@ export default function TranscriptView({ segments }: { segments: Segment[] }) {
   const showSpeakers = numbers.size > 1;
 
   return (
-    <div
-      contentEditable
-      suppressContentEditableWarning
-      style={{
-        fontSize: 18,
-        lineHeight: 1.75,
-        background: '#fff',
-        border: '1px solid #ECEAE4',
-        borderRadius: 16,
-        padding: 32,
-        minHeight: 280,
-        outline: 'none',
-      }}
-    >
+    <div className="card card--pad-lg transcript">
       {turns.map((turn, i) => (
-        <p key={i} style={{ marginBottom: 20 }}>
+        <p key={i} className="turn">
+          <span className="turn-time" aria-label={t('timestamp')}>{Math.floor(turn.startMs / 60000)}:{String(Math.floor(turn.startMs / 1000) % 60).padStart(2, '0')}</span>
           {showSpeakers && turn.speaker !== null && (
-            <span style={{ fontWeight: 600, color: '#1D6F5C', marginRight: 8 }}>
-              {t('speaker', { n: numbers.get(turn.speaker)! })}:
-            </span>
+            <span className="turn-tag">{t('speaker', { n: numbers.get(turn.speaker)! })}:</span>
           )}
           {turn.text}
         </p>

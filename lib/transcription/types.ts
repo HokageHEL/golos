@@ -20,6 +20,6 @@ export type TranscriptionResult = {
 export interface TranscriptionProvider {
   readonly name: string;
   submit(options: SubmitOptions): Promise<{ providerJobId: string }>;
-  fetchResult(providerJobId: string): Promise<TranscriptionResult>;
+  fetchResult(providerJobId: string): Promise<TranscriptionResult | null>;
   verifyWebhook(headers: Headers): boolean;
 }

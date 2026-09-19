@@ -1,11 +1,31 @@
 {
-  "nav": { "brand": "Golos", "home": "Home", "pricing": "Pricing", "dashboard": "Account" },
+  "nav": {
+    "brand": "Golos",
+    "home": "Home",
+    "pricing": "Pricing",
+    "dashboard": "Account"
+  },
   "landing": {
     "title": "Drop audio in.\nGet text out.",
     "subtitle": "Voice notes, lectures, interviews — clean text in minutes. No signup for your first file.",
     "dropzone": "Drag an audio file here",
-    "formats": "MP3, WAV, M4A — up to 2 hours",
-    "chooseFile": "Choose file"
+    "formats": "MP3, WAV, M4A, MP4 · up to 50 MB and 2 hours",
+    "chooseFile": "Choose file",
+    "badge": "First transcript free",
+    "bento": {
+      "speakersTitle": "Who said what",
+      "speakersBody": "Every speaker gets their own paragraph, automatically.",
+      "exportTitle": "Take it with you",
+      "exportBody": "A document, plain text, or subtitles.",
+      "lengthTitle": "Long files welcome",
+      "lengthBody": "Interviews and lectures in one pass.",
+      "lengthMetric": "2 hours",
+      "priceTitle": "Pay by the minute",
+      "priceBody": "No subscription required.",
+      "perMinute": "/min",
+      "languagesTitle": "Language detected",
+      "languagesBody": "Recognised from the audio — nothing to set."
+    }
   },
   "job": {
     "uploading": "Uploading…",
@@ -15,7 +35,13 @@
     "viewText": "View text",
     "failed": "Transcription failed",
     "notFound": "This transcript isn't available.",
-    "retry": "Try again"
+    "retry": "Try again",
+    "loading": "Loading…",
+    "reconnecting": "Connection interrupted. Retrying automatically…",
+    "truncated": "This transcript covers the first {minutes} minutes, limited by your trial or available balance.",
+    "resume": "Resume transcription",
+    "resumeHelp": "Upload interrupted? If the file finished uploading, you can start transcription here.",
+    "resumeFailed": "Could not start. Finish your other job or upload the file again."
   },
   "result": {
     "heading": "Done",
@@ -24,7 +50,19 @@
     "export": "Export",
     "copied": "Copied to clipboard",
     "downloaded": "Downloaded {format}",
-    "speaker": "Speaker {n}"
+    "speaker": "Speaker {n}",
+    "edit": "Edit",
+    "preview": "Preview",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "saved": "Changes saved",
+    "saveFailed": "Could not save. Your edits are still here; try again.",
+    "unsaved": "Save your changes before exporting.",
+    "conflict": "This transcript changed in another tab. Copy your edits before reloading.",
+    "empty": "No speech was detected in this recording.",
+    "copyFailed": "Could not copy. Select the text and copy it manually.",
+    "discard": "Leave without saving your edits?",
+    "timestamp": "Timestamp"
   },
   "pricing": {
     "heading": "Pricing",
@@ -34,32 +72,60 @@
     "perMonth": "/mo",
     "perMinute": "/min",
     "subscribe": "Subscribe",
-    "topUp": "Add credit"
+    "topUp": "Add credit",
+    "included": "{minutes} included every month",
+    "paygDetail": "No subscription. Pay only for what you transcribe.",
+    "comingSoon": "Payments are currently unavailable.",
+    "redirecting": "Taking you to checkout…",
+    "checkoutFailed": "Couldn't open checkout. Please try again.",
+    "manage": "Manage subscription"
   },
   "dashboard": {
     "heading": "Account",
     "balance": "Balance",
-    "usedThisMonth": "Used this month",
+    "usedThisMonth": "Plan minutes used this period",
     "history": "History",
     "download": "Download",
-    "empty": "Nothing here yet. Upload your first file."
+    "empty": "Nothing here yet. Upload your first file.",
+    "planUsage": "{used} of {total}",
+    "statusAwaitingUpload": "Awaiting upload",
+    "statusProcessing": "Processing",
+    "statusDone": "Ready",
+    "statusFailed": "Failed",
+    "addCredit": "Add credit",
+    "topUpSuccess": "Payment received. Your credit appears here within a moment.",
+    "delete": "Delete",
+    "confirmDelete": "Delete this recording and transcript? This cannot be undone.",
+    "signOut": "Sign out",
+    "actionFailed": "Could not complete the action. Please try again.",
+    "previous": "Previous",
+    "next": "Next"
   },
   "login": {
     "title": "Sign in",
     "emailLabel": "Email",
     "submit": "Send magic link",
-    "sent": "Check your email for a sign-in link."
+    "sent": "Check your email for a sign-in link.",
+    "google": "Continue with Google",
+    "or": "or",
+    "linkExpired": "That sign-in link has expired. Request a new one below.",
+    "sending": "Sending…"
   },
   "trial": {
     "exhausted": "Your free transcript is used up. Sign in to continue.",
     "tooLong": "Free transcripts are limited to 10 minutes. Sign in to process the full file.",
     "signInToExport": "Sign in to export and save this transcript."
   },
+  "footer": {
+    "tagline": "Audio in, clean text out."
+  },
   "errors": {
     "unsupportedFormat": "That file type isn't supported. Use MP3, WAV, M4A, or MP4.",
-    "tooLarge": "File is too large. The limit is 2 hours of audio.",
+    "tooLarge": "Choose a non-empty file no larger than 50 MB.",
     "uploadFailed": "Upload failed. Check your connection and try again.",
     "insufficientBalance": "Not enough credit for this file.",
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "botCheck": "Please complete the security check, then choose your file again.",
+    "trialUnavailable": "Free trials are temporarily unavailable. Please try later or sign in."
   }
 }

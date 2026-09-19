@@ -106,7 +106,7 @@
     {
       "id": 11,
       "subject": "Task 11: Landing page and upload flow",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [
         1,
         7
@@ -116,7 +116,7 @@
     {
       "id": 12,
       "subject": "Task 12: Job page — progress and result",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [
         4,
         7,
@@ -128,7 +128,7 @@
     {
       "id": 13,
       "subject": "Task 13: Pricing and dashboard pages",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [
         1,
         3,

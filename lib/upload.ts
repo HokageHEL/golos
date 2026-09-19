@@ -13,6 +13,9 @@ export function uploadToStorage(
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
     xhr.setRequestHeader('content-type', file.type);
+    xhr.timeout = 30 * 60 * 1000;
+    xhr.ontimeout = () => reject(new Error('upload timed out'));
+    xhr.onabort = () => reject(new Error('upload cancelled'));
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);

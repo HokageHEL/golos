@@ -1,3 +1,4 @@
+import { UUID, apiError } from '@/lib/api';
 import { NextResponse } from 'next/server';
 import { getTranslations } from 'next-intl/server';
 import { serviceClient } from '@/lib/supabase/server';
@@ -27,9 +28,11 @@ function contentDisposition(base: string, extension: string): string {
 
 export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  if (!UUID.test(id)) return apiError('not_found', 404);
   const params = new URL(request.url).searchParams;
   const format = params.get('format') ?? 'txt';
 
+  if (!['txt', 'docx', 'srt'].includes(format)) return apiError('invalid_format', 400);
   const requestedLocale = params.get('locale');
   const locale: Locale = routing.locales.includes(requestedLocale as Locale)
     ? (requestedLocale as Locale)
@@ -65,6 +68,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
   if (format === 'srt') {
     return new NextResponse(toSrt(turns), {
       headers: {
+        'Cache-Control': 'private, no-store',
         'content-type': 'application/x-subrip; charset=utf-8',
         'content-disposition': contentDisposition(base, 'srt'),
       },
@@ -75,6 +79,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
     const buffer = await toDocx(turns, label);
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
+        'Cache-Control': 'private, no-store',
         'content-type':
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'content-disposition': contentDisposition(base, 'docx'),
@@ -84,6 +89,7 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
 
   return new NextResponse(toPlainText(turns, label), {
     headers: {
+      'Cache-Control': 'private, no-store',
       'content-type': 'text/plain; charset=utf-8',
       'content-disposition': contentDisposition(base, 'txt'),
     },

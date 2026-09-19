@@ -15,7 +15,11 @@ export async function sessionClient() {
       cookies: {
         getAll: () => store.getAll(),
         setAll: (list) => {
-          for (const { name, value, options } of list) store.set(name, value, options);
+          try {
+            for (const { name, value, options } of list) store.set(name, value, options);
+          } catch {
+            // Server Components cannot write cookies; proxy refreshes them.
+          }
         },
       },
     },

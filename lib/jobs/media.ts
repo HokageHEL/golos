@@ -12,6 +12,9 @@ const SUPPORTED = new Set([
   'video/mp4',
 ]);
 
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_AUDIO_SECONDS = 2 * 60 * 60;
+
 export function isSupportedAudio(mimeType: string): boolean {
   return SUPPORTED.has(mimeType);
 }

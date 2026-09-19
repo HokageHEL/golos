@@ -8,19 +8,13 @@ export default function LocaleSwitcher() {
   const router = useRouter();
 
   return (
-    <div style={{ display: 'flex', gap: 4, fontSize: 13 }}>
+    <div className="segmented">
       {routing.locales.map((l) => (
         <button
           key={l}
-          onClick={() => router.replace(pathname, { locale: l })}
-          style={{
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            padding: '4px 6px',
-            fontWeight: l === locale ? 600 : 400,
-            color: l === locale ? '#1C1B19' : '#8C897F',
-          }}
+          type="button"
+          aria-pressed={l === locale}
+          onClick={() => router.replace(`${pathname}${window.location.search}`, { locale: l })}
         >
           {l.toUpperCase()}
         </button>
