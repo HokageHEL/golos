@@ -8,15 +8,28 @@ The existing Next.js app remains at the repository root and runs independently.
 
 - Node 22.12+ and npm.
 - Stable Rust installed through [rustup](https://rustup.rs/).
-- Apple command-line tools (`xcode-select --install`) and CMake for the C++ engine.
-- Full Xcode and Apple Developer membership are needed later for iOS/store builds.
+- CMake and a C/C++ toolchain: whisper.cpp is compiled from source, and
+  `whisper-rs` generates its bindings with `bindgen`, which needs `libclang`.
+- macOS: Apple command-line tools (`xcode-select --install`). Full Xcode and an
+  Apple Developer membership are needed later for iOS/store builds.
+- Windows: the "Desktop development with C++" Visual Studio Build Tools workload
+  (it includes CMake), LLVM/`libclang` (set `LIBCLANG_PATH` if it is not on
+  `PATH`), and the WebView2 Evergreen Runtime (preinstalled on Windows 10 1803+).
+- Linux (Debian/Ubuntu): `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+  librsvg2-dev libxdo-dev libssl-dev libclang-dev build-essential cmake patchelf`.
 
 From the repository root:
 
 ```sh
 npm ci
+node scripts/check-native-prerequisites.mjs
 npm run native:app
 ```
+
+`check-native-prerequisites.mjs` uses only the Node standard library, runs
+read-only version probes, and never downloads anything or touches audio/models.
+It exits non-zero when a required tool is missing and prints platform-specific
+install hints, so local setup and CI share the same definition of "ready".
 
 `native:app` opens the actual Tauri app. `npm run native:dev` only opens a browser
 preview: native actions are intentionally disabled there. No Supabase, AssemblyAI,
@@ -77,6 +90,7 @@ required before switching recordings or closing the window.
 ## Verification
 
 ```sh
+node scripts/check-native-prerequisites.mjs
 npm run native:build
 npm run native:test
 cargo clippy --manifest-path native/src-tauri/Cargo.toml -- -D warnings
@@ -110,6 +124,54 @@ python3 scripts/create-audio-fixtures.py /path/to/ffmpeg /path/to/jfk.wav /tmp/g
 GOLOS_TEST_FORMATS=/tmp/golos-formats \
 cargo test --manifest-path native/src-tauri/Cargo.toml decodes_real_compressed_formats -- --ignored
 ```
+
+## Packaging and continuous integration
+
+The checked-in bundle configuration targets macOS only
+(`"bundle": { "targets": ["app"] }` in `native/src-tauri/tauri.conf.json`). Every
+other platform must override the bundle set, otherwise `tauri build` tries to
+produce a macOS-only `app` target and fails:
+
+```sh
+npm run native:bundle -- --ci --no-sign --bundles app     # macOS .app
+npm run native:bundle -- --ci --no-sign --bundles nsis    # Windows installer
+npm run native:bundle -- --ci --no-sign --bundles deb     # Debian/Ubuntu package
+```
+
+`--ci` skips prompts and `--no-sign` produces unsigned artifacts, so no
+certificates or cloud secrets are required. Other targets (`dmg`, `msi`, `rpm`,
+`appimage`) exist but are not built by default. MSI relies on WiX, which Tauri
+downloads automatically (3.14) when it is not already installed.
+
+Two GitHub Actions workflows run read-only (`permissions: contents: read`),
+without cloud credentials, and never download or execute a Whisper model:
+
+- `.github/workflows/ci.yml` — on `ubuntu-24.04`: repository lint, web
+  typecheck, the existing web test suite, the native TypeScript check and build,
+  then Rust `fmt --check`, Clippy with `-D warnings`, and the offline Rust tests.
+  The opt-in `transcribes_real_audio_offline` test stays `#[ignore]`d.
+- `.github/workflows/native-desktop.yml` — a macOS/Windows/Linux packaging
+  matrix that overrides `--bundles` per OS and uploads the unsigned installers as
+  artifacts. It does not cross-compile or pin an architecture: each artifact
+  matches the host architecture of the runner that produced it (for example
+  `macos-15`), which the workflow does not assume to be either arm64 or x64.
+
+Both run `scripts/check-native-prerequisites.mjs` before building.
+
+### Local evidence in this environment
+
+These files were added and validated in a shared checkout where the JavaScript
+checks and YAML parsing could actually run, but the Rust/native toolchain could
+not:
+
+- Present: Node 22.22.2 with `npm`, dependencies installed via `npm ci`, and the
+  Xcode Command Line Tools (`clang`, `libclang.dylib`).
+- Absent: `cargo`, `rustc`, `rustup`, and `cmake` are not on `PATH`.
+- Therefore local `cargo fmt`, `cargo clippy`, the Rust tests, and any desktop
+  bundle build were **not** executed here. They are expected to run in CI and
+  still need to be confirmed there; no CI result is recorded yet.
+- `node scripts/check-native-prerequisites.mjs` exits non-zero here for exactly
+  those missing tools, which is the intended report rather than a workflow error.
 
 ## Distribution
 
