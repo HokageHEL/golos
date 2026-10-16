@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local app window; filesystem access is handled by native commands and user-selected dialogs.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

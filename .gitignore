@@ -43,3 +43,9 @@ next-env.d.ts
 
 # superpowers
 .superpowers/
+
+# Native app build outputs and downloaded models
+/native/dist/
+/native/src-tauri/target/
+/native/src-tauri/gen/
+/native/**/*.bin
