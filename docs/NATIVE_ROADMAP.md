@@ -1,5 +1,10 @@
 # Golos native pivot
 
+For the current offline-first, all-platform direction and optional device sync,
+see [the delivery plan](OFFLINE_FIRST_PLAN.md). It supersedes the sequencing below:
+cross-platform validation and durable local data now precede store monetization.
+The completed preview work and verification history below remain applicable.
+
 ## Product direction
 
 Private transcription on the user's device. Free download with a useful trial

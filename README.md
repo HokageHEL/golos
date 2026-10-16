@@ -3,7 +3,9 @@
 Golos is pivoting to a private, offline transcription app built with Tauri 2,
 React, Rust, SQLite, and whisper.cpp. The first macOS preview lives in
 [`native/`](native/README.md). Run `npm run native:app` after installing the native
-prerequisites. See [the native roadmap](docs/NATIVE_ROADMAP.md) for release scope.
+prerequisites. See [the offline-first delivery plan](docs/OFFLINE_FIRST_PLAN.md)
+for cross-platform and optional sync priorities, and
+[the native roadmap](docs/NATIVE_ROADMAP.md) for preview history.
 
 The existing web app remains available during migration. The instructions below
 describe that cloud-backed version; its API credentials are **not required** by
