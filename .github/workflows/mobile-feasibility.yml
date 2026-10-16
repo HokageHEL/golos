@@ -1,0 +1,181 @@
+# Mobile feasibility (manual, informational)
+#
+# IMPORTANT — evidence level:
+#   * The `prerequisites` job runs `scripts/check-mobile-prerequisites.mjs`, which
+#     was executed and tested locally before this file was added. It inspects host
+#     tooling and the committed repository configuration only: it never compiles
+#     and never touches a device, so its result is not compile or device evidence.
+#   * The `ios-simulator-build` job is an OPTIONAL, unsigned, device-less spike.
+#     It has NOT been executed in this repository. Do not cite its existence as
+#     compile or device evidence; a green run would be the first compile evidence
+#     for iOS and must be recorded together with its artifacts.
+#   * Nothing here claims Android/iOS support, signing, store readiness, or device
+#     validation. See docs/MOBILE_FEASIBILITY.md.
+#
+# Both jobs are `workflow_dispatch` only, and the `platform` input is honored:
+#   * android  -> only the Android prerequisite leg (Ubuntu).
+#   * ios      -> only the iOS prerequisite leg (macOS), and the optional iOS
+#                 simulator build if `run_ios_simulator_build` is also true.
+#   * all      -> both prerequisite legs; the iOS build obeys the boolean input.
+# The `select` job resolves that choice into the prerequisite matrix so no
+# unselected leg runs at all.
+#
+# This workflow installs nothing globally on a developer machine and reads no
+# secrets.
+
+name: Mobile feasibility (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Target whose host prerequisites to inspect
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+        default: all
+      run_ios_simulator_build:
+        description: Also attempt an experimental unsigned iOS simulator build (ios/all only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-feasibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    name: Select targets
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      run_ios_build: ${{ steps.pick.outputs.run_ios_build }}
+    steps:
+      - name: Resolve the selected platform into a job matrix
+        id: pick
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ inputs.platform }}' in
+            android)
+              matrix='{"include":[{"os":"ubuntu-24.04","platform":"android"}]}'
+              run_ios_build=false
+              ;;
+            ios)
+              matrix='{"include":[{"os":"macos-15","platform":"ios"}]}'
+              run_ios_build='${{ inputs.run_ios_simulator_build }}'
+              ;;
+            all)
+              matrix='{"include":[{"os":"macos-15","platform":"ios"},{"os":"ubuntu-24.04","platform":"android"}]}'
+              run_ios_build='${{ inputs.run_ios_simulator_build }}'
+              ;;
+            *)
+              echo "Unknown platform input: '${{ inputs.platform }}'" >&2
+              exit 1
+              ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "run_ios_build=$run_ios_build" >> "$GITHUB_OUTPUT"
+          echo "Selected platform='${{ inputs.platform }}', iOS simulator build=${run_ios_build}"
+
+  prerequisites:
+    name: Prerequisites (${{ matrix.platform }})
+    needs: select
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        # The checker treats the project-local `@tauri-apps/cli` as required for
+        # shell init readiness, and these deps also make the repository config
+        # checks meaningful. This still does not compile anything.
+        run: npm ci
+
+      - name: Inspect prerequisites (informational; never fails the job)
+        run: |
+          set +e
+          node scripts/check-mobile-prerequisites.mjs '${{ matrix.platform }}' --json \
+            > 'mobile-prereq-${{ matrix.platform }}.json'
+          code=$?
+          set -e
+          printf '%s\n' "$code" > 'mobile-prereq-${{ matrix.platform }}.exit'
+          {
+            echo "### ${{ matrix.platform }} prerequisite checker"
+            echo ''
+            echo "Exit code: \`$code\` (0 ready, 1 missing prerequisites, 2 usage, 3 unsupported host, 4 internal)"
+            echo ''
+            echo 'This reports host tooling and repository config only; it is not compile or device evidence.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat 'mobile-prereq-${{ matrix.platform }}.json'
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: mobile-prereq-${{ matrix.platform }}
+          path: |
+            mobile-prereq-${{ matrix.platform }}.json
+            mobile-prereq-${{ matrix.platform }}.exit
+
+  ios-simulator-build:
+    name: Experimental unsigned iOS simulator build
+    needs: [select, prerequisites]
+    if: ${{ needs.select.outputs.run_ios_build == 'true' }}
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install Rust with the iOS simulator target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - name: Generate the iOS Xcode project
+        # Full Xcode, CocoaPods, CMake and the iPhoneSimulator SDK ship on the
+        # macOS runner. `--skip-targets-install` keeps rustup from re-adding the
+        # mobile targets. `--ci` skips interactive prompts. The project-local CLI
+        # is a sibling of `native/`, hence the `../` path.
+        run: ../node_modules/.bin/tauri ios init --ci --skip-targets-install
+        working-directory: native
+
+      - name: Build for the simulator (unsigned, debug)
+        # NOTE: not yet executed in this repository. A failure here is the first
+        # real signal about whisper-rs-sys / SQLite / Swift cross-compilation.
+        # `aarch64-sim` matches the arm64 macOS runner; on an Intel runner this
+        # would have to be `--target x86_64`.
+        run: ../node_modules/.bin/tauri ios build --debug --target aarch64-sim
+        working-directory: native
+
+      - name: Upload build products
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-simulator-debug
+          if-no-files-found: ignore
+          path: native/src-tauri/gen/apple/build/**/*.app
