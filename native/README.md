@@ -19,8 +19,8 @@ npm run native:app
 ```
 
 `native:app` opens the actual Tauri app. `npm run native:dev` only opens a browser
-preview: native actions are intentionally disabled there. No Supabase, AssemblyAI,
-Polar, Redis, accounts, or environment secrets are needed for native use.
+preview: native actions are intentionally disabled there. No cloud backend, paid transcription service, accounts, or environment secrets
+are needed for native use.
 
 ## First transcription
 
@@ -122,3 +122,7 @@ restore/refund handling, privacy metadata, accessibility/device testing, and
 submission assets remain. The desktop app architecture is portable, but Windows,
 Linux, Android, and iOS have not been built or validated. Mobile audio/background
 work needs platform-specific implementation.
+
+See the [main README](../README.md#multiplatform-direction) for platform status
+and the [development roadmap](../docs/NATIVE_ROADMAP.md) for planned milestones
+and release criteria.

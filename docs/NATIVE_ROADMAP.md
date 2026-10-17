@@ -1,4 +1,4 @@
-# Golos native pivot
+# Golos native and multiplatform development plan
 
 ## Product direction
 
@@ -9,7 +9,7 @@ Cloud services, if introduced, must have separately sustainable pricing.
 
 ## Milestone 1: macOS development preview
 
-- [x] New `codex/tauri-local-transcription` branch; preserve the existing web app.
+- [x] Separate native app in `native/`; preserve the existing web app.
 - [x] Tauri/React shell with native file dialogs and constrained IPC commands.
 - [x] Local SQLite history and copied audio, with deletion and crash recovery.
 - [x] User-imported Whisper GGML model; real CPU inference through whisper-rs.
@@ -30,7 +30,31 @@ Cloud services, if introduced, must have separately sustainable pricing.
 - [ ] Device benchmarks and acceleration evaluation (Metal first on Apple silicon).
 - [ ] Microphone recording, playback, search, and DOCX export.
 - [ ] Ukrainian UI, accessibility, keyboard operation, and native lifecycle QA.
-- [ ] Windows build/packaging and real-device tests; then Linux evaluation.
+- [ ] Complete the desktop platform rollout and acceptance checks below.
+
+## Multiplatform desktop rollout
+
+The current implementation and bundle target are macOS-only. Reuse the Tauri 2
+shell, React/Vite interface, Rust audio/inference code, and SQLite library where
+possible; isolate platform-specific file access, permissions, and lifecycle work.
+These are planned acceptance criteria, not claims of current support.
+
+1. **macOS baseline:** document minimum OS/hardware requirements; verify import,
+   model replacement, transcription/cancellation, edit/save/export, deletion,
+   restart recovery, and unsaved-edit protection in a packaged build.
+2. **Windows beta:** configure a Windows installer, resolve native build/toolchain
+   requirements, and run the same workflow on real Windows hardware. Check Unicode
+   paths, file permissions, model memory use, and clean install/upgrade/uninstall.
+3. **Linux evaluation:** select supported distributions and package formats, verify
+   system dependencies and desktop file dialogs, then run the same workflow and
+   resource checks before declaring support.
+4. **Repeatable verification:** add platform CI for the frontend build, Rust tests,
+   formatting, Clippy, and packaging. Keep real-model smoke tests opt-in with local
+   fixtures; record manual device results and known limitations for each release.
+
+Desktop beta exit criteria: documented supported targets, reproducible packages,
+passing automated checks, and recorded end-to-end validation on every advertised
+platform. Microphone features also require device and permission testing.
 
 ## Milestone 3: paid Mac App Store release
 
@@ -44,11 +68,19 @@ Cloud services, if introduced, must have separately sustainable pricing.
 
 ## Later: mobile and advanced features
 
-- [ ] iOS/iPadOS and Android builds with mobile-native file import/recording.
+- [ ] Initialize iOS/iPadOS and Android Tauri targets and validate native dependencies.
+- [ ] Adapt the desktop interface for touch, small screens, and accessibility.
+- [ ] Implement mobile-native file import, recording permissions, and export/share.
+- [ ] Verify persistence, cancellation, and recovery across app suspension/restarts.
 - [ ] Memory, thermal, battery, interruption, and background-execution tests.
 - [ ] Separate on-device diarization pipeline and accuracy evaluation.
 - [ ] Optional local summaries, with independent model/hardware requirements.
 - [ ] Cross-store purchase entitlement system if one purchase covers all platforms.
+
+Mobile release criteria: passing builds and import/transcribe/edit/export workflows
+on physical devices, documented OS/device requirements and resource limits, and
+platform-specific signing, store billing (if paid), privacy, and submission checks.
+Choose mobile model limits from measurements; desktop limits are not a guarantee.
 
 No public promise of Large V3 Turbo performance, unlimited-length recordings,
 speaker identification, or all-platform purchase portability until validated.
