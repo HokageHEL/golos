@@ -2,7 +2,7 @@
 
 An offline desktop transcription app, developed first for macOS. Tauri hosts a
 React/Vite UI; Rust owns file access, a SQLite library, and Whisper inference.
-The existing Next.js app remains at the repository root and runs independently.
+The repository root provides the shared npm scripts and frontend tooling.
 
 ## Prerequisites
 
@@ -32,8 +32,8 @@ It exits non-zero when a required tool is missing and prints platform-specific
 install hints, so local setup and CI share the same definition of "ready".
 
 `native:app` opens the actual Tauri app. `npm run native:dev` only opens a browser
-preview: native actions are intentionally disabled there. No Supabase, AssemblyAI,
-Polar, Redis, accounts, or environment secrets are needed for native use.
+preview: native actions are intentionally disabled there. No cloud backend, paid transcription service, accounts, or environment secrets
+are needed for native use.
 
 ## First transcription
 
@@ -320,3 +320,7 @@ restore/refund handling, privacy metadata, accessibility/device testing, and
 submission assets remain. The desktop app architecture is portable, but Windows,
 Linux, Android, and iOS have not been built or validated. Mobile audio/background
 work needs platform-specific implementation.
+
+See the [main README](../README.md#multiplatform-direction) for platform status
+and the [development roadmap](../docs/NATIVE_ROADMAP.md) for planned milestones
+and release criteria.

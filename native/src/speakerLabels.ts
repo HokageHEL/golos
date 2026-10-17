@@ -1,5 +1,5 @@
-import type { Segment } from '../../lib/transcript/types';
-import { toSrt } from '../../lib/export/srt';
+import type { Segment } from './transcript/types';
+import { toSrt } from './export/srt';
 
 export function displaySpeaker(speaker: string | null): string {
   return speaker?.replace(/^speaker_(\d+)$/, 'Speaker $1') ?? '';

@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { exportWithSpeakers, displaySpeaker } from './speakerLabels';
-import type { Segment } from '../../lib/transcript/types';
+import type { Segment } from './transcript/types';
 import AudioPlayer from './AudioPlayer';
 import TranscriptText from './TranscriptText';
 import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';

@@ -6,7 +6,7 @@ import {
   formatClock,
   normalizeRate,
 } from '../playback';
-import type { Segment } from '../../../lib/transcript/types';
+import type { Segment } from '../transcript/types';
 
 const seg = (startMs: number, endMs: number, text = 'text'): Segment => ({
   startMs,

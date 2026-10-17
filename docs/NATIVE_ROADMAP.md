@@ -1,4 +1,4 @@
-# Golos native pivot
+# Golos native and multiplatform development plan
 
 For the current offline-first, all-platform direction and optional device sync,
 see [the delivery plan](OFFLINE_FIRST_PLAN.md). It supersedes the sequencing below:
@@ -14,7 +14,7 @@ Cloud services, if introduced, must have separately sustainable pricing.
 
 ## Milestone 1: macOS development preview
 
-- [x] New `codex/tauri-local-transcription` branch; preserve the existing web app.
+- [x] Native app in `native/`; retire the legacy cloud-backed web app and tooling.
 - [x] Tauri/React shell with native file dialogs and constrained IPC commands.
 - [x] Local SQLite history and copied audio, with deletion and crash recovery.
 - [x] User-imported Whisper GGML model; real CPU inference through whisper-rs.
@@ -34,9 +34,34 @@ Cloud services, if introduced, must have separately sustainable pricing.
 - [ ] Curated model downloads with pinned hashes, progress, cancellation,
       free-space checks, model metadata, and removal.
 - [ ] Device benchmarks and acceleration evaluation (Metal first on Apple silicon).
-- [ ] Microphone recording, playback, search, and DOCX export.
+- [x] Local playback, seeking, and transcript highlighting.
+- [ ] Microphone recording, search, and DOCX export.
 - [ ] Ukrainian UI, accessibility, keyboard operation, and native lifecycle QA.
-- [ ] Windows build/packaging and real-device tests; then Linux evaluation.
+- [ ] Complete the desktop platform rollout and acceptance checks below.
+
+## Multiplatform desktop rollout
+
+The current implementation and bundle target are macOS-only. Reuse the Tauri 2
+shell, React/Vite interface, Rust audio/inference code, and SQLite library where
+possible; isolate platform-specific file access, permissions, and lifecycle work.
+These are planned acceptance criteria, not claims of current support.
+
+1. **macOS baseline:** document minimum OS/hardware requirements; verify import,
+   model replacement, transcription/cancellation, edit/save/export, deletion,
+   restart recovery, and unsaved-edit protection in a packaged build.
+2. **Windows beta:** configure a Windows installer, resolve native build/toolchain
+   requirements, and run the same workflow on real Windows hardware. Check Unicode
+   paths, file permissions, model memory use, and clean install/upgrade/uninstall.
+3. **Linux evaluation:** select supported distributions and package formats, verify
+   system dependencies and desktop file dialogs, then run the same workflow and
+   resource checks before declaring support.
+4. **Repeatable verification:** validate the added platform CI for the frontend build, Rust tests,
+   formatting, Clippy, and packaging. Keep real-model smoke tests opt-in with local
+   fixtures; record manual device results and known limitations for each release.
+
+Desktop beta exit criteria: documented supported targets, reproducible packages,
+passing automated checks, and recorded end-to-end validation on every advertised
+platform. Microphone features also require device and permission testing.
 
 ## Milestone 3: paid Mac App Store release
 
@@ -50,11 +75,20 @@ Cloud services, if introduced, must have separately sustainable pricing.
 
 ## Later: mobile and advanced features
 
-- [ ] iOS/iPadOS and Android builds with mobile-native file import/recording.
+- [ ] Initialize iOS/iPadOS and Android Tauri targets and validate native dependencies.
+- [ ] Adapt the desktop interface for touch, small screens, and accessibility.
+- [ ] Implement mobile-native file import, recording permissions, and export/share.
+- [ ] Verify persistence, cancellation, and recovery across app suspension/restarts.
 - [ ] Memory, thermal, battery, interruption, and background-execution tests.
-- [ ] Separate on-device diarization pipeline and accuracy evaluation.
+- [x] Optional offline diarization pipeline with manually imported ONNX models.
+- [ ] Broader diarization accuracy and device evaluation.
 - [ ] Optional local summaries, with independent model/hardware requirements.
 - [ ] Cross-store purchase entitlement system if one purchase covers all platforms.
+
+Mobile release criteria: passing builds and import/transcribe/edit/export workflows
+on physical devices, documented OS/device requirements and resource limits, and
+platform-specific signing, store billing (if paid), privacy, and submission checks.
+Choose mobile model limits from measurements; desktop limits are not a guarantee.
 
 No public promise of Large V3 Turbo performance, unlimited-length recordings,
 speaker identification, or all-platform purchase portability until validated.
@@ -95,6 +129,16 @@ the local bridge is covered by real transcription and mid-call cancellation test
   inference still holds the normalized recording in memory, as documented above.
 - Optimized macOS app bundle: **10.06 MiB**, excluding the separately imported model.
   This is an unsigned local development release, not an App Store distribution.
+
+## Native-only repository — 2026-10-17
+
+The legacy Next.js app, cloud integrations, database migrations, deployment
+configuration, and web-only documentation/tests have been removed. Earlier web
+verification records above are historical; they do not describe the current test
+suite. TXT/SRT export helpers and their tests now live inside `native/src/`.
+
+Root `dev`, `build`, and `typecheck` scripts target the native app. `npm test` runs
+the retained frontend helper tests; `npm run native:test` runs the Rust suite.
 
 ## Ogg Opus imports — 2026-10-17
 

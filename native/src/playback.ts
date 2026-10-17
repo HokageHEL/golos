@@ -1,4 +1,4 @@
-import type { Segment } from '../../lib/transcript/types';
+import type { Segment } from './transcript/types';
 
 /** Playback speeds offered by the audio player. `1` is the natural rate. */
 export const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;

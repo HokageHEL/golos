@@ -1,7 +1,6 @@
 name: CI
 
-# Least-privilege validation for the offline desktop app and the existing
-# Next.js web app. No cloud credentials are configured, and no Whisper model is
+# Least-privilege validation for the offline desktop app. No cloud credentials are configured, and no Whisper model is
 # downloaded or run: the real-inference Rust test stays `#[ignore]`d, so only
 # public fixtures and the default (offline) test suite execute here.
 
@@ -71,13 +70,13 @@ jobs:
       - name: Verify native prerequisites
         run: node scripts/check-native-prerequisites.mjs
 
-      - name: Lint (web + native)
+      - name: Lint
         run: npm run lint
 
-      - name: Typecheck (web)
+      - name: Typecheck
         run: npm run typecheck
 
-      - name: Web tests
+      - name: Frontend tests
         run: npm test
 
       - name: Typecheck (native frontend)

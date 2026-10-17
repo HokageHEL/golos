@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Segment } from '../../lib/transcript/types';
+import type { Segment } from './transcript/types';
 import {
   PLAYBACK_RATES,
   clampSeek,

@@ -1,4 +1,4 @@
-import type { Turn } from '@/lib/transcript/types';
+import type { Turn } from '../transcript/types';
 
 export type SpeakerLabeller = (index: number) => string;
 
