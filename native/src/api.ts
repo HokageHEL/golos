@@ -1,5 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import type { Segment } from '../../lib/transcript/types';
+import type { Segment } from './transcript/types';
 
 export type Note = {
   id: string; title: string; createdAt: number; durationSeconds: number;

@@ -9,7 +9,7 @@ Cloud services, if introduced, must have separately sustainable pricing.
 
 ## Milestone 1: macOS development preview
 
-- [x] Separate native app in `native/`; preserve the existing web app.
+- [x] Native app in `native/`; retire the legacy cloud-backed web app and tooling.
 - [x] Tauri/React shell with native file dialogs and constrained IPC commands.
 - [x] Local SQLite history and copied audio, with deletion and crash recovery.
 - [x] User-imported Whisper GGML model; real CPU inference through whisper-rs.
@@ -121,3 +121,13 @@ the local bridge is covered by real transcription and mid-call cancellation test
   inference still holds the normalized recording in memory, as documented above.
 - Optimized macOS app bundle: **10.06 MiB**, excluding the separately imported model.
   This is an unsigned local development release, not an App Store distribution.
+
+## Native-only repository — 2026-10-17
+
+The legacy Next.js app, cloud integrations, database migrations, deployment
+configuration, and web-only documentation/tests have been removed. Earlier web
+verification records above are historical; they do not describe the current test
+suite. TXT/SRT export helpers and their tests now live inside `native/src/`.
+
+Root `dev`, `build`, and `typecheck` scripts target the native app. `npm test` runs
+the retained frontend helper tests; `npm run native:test` runs the Rust suite.

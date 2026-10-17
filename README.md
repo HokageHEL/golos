@@ -26,10 +26,11 @@ From the repository root:
 
 ```sh
 npm ci
-npm run native:app
+npm run dev
 ```
 
-This launches the Tauri desktop app with the React/Vite development server.
+`npm run dev` (also available as `npm run native:app`) launches the Tauri
+desktop app with the React/Vite development server.
 `npm run native:dev` runs only the browser UI preview; native file access,
 transcription, and saving require the Tauri app.
 
@@ -77,7 +78,9 @@ summaries, and cross-store purchase portability remain future work.
 ## Checks and builds
 
 ```sh
-npm run native:build
+npm run build
+npm run typecheck
+npm test
 npm run native:test
 cargo clippy --manifest-path native/src-tauri/Cargo.toml -- -D warnings
 cargo fmt --manifest-path native/src-tauri/Cargo.toml -- --check
@@ -87,17 +90,16 @@ npm run lint
 Build a local macOS app bundle with `npm run native:bundle`, or add `-- --debug`
 for a debug bundle. Distribution signing and store preparation remain roadmap work.
 The [native guide](native/README.md#verification) covers optional tests using real
-models and audio fixtures. The existing web app has separate verification steps.
+models and audio fixtures.
 
 ## Repository map
 
 - [`native/`](native/README.md): Tauri app, React/Vite UI, and native setup guide.
 - `native/src-tauri/src/`: Rust audio decoding, Whisper inference, SQLite library,
   and native commands.
-- `lib/export/` and `lib/transcript/`: transcript helpers shared with the web app.
+- `native/src/export/` and `native/src/transcript/`: local transcript helpers and tests.
 - [`docs/NATIVE_ROADMAP.md`](docs/NATIVE_ROADMAP.md): native development and release plan.
-- `app/`, `components/`, and the remaining `lib/`: existing Next.js web app.
+- `scripts/create-audio-fixtures.py`: optional codec test fixture generator.
 
-The cloud-backed web app is preserved during migration. Its setup, service
-credentials, billing, and deployment instructions are in the
-[legacy web guide](docs/WEB_APP.md); they are not part of native setup.
+The repository contains only the native app. The former cloud-backed web app and
+its service configuration have been removed; earlier versions remain in Git history.

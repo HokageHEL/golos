@@ -1,4 +1,4 @@
-import type { Turn } from '@/lib/transcript/types';
+import type { Turn } from '../transcript/types';
 
 const pad = (n: number, width: number) => String(n).padStart(width, '0');
 

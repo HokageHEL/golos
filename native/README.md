@@ -2,7 +2,7 @@
 
 An offline desktop transcription app, developed first for macOS. Tauri hosts a
 React/Vite UI; Rust owns file access, a SQLite library, and Whisper inference.
-The existing Next.js app remains at the repository root and runs independently.
+The repository root provides the shared npm scripts and frontend tooling.
 
 ## Prerequisites
 

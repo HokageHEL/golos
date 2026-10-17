@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { toPlainText } from '../../lib/export/txt';
-import { toSrt } from '../../lib/export/srt';
-import type { Segment } from '../../lib/transcript/types';
+import { toPlainText } from './export/txt';
+import { toSrt } from './export/srt';
+import type { Segment } from './transcript/types';
 import { api, nativeAvailable, type Note, type Setup } from './api';
 
 const timestamp = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
