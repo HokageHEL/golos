@@ -308,6 +308,13 @@ For a faster local test bundle,
 use `npm run native:bundle -- --debug`. The identifier is provisional and must be
 confirmed before store registration. The generated icon is a placeholder.
 
+Windows MSVC builds use the full static CRT through the root `.cargo/config.toml`.
+This matches sherpa-onnx's `/MT` archives and propagates to Whisper's CMake build.
+`build.windows.staticVCRuntime` is false because that Tauri option adds a hybrid
+VC/UCRT link override; Rust's `+crt-static` already selects the complete static
+runtime. Do not override Windows `RUSTFLAGS` to select a dynamic CRT while using
+these prebuilt libraries.
+
 This preview is **not App Store ready**. Signing, sandbox entitlements, StoreKit,
 restore/refund handling, privacy metadata, accessibility/device testing, and
 submission assets remain. The desktop app architecture is portable, but Windows,

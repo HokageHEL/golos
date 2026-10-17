@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.golos.transcription",
   "build": {
+    "windows": { "staticVCRuntime": false },
     "beforeDevCommand": "npm run native:dev",
     "beforeBuildCommand": "npm run native:build",
     "devUrl": "http://127.0.0.1:1420",

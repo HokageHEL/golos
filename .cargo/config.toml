@@ -1,0 +1,6 @@
+# sherpa-onnx's Windows static archives use /MT. The target feature also
+# informs cc/cmake build scripts, so Whisper and SQLite use the same CRT.
+# Keep this at the repository root so direct --manifest-path checks and Tauri
+# (which runs Cargo below native/) both inherit it.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
