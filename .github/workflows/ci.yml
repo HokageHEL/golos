@@ -1,0 +1,97 @@
+name: CI
+
+# Least-privilege validation for the offline desktop app and the existing
+# Next.js web app. No cloud credentials are configured, and no Whisper model is
+# downloaded or run: the real-inference Rust test stays `#[ignore]`d, so only
+# public fixtures and the default (offline) test suite execute here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  checks:
+    name: Lint, tests, typecheck, Rust checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        # WebKitGTK 4.1, AppIndicator and libclang cover Tauri plus whisper.cpp's
+        # bindgen/CMake build. Debian names follow the official Tauri prerequisites.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libclang-dev \
+            build-essential \
+            cmake \
+            patchelf \
+            pkg-config \
+            file
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/src-tauri -> target
+
+      - name: Verify native prerequisites
+        run: node scripts/check-native-prerequisites.mjs
+
+      - name: Lint (web + native)
+        run: npm run lint
+
+      - name: Typecheck (web)
+        run: npm run typecheck
+
+      - name: Web tests
+        run: npm test
+
+      - name: Typecheck (native frontend)
+        run: npm run native:check
+
+      - name: Build native frontend
+        # tauri-build embeds `frontendDist`, so this must run before cargo.
+        run: npm run native:build
+
+      - name: Rust formatting
+        run: cargo fmt --manifest-path native/src-tauri/Cargo.toml -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --locked --manifest-path native/src-tauri/Cargo.toml -- -D warnings
+
+      - name: Rust tests (offline; real-inference test stays ignored)
+        run: cargo test --locked --manifest-path native/src-tauri/Cargo.toml

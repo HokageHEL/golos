@@ -1,0 +1,112 @@
+name: Native desktop packages
+
+# Cross-platform packaging matrix for the offline Tauri desktop app. The
+# checked-in bundle config targets macOS only (`"targets": ["app"]`), so each
+# OS overrides `--bundles` with targets that exist on that platform. Builds are
+# unsigned (no certificates or cloud secrets are configured) and no model is
+# downloaded or executed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  package:
+    name: Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            bundles: app
+            artifact: golos-native-macos
+          - os: windows-2025
+            bundles: nsis
+            artifact: golos-native-windows
+          - os: ubuntu-24.04
+            bundles: deb
+            artifact: golos-native-linux
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libclang-dev \
+            build-essential \
+            cmake \
+            patchelf \
+            pkg-config \
+            file
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/src-tauri -> target
+          key: ${{ matrix.bundles }}
+
+      - name: Locate libclang for bindgen (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:LIBCLANG_PATH) {
+            Write-Host "LIBCLANG_PATH already set: $env:LIBCLANG_PATH"
+            exit 0
+          }
+          foreach ($dir in @("$env:ProgramFiles\LLVM\bin", "${env:ProgramFiles(x86)}\LLVM\bin")) {
+            if ($dir -and (Test-Path (Join-Path $dir 'libclang.dll'))) {
+              "LIBCLANG_PATH=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+              Write-Host "Set LIBCLANG_PATH=$dir"
+              exit 0
+            }
+          }
+          Write-Warning 'libclang.dll not found in a default LLVM location; bindgen may still locate it via PATH.'
+
+      - name: Verify native prerequisites
+        run: node scripts/check-native-prerequisites.mjs
+
+      - name: Build desktop bundle (${{ matrix.bundles }})
+        run: npm run native:bundle -- --ci --no-sign --bundles ${{ matrix.bundles }}
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: native/src-tauri/target/release/bundle/**/*
+          if-no-files-found: error
+          retention-days: 7
