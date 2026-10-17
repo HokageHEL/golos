@@ -47,12 +47,16 @@ Polar, Redis, accounts, or environment secrets are needed for native use.
 2. Choose **Import model**. Golos copies and loads the model before activating it.
    Importing/replacing a model can take time; the previous model is retained if
    validation fails. Automatic downloads and disk-space estimates are follow-up work.
-3. Import **WAV, MP3, M4A/MP4 (AAC-LC or ALAC), raw AAC-LC, FLAC, Ogg/Vorbis,
-   or AIFF**, up to **30 minutes / 512 MiB**. Mono/stereo and up to 8 channels,
-   8–192 kHz rates, and supported integer/float PCM formats are converted
-   automatically. No external converter or FFmpeg installation is needed.
-   MP4 imports its first supported audio track, not video. Opus, HE-AAC, DRM,
-   video-only files, and mid-file rate/layout changes are not supported.
+3. Import **WAV, MP3, M4A/MP4 (AAC-LC or ALAC), raw AAC-LC, FLAC, Ogg (Vorbis
+   or Opus), or AIFF**, up to **30 minutes / 512 MiB**. Mono/stereo and up to
+   8 channels, 8–192 kHz rates, and supported integer/float PCM formats are
+   converted automatically. No external converter or FFmpeg installation is
+   needed. Ogg Opus decodes at its native 48 kHz and honors the stream's
+   pre-skip, end trim, and output gain; in the committed regression fixtures the
+   imported duration matches the source exactly, and Opus is limited to plain
+   mono/stereo (channel mapping family 0). MP4 imports its first supported audio
+   track, not video. HE-AAC, DRM, video-only files, chained Ogg streams,
+   mapped/multichannel Opus, and mid-file rate/layout changes are not supported.
 4. Choose auto-detection, English, or Ukrainian, then **Transcribe offline**.
 5. Edit paragraphs, save locally, and export TXT or SRT through a native save dialog.
 
@@ -175,6 +179,17 @@ fixtures from the public sample, then run the opt-in format test:
 python3 scripts/create-audio-fixtures.py /path/to/ffmpeg /path/to/jfk.wav /tmp/golos-formats
 GOLOS_TEST_FORMATS=/tmp/golos-formats \
 cargo test --manifest-path native/src-tauri/Cargo.toml decodes_real_compressed_formats -- --ignored
+```
+
+The Ogg Opus/Vorbis regression tests do not need any of that: they decode small
+tone fixtures committed under `native/src-tauri/tests/fixtures/`, so a plain
+`cargo test` covers the Opus path with no external binaries and no network. The
+same fixtures can be rebuilt with opus-tools and vorbis-tools (again, test
+tooling only); `native/src-tauri/tests/fixtures/README.md` records their exact
+commands, tool versions and synthetic provenance:
+
+```sh
+python3 scripts/create-audio-fixtures.py --synthetic native/src-tauri/tests/fixtures
 ```
 
 ## Packaging and continuous integration

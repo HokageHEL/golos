@@ -141,7 +141,7 @@ export default function App() {
           <h1>From spoken words<br/>to something you can keep.</h1>
           <p>Import a recording, turn it into text, and make it your own.<br/>Your audio stays with you.</p>
           <button className="primary" disabled={locked} onClick={importAudio}>Import your first recording</button>
-          <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg/Vorbis, AIFF · Up to 30 minutes / 512 MiB</p>
+          <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis/Opus), AIFF · Up to 30 minutes / 512 MiB</p>
         </section> : <section className="document">
           <div className="document-heading"><div><div className="eyebrow">RECORDING</div><h1>{active.title}</h1>
             <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {timestamp(active.durationSeconds * 1000)} · Stored locally</p></div>

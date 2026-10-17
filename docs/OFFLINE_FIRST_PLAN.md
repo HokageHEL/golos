@@ -26,8 +26,9 @@ Verified by source inspection, not newly executed device tests:
 
 - `native/` contains a React/Vite UI and Tauri/Rust application, independent of
   the legacy Next.js frontend.
-- `native/src-tauri/src/import.rs` decodes common audio formats, downmixes and
-  resamples to local WAV, with cleanup and a 30-minute/512-MiB import cap.
+- `native/src-tauri/src/import.rs` decodes common audio formats (including Ogg
+  Vorbis and mono/stereo Opus), downmixes and resamples to local WAV, with
+  cleanup and a 30-minute/512-MiB import cap.
 - `engine.rs` uses whisper-rs CPU inference, progress and cancellation;
   `model.rs` accepts Tiny/Base/Small GGML models, including quantized variants.
 - `library.rs` persists recordings and transcript segments in SQLite and marks

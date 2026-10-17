@@ -22,6 +22,10 @@ hound = "3.5"
 whisper-rs = "0.16"
 symphonia = { version = "0.5.5", default-features = false, features = ["aac", "alac", "flac", "mp3", "pcm", "vorbis", "aiff", "isomp4", "ogg", "wav"] }
 rubato = { version = "0.16.2", default-features = false }
+# Pure-Rust Opus decoder (RFC 6716/8251, no FFI and no bundled C library, so
+# nothing has to be installed or executed at runtime). Symphonia demuxes
+# Ogg/Opus but ships no Opus decoder; this supplies one.
+rusty-opus = "1"
 
 [profile.release]
 opt-level = "s"

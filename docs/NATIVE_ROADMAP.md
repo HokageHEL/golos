@@ -24,8 +24,8 @@ Cloud services, if introduced, must have separately sustainable pricing.
 
 ## Milestone 2: usable desktop beta
 
-- [x] Common audio formats (M4A/AAC-LC/ALAC, MP3, FLAC, Ogg/Vorbis, AIFF, WAV),
-      stereo/multichannel downmixing and multiple sample rates.
+- [x] Common audio formats (M4A/AAC-LC/ALAC, MP3, FLAC, Ogg/Vorbis or Opus, AIFF,
+      WAV), stereo/multichannel downmixing and multiple sample rates.
 - [x] Streamed import decoding, anti-alias resampling, partial-file cleanup, and
       Small/Base/Tiny model limits with quantized multilingual Small recommended.
 - [ ] Robust long-recording handling and bounded-memory inference beyond the
@@ -94,3 +94,32 @@ the local bridge is covered by real transcription and mid-call cancellation test
   inference still holds the normalized recording in memory, as documented above.
 - Optimized macOS app bundle: **10.06 MiB**, excluding the separately imported model.
   This is an unsigned local development release, not an App Store distribution.
+
+## Ogg Opus imports — 2026-10-17
+
+- The importer accepts Ogg Opus (`.ogg`, `.oga`, `.opus`) alongside Vorbis. Opus
+  decodes at its native 48 kHz through the pure-Rust `rusty-opus` crate — no FFI,
+  no bundled C library, and nothing installed or executed at runtime — and is
+  resampled to 16 kHz by the existing Rubato path, so only the codec registry
+  changed, not the streaming/resampling design. `rusty-opus` is a new dependency
+  validated here only by the committed regression fixtures below, not by an
+  external conformance run.
+- The adapter honors the OpusHead pre-skip, Symphonia's gapless end trim, and the
+  signed Q7.8 dB OpusHead output gain (RFC 7845 §5.1). The committed 2.0 s stereo
+  and 1.5 s mono Ogg Opus fixtures import as exactly 2.0 s and 1.5 s of
+  non-silent audio, a fixture whose ID header advertises a non-48 kHz input rate
+  imports identically, and a fixture relabelled with a known -6.02 dB gain
+  decodes to about half the amplitude. Those exact durations are what the tests
+  demonstrate; this is not a claim of sample-accuracy for arbitrary Opus files.
+- Supported Opus is limited to channel mapping family 0 (plain mono or stereo).
+  Family 1 — including its one- and two-channel cases, which carry a channel
+  mapping table this single-stream adapter does not implement — family 255,
+  channel counts other than 1 or 2, and identification-header versions above 15
+  are refused. Chained Ogg streams, empty audio packets, and corrupted or
+  truncated streams fail with a clear error and remove partial output instead of
+  emitting invented audio.
+- The default `cargo test` run now exercises real Ogg Opus and Vorbis decoding
+  using small committed tone fixtures, so it needs no external binaries and no
+  network; `scripts/create-audio-fixtures.py --synthetic` rebuilds them with
+  opus-tools and vorbis-tools (test tooling only). Their provenance is documented
+  in `native/src-tauri/tests/fixtures/README.md`.
