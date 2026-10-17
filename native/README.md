@@ -65,8 +65,9 @@ Polar, Redis, accounts, or environment secrets are needed for native use.
 
 Listen to imported audio in the app with play/pause, seeking and speed controls.
 Transcript paragraphs highlight as they play; click a timestamp to seek.
-For optional offline speaker labels, import two ONNX models and choose **Detect
-speakers** after transcription. Review/correct labels, then save. See
+Right-click a library entry for a confirmed delete action (Shift+F10 also works).
+For optional offline speaker labels, import two ONNX models. Detection runs
+after new transcriptions by default; existing transcripts use **Detect speakers**. Review/correct labels, then save. See
 [model setup and limitations](SPEAKER_DIARIZATION.md). Speaker detection cannot
 stop mid-pass; cancellation discards the result after the current pass returns.
 

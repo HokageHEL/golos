@@ -17,8 +17,11 @@ and [NVIDIA’s TitaNet small model card](https://catalog.ngc.nvidia.com/orgs/nv
 1. Choose **Import speaker models** in Golos.
 2. In the first dialog choose the extracted `model.int8.onnx` segmentation file.
 3. In the second dialog choose `nemo_en_titanet_small.onnx` (embedding).
-4. Open a completed transcript. Select Auto or the known number of speakers,
-   then choose **Detect speakers**.
+4. Importing models labels the currently open completed transcript. New
+   transcriptions detect speakers automatically when models are installed (the
+   **Detect speakers after transcription** checkbox can disable this).
+   For other completed transcripts, select Auto or a known count, then choose
+   **Detect speakers**.
 5. Review the labels. Correct an individual paragraph's Speaker field if needed.
    Choose **Save edits**, or **Discard edits** to retain the saved version.
 
@@ -33,7 +36,10 @@ removed if no longer needed. The latest complete generation is selected.
 Play/pause, speed (0.75–2×), and seeking use the library's normalized local WAV.
 Click a paragraph's timestamp to seek there. Highlighting follows paragraph
 start/end timestamps, with no highlight during gaps. It is not word-level
-alignment. Switching recordings or opening delete confirmation stops playback.
+alignment. Switching recordings or opening delete confirmation for the current recording
+stops playback. Right-click any library recording (or press Shift+F10) and choose
+**Delete recording…** to confirm deletion of that recording. Unsaved edits must
+be saved or discarded first.
 TXT and SRT exports preserve the paragraph's current speaker labels.
 
 A paragraph gets the speaker with greatest overlapping speech duration. Repeated
@@ -90,3 +96,14 @@ GOLOS_TEST_AUDIO=/path/0-four-speakers-zh.wav GOLOS_TEST_SPEAKERS=4 \
 cargo test --locked --manifest-path native/src-tauri/Cargo.toml \
   diarizes_real_audio_offline -- --ignored
 ```
+
+## Compact editor and detection workflow — 2026-10-17
+
+Models are collapsed in the editor once transcription is configured. Paragraphs
+fit their actual wrapped text, with inline timestamps and speaker fields.
+"Not detected" distinguishes transcripts awaiting analysis from individual
+unassigned paragraphs. Empty/no-match detection results produce an error and
+retain existing text/labels. Detection still produces a draft requiring Save.
+Browser checks with mocked IPC verified import→detection, automatic detection
+after transcription, empty-result preservation, unclipped compact paragraphs,
+and deletion of an unselected recording while preserving the current selection.

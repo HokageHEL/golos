@@ -277,7 +277,13 @@ async fn detect_speakers(
         let (seg, emb) =
             speaker_models::active(&state.root)?.ok_or("Import speaker models first.")?;
         let turns = diarize::run(&path, &seg, &emb, speaker_count, &state.cancelled)?;
+        if turns.is_empty() {
+            return Err("No speech regions found by the speaker model. Check the model pair and recording. Your saved transcript is unchanged.".into());
+        }
         let result = diarize::assign(&segments, &turns);
+        if !result.iter().any(|segment| segment.speaker.is_some()) {
+            return Err("Detected speech did not align with this transcript. Try another speaker model or correct labels manually. Your saved transcript is unchanged.".into());
+        }
         library::validate_segments(&result, duration)?;
         Ok(result)
     })
