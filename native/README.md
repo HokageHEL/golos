@@ -63,8 +63,14 @@ Polar, Redis, accounts, or environment secrets are needed for native use.
 4. Choose auto-detection, English, or Ukrainian, then **Transcribe offline**.
 5. Edit paragraphs, save locally, and export TXT or SRT through a native save dialog.
 
-Inference currently uses the CPU for a portable baseline. No speaker separation,
-recording, summaries, cloud sync, ads, or payment integration is included yet.
+Listen to imported audio in the app with play/pause, seeking and speed controls.
+Transcript paragraphs highlight as they play; click a timestamp to seek.
+For optional offline speaker labels, import two ONNX models and choose **Detect
+speakers** after transcription. Review/correct labels, then save. See
+[model setup and limitations](SPEAKER_DIARIZATION.md). Speaker detection cannot
+stop mid-pass; cancellation discards the result after the current pass returns.
+
+Inference currently uses the CPU for a portable baseline. No recording, summaries, cloud sync, ads, or payment integration is included yet.
 An imported English-only model cannot produce Ukrainian transcription.
 
 ## Storage and privacy

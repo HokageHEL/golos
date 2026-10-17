@@ -148,3 +148,16 @@ the local bridge is covered by real transcription and mid-call cancellation test
   run**, because no such model is present in this checkout. Large-model memory,
   latency and accuracy remain unmeasured, and the roadmap's "no public promise of
   Large V3 Turbo performance" still stands.
+
+## Playback and speaker detection — 2026-10-17
+
+- Local audio playback, seeking, speed controls, timestamp navigation, and
+  paragraph highlighting are implemented.
+- Optional offline sherpa-onnx diarization uses manually imported ONNX models.
+  Labels are editable drafts and do not overwrite saved content until Save.
+- A native inference smoke test on the upstream four-speaker Chinese sample
+  passed with int8 pyannote segmentation and NeMo small embedding. This does not
+  validate Ukrainian accuracy or mobile behavior. See
+  [speaker setup and evidence](../native/SPEAKER_DIARIZATION.md).
+- Cancellation waits for the current native inference pass. Search, recording,
+  word-level alignment, and platform/device validation remain future work.

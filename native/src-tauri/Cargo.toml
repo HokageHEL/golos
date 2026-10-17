@@ -12,7 +12,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `protocol-asset` provides the range-capable `asset:` protocol used to stream
+# a recording's normalized WAV into the webview. It is enabled unconditionally
+# (not behind a package feature) so local playback also works in `tauri dev`.
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -26,6 +29,10 @@ rubato = { version = "0.16.2", default-features = false }
 # nothing has to be installed or executed at runtime). Symphonia demuxes
 # Ogg/Opus but ships no Opus decoder; this supplies one.
 rusty-opus = "1"
+# Offline speaker diarization (a pyannote segmentation model plus a speaker
+# embedding model). The `static` feature downloads prebuilt sherpa-onnx and ONNX
+# Runtime libraries at build time; diarization afterwards runs fully offline.
+sherpa-onnx = { version = "1.13.8", default-features = false, features = ["static"] }
 
 [profile.release]
 opt-level = "s"

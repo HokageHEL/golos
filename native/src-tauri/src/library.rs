@@ -87,6 +87,10 @@ pub fn validate_segments(segments: &[Segment], duration: f64) -> Result<(), Stri
             || segment.end_ms < segment.start_ms
             || segment.end_ms > (duration * 1000.0).ceil() as i64 + 1000
             || segment.text.len() > 100_000
+            || segment
+                .speaker
+                .as_ref()
+                .is_some_and(|speaker| speaker.len() > 100)
         {
             return Err("Invalid transcript timestamps or text length.".into());
         }

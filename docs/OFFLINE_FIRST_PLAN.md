@@ -43,7 +43,9 @@ Verified by source inspection, not newly executed device tests:
   without modifying the file. It still has no edit revisions, outbox, tombstones,
   device identity, durable job state, or native synchronization implementation.
 - Inference reads the complete normalized audio into memory. Model setup is
-  manual. Recording, playback, native search, and native DOCX export are absent.
+  manual. Local playback, seeking, and paragraph highlighting are implemented.
+  Optional speaker labeling uses a separate manually imported ONNX model pair.
+  Recording, native search, and native DOCX export are absent.
 - Bundle configuration currently targets a macOS app. Mobile icons and a mobile
   entry point do not establish working Android/iOS projects or device validation.
 - Existing Supabase tables describe cloud transcription jobs and billing, not a

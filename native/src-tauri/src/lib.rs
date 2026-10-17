@@ -1,16 +1,18 @@
 mod audio;
+mod diarize;
 mod engine;
 mod import;
 mod library;
 mod migrations;
 mod model;
+mod speaker_models;
 
 use library::{Note, Segment};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -20,6 +22,48 @@ use std::{
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use whisper_rs::{WhisperContext, WhisperContextParameters};
+
+/// The library's own normalized audio for one recording. The id has to be a
+/// UUID, so the webview can never name a path outside the `audio/` directory.
+fn audio_path(root: &Path, id: &str) -> Result<PathBuf, String> {
+    uuid::Uuid::parse_str(id).map_err(|_| "Invalid recording ID.".to_string())?;
+    Ok(root.join("audio").join(format!("{id}.wav")))
+}
+
+/// Decide whether a recording's audio may be read: a note with this id must be
+/// stored and its normalized WAV must exist. Returns the file to serve. The
+/// frontend cannot influence anything but the id, so this is the whole
+/// authorization for audio access.
+fn authorize_audio(root: &Path, db: &Connection, id: &str) -> Result<PathBuf, String> {
+    let path = audio_path(root, id)?;
+    let known: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM notes WHERE id=?1)",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !known {
+        return Err("Recording not found.".into());
+    }
+    if !path.is_file() {
+        return Err("Audio is unavailable for this recording.".into());
+    }
+    let canonical = path.canonicalize().map_err(|e| e.to_string())?;
+    let directory = root
+        .join("audio")
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if canonical.parent() != Some(directory.as_path())
+        || fs::symlink_metadata(&path)
+            .map_err(|e| e.to_string())?
+            .file_type()
+            .is_symlink()
+    {
+        return Err("Audio must be a file in the local library.".into());
+    }
+    Ok(canonical)
+}
 
 struct AppState {
     root: PathBuf,
@@ -41,8 +85,7 @@ impl AppState {
         Ok(BusyGuard(self.busy.clone()))
     }
     fn audio_path(&self, id: &str) -> Result<PathBuf, String> {
-        uuid::Uuid::parse_str(id).map_err(|_| "Invalid recording ID.".to_string())?;
-        Ok(self.root.join("audio").join(format!("{id}.wav")))
+        audio_path(&self.root, id)
     }
     fn db(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
         self.db
@@ -57,6 +100,7 @@ struct Setup {
     model_ready: bool,
     model_name: Option<String>,
     data_directory: String,
+    diarization_ready: bool,
 }
 
 #[tauri::command]
@@ -66,6 +110,7 @@ fn setup_status(state: State<AppState>) -> Setup {
         model_ready: model_name.is_some(),
         model_name,
         data_directory: state.root.to_string_lossy().into(),
+        diarization_ready: speaker_models::active(&state.root).ok().flatten().is_some(),
     }
 }
 #[tauri::command]
@@ -162,6 +207,84 @@ async fn import_model(app: tauri::AppHandle) -> Result<bool, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Pick both roles explicitly. Cancellation of either dialog retains the active pair.
+#[tauri::command]
+async fn import_diarization_models(app: tauri::AppHandle) -> Result<bool, String> {
+    let guard = app.state::<AppState>().claim()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let Some(seg) = app
+            .dialog()
+            .file()
+            .set_title("Choose pyannote segmentation ONNX model")
+            .add_filter("Segmentation ONNX", &["onnx"])
+            .blocking_pick_file()
+        else {
+            return Ok(false);
+        };
+        let Some(emb) = app
+            .dialog()
+            .file()
+            .set_title("Choose speaker embedding ONNX model")
+            .add_filter("Speaker embedding ONNX", &["onnx"])
+            .blocking_pick_file()
+        else {
+            return Ok(false);
+        };
+        speaker_models::install(
+            &app.state::<AppState>().root,
+            &seg.into_path().map_err(|e| e.to_string())?,
+            &emb.into_path().map_err(|e| e.to_string())?,
+        )?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Returns an editable draft. No stored text or labels change until Save edits.
+#[tauri::command]
+async fn detect_speakers(
+    app: tauri::AppHandle,
+    id: String,
+    speaker_count: Option<u32>,
+) -> Result<Vec<Segment>, String> {
+    let guard = {
+        let state = app.state::<AppState>();
+        let guard = state.claim()?;
+        state.cancelled.store(false, Ordering::SeqCst);
+        guard
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        let (path, segments, duration) = {
+            let db = state.db()?;
+            let path = authorize_audio(&state.root, &db, &id)?;
+            let (json, duration): (String, f64) = db
+                .query_row(
+                    "SELECT segments,duration_seconds FROM notes WHERE id=?1 AND status='done'",
+                    [&id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|_| "Transcribe this recording before detecting speakers.".to_string())?;
+            (
+                path,
+                serde_json::from_str::<Vec<Segment>>(&json).map_err(|e| e.to_string())?,
+                duration,
+            )
+        };
+        let (seg, emb) =
+            speaker_models::active(&state.root)?.ok_or("Import speaker models first.")?;
+        let turns = diarize::run(&path, &seg, &emb, speaker_count, &state.cancelled)?;
+        let result = diarize::assign(&segments, &turns);
+        library::validate_segments(&result, duration)?;
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Progress {
@@ -211,6 +334,7 @@ fn cancel_transcription(state: State<AppState>) {
 
 #[tauri::command]
 fn save_note(state: State<AppState>, id: String, segments: Vec<Segment>) -> Result<(), String> {
+    let _guard = state.claim()?;
     let db = state.db()?;
     let duration: f64 = db
         .query_row(
@@ -232,19 +356,40 @@ fn save_note(state: State<AppState>, id: String, segments: Vec<Segment>) -> Resu
 }
 
 #[tauri::command]
-fn delete_note(state: State<AppState>, id: String) -> Result<(), String> {
+fn delete_note(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
     let _guard = state.claim()?;
     let path = state.audio_path(&id)?;
-    match fs::remove_file(path) {
+    match fs::remove_file(&path) {
         Ok(()) => (),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(e) => return Err(e.to_string()),
     }
+    // The file is gone; take back the asset-protocol grant for it as well.
+    let _ = app.asset_protocol_scope().forbid_file(&path);
     state
         .db()?
         .execute("DELETE FROM notes WHERE id=?1", [&id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Authorize one recording's normalized WAV for the asset protocol and return
+/// its path. The frontend turns the path into an `asset:` URL with
+/// `convertFileSrc`; Rust decides which file that may be, and only files the
+/// library wrote for a stored note are ever allowed.
+#[tauri::command]
+fn audio_source(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<String, String> {
+    let db = state.db()?;
+    let path = authorize_audio(&state.root, &db, &id)?;
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -322,12 +467,107 @@ pub fn run() {
             list_notes,
             import_audio,
             import_model,
+            import_diarization_models,
+            detect_speakers,
             transcribe,
             cancel_transcription,
             save_note,
             delete_note,
-            export_transcript
+            export_transcript,
+            audio_source
         ])
         .run(tauri::generate_context!())
         .expect("Could not start Golos");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn insert_ready_note(db: &Connection, id: &str) {
+        library::insert(
+            db,
+            &Note {
+                id: id.into(),
+                title: "Interview".into(),
+                created_at: 0,
+                duration_seconds: 3.0,
+                status: "ready".into(),
+                segments: vec![],
+                error: None,
+            },
+        )
+        .unwrap();
+    }
+
+    /// Only a note UUID can name audio; nothing the webview sends can escape
+    /// the library's own `audio/` directory.
+    #[test]
+    fn audio_paths_are_confined_to_note_uuids() {
+        let root = Path::new("/library");
+        for bad in [
+            "",
+            "..",
+            "../../etc/passwd",
+            "/etc/passwd",
+            "stored.wav",
+            "not-a-uuid",
+        ] {
+            assert!(audio_path(root, bad).is_err(), "{bad} should be refused");
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        assert_eq!(
+            audio_path(root, &id).unwrap(),
+            root.join("audio").join(format!("{id}.wav"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn playback_rejects_symlinks_outside_the_library() {
+        let db = Connection::open_in_memory().unwrap();
+        library::init(&db, Path::new("in-memory")).unwrap();
+        let root = std::env::temp_dir().join(format!("golos-symlink-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("audio")).unwrap();
+        let outside = root.join("private.txt");
+        fs::write(&outside, b"private").unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        insert_ready_note(&db, &id);
+        std::os::unix::fs::symlink(&outside, audio_path(&root, &id).unwrap()).unwrap();
+        assert!(authorize_audio(&root, &db, &id).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A recording's audio is authorized only while its note is stored and the
+    /// normalized file the library wrote for it exists.
+    #[test]
+    fn audio_is_authorized_only_for_a_stored_note_whose_file_exists() {
+        let db = Connection::open_in_memory().unwrap();
+        library::init(&db, Path::new("in-memory")).unwrap();
+        let root = std::env::temp_dir().join(format!("golos-audio-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("audio")).unwrap();
+
+        let known = uuid::Uuid::new_v4().to_string();
+        insert_ready_note(&db, &known);
+        // Stored note, but its normalized file is missing.
+        assert!(authorize_audio(&root, &db, &known).is_err());
+
+        let stored = root.join("audio").join(format!("{known}.wav"));
+        fs::write(&stored, b"RIFF").unwrap();
+        assert_eq!(
+            authorize_audio(&root, &db, &known).unwrap(),
+            stored.canonicalize().unwrap()
+        );
+
+        // A same-shaped file with no stored note behind it is refused.
+        let unknown = uuid::Uuid::new_v4().to_string();
+        fs::write(root.join("audio").join(format!("{unknown}.wav")), b"RIFF").unwrap();
+        assert!(authorize_audio(&root, &db, &unknown).is_err());
+
+        // Traversal is refused before any file is looked at.
+        assert!(authorize_audio(&root, &db, "../stored.wav").is_err());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
 }

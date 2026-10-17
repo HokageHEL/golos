@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { toPlainText } from '../../lib/export/txt';
-import { toSrt } from '../../lib/export/srt';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { exportWithSpeakers, displaySpeaker } from './speakerLabels';
 import type { Segment } from '../../lib/transcript/types';
+import AudioPlayer from './AudioPlayer';
+import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
 import { api, nativeAvailable, type Note, type Setup } from './api';
 
-const timestamp = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export default function App() {
@@ -19,11 +20,19 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [language, setLanguage] = useState('auto');
   const [progress, setProgress] = useState(0);
+  const [speakerCount, setSpeakerCount] = useState('auto');
+  const [cancelRequested, setCancelRequested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioLoading, setAudioLoading] = useState(nativeAvailable);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [playheadMs, setPlayheadMs] = useState(0);
+  const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
   const active = notes.find(note => note.id === selected);
   const locked = Boolean(busy) || loading || !nativeAvailable;
+  const activeIndex = activeSegmentIndex(draft, playheadMs);
 
   useEffect(() => {
     if (!nativeAvailable) return;
@@ -60,12 +69,35 @@ export default function App() {
     return () => { void subscription.then(unlisten => unlisten()).catch(() => {}); };
   }, [dirty, busy]);
 
+  useEffect(() => {
+    if (!nativeAvailable || !selected) return;
+    // Rust checks that the note exists and authorizes only that note's
+    // normalized WAV for the asset protocol; the webview never names a path.
+    let disposed = false;
+    api.audioSource(selected)
+      .then(path => { if (!disposed) setAudioUrl(convertFileSrc(path)); })
+      .catch(e => { if (!disposed) setAudioError(errorText(e)); })
+      .finally(() => { if (!disposed) setAudioLoading(false); });
+    return () => { disposed = true; };
+  }, [selected]);
+
   async function perform(label: string, task: () => Promise<void>) {
     setBusy(label); setError(null); setMessage(null);
     try { await task(); } catch (e) { setError(errorText(e)); } finally { setBusy(null); }
   }
+  // Reset playback when the selected recording changes or is deleted: the
+  // player is keyed per recording, so stopping and clearing the playhead here
+  // also drops any highlight.
+  function resetPlayback() {
+    setAudioUrl(null); setAudioError(null); setAudioLoading(nativeAvailable);
+    setPlayheadMs(0); setSeekRequest(null);
+  }
   function select(note: Note) {
+    if (note.id !== selected) resetPlayback();
     setSelected(note.id); setDraft(note.segments); setDirty(false); setConfirmDelete(false); setMessage(null); setError(null);
+  }
+  function seekTo(ms: number) {
+    setSeekRequest(current => ({ ms, nonce: (current?.nonce ?? 0) + 1 }));
   }
   async function importAudio() {
     await perform('Importing recording', async () => {
@@ -86,6 +118,15 @@ export default function App() {
       }
     });
   }
+  async function detectSpeakers() {
+    if (!active || dirty) return;
+    setCancelRequested(false);
+    await perform('Detecting speakers', async () => {
+      const segments = await api.detectSpeakers(active.id, speakerCount === 'auto' ? null : Number(speakerCount));
+      setDraft(segments); setDirty(true);
+      setMessage('Speaker labels are an editable draft. Review them, then save your edits.');
+    });
+  }
   async function save() {
     if (!active) return;
     await perform('Saving transcript', async () => {
@@ -96,7 +137,7 @@ export default function App() {
   }
   async function exportTranscript(format: 'txt' | 'srt') {
     await perform('Exporting transcript', async () => {
-      const content = format === 'srt' ? toSrt(draft) : toPlainText(draft, n => `Speaker ${n}`);
+      const content = exportWithSpeakers(draft, format);
       if (await api.export(format, content)) setMessage('Transcript exported.');
     });
   }
@@ -113,7 +154,7 @@ export default function App() {
         {notes.map(note => <button key={note.id} className={`recording ${selected === note.id ? 'selected' : ''}`}
           disabled={locked || dirty} onClick={() => select(note)}>
           <span className="recording-title">{note.title}</span>
-          <span className="recording-meta">{timestamp(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
+          <span className="recording-meta">{formatClock(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
         </button>)}
       </nav>
       <div className="sidebar-footer"><span className="status-dot"/> Local processing <span className="version">Preview 0.1</span></div>
@@ -135,6 +176,13 @@ export default function App() {
           })}>{setup?.modelReady ? 'Replace model' : 'Import model'}</button>
         </section>
 
+        <section className="speaker-card" aria-label="Speaker detection models">
+          <div><h2>Offline speaker detection</h2><p>{setup?.diarizationReady ? 'Speaker models are ready. Detect recurring voices after transcription.' : 'Import a pyannote segmentation model and a speaker embedding model to label recurring voices. Models and audio stay on this device.'}</p></div>
+          <button className="secondary" disabled={locked || dirty} onClick={() => perform('Importing speaker models', async () => {
+            if (await api.importSpeakerModels()) { setSetup(await api.setup()); setMessage('Speaker models installed. Open a completed transcript and choose Detect speakers.'); }
+          })}>{setup?.diarizationReady ? 'Replace speaker models' : 'Import speaker models'}</button>
+        </section>
+
         {!active ? <section className="welcome">
           <div className="wave" aria-hidden="true">{[18, 36, 60, 42, 80, 54, 30, 60, 38, 18].map((height, i) => <span key={i} style={{ height }}/>)}</div>
           <div className="eyebrow">MAKE ROOM FOR THE CONVERSATION</div>
@@ -144,13 +192,27 @@ export default function App() {
           <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis/Opus), AIFF · Up to 30 minutes / 512 MiB</p>
         </section> : <section className="document">
           <div className="document-heading"><div><div className="eyebrow">RECORDING</div><h1>{active.title}</h1>
-            <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {timestamp(active.durationSeconds * 1000)} · Stored locally</p></div>
+            <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {formatClock(active.durationSeconds * 1000)} · Stored locally</p></div>
             <button className="text-button danger" disabled={locked || dirty} onClick={() => setConfirmDelete(true)}>Delete</button></div>
+
+          {nativeAvailable && !confirmDelete && <AudioPlayer
+            key={active.id}
+            src={audioUrl}
+            title={active.title}
+            durationMs={active.durationSeconds * 1000}
+            currentMs={playheadMs}
+            activeSegment={activeIndex === null ? null : draft[activeIndex]}
+            seekRequest={seekRequest}
+            loading={audioLoading}
+            error={audioError}
+            onTimeUpdate={setPlayheadMs}
+            onSeek={setPlayheadMs}
+          />}
 
           {confirmDelete && <div className="notice delete-confirm"><p>Delete this recording and its transcript from Golos? The original imported file stays where it was.</p>
             <button className="danger-button" disabled={locked} onClick={() => perform('Deleting recording', async () => {
               await api.delete(active.id); const library = await api.list(); setNotes(library);
-              if (library[0]) select(library[0]); else { setSelected(null); setDraft([]); }
+              if (library[0]) select(library[0]); else { setSelected(null); setDraft([]); resetPlayback(); }
               setConfirmDelete(false);
             })}>Delete recording</button><button className="secondary" disabled={locked} onClick={() => setConfirmDelete(false)}>Keep recording</button></div>}
 
@@ -163,25 +225,39 @@ export default function App() {
           </div>}
 
           {busy && <div className="processing" role="status"><span>{busy}{busy === 'Transcribing on your device' ? ` · ${progress}%` : '…'}</span>
+            {busy === 'Detecting speakers' && <><span>No percentage estimate. Cancellation takes effect after the current processing pass.</span><button className="secondary" disabled={cancelRequested} onClick={() => { setCancelRequested(true); void api.cancel().catch(e => { setCancelRequested(false); setError(errorText(e)); }); }}>{cancelRequested ? 'Cancellation requested…' : 'Cancel after current pass'}</button></>}
             {busy === 'Transcribing on your device' && <><progress value={progress} max={100}/><button className="secondary" onClick={() => { void api.cancel().catch(e => setError(errorText(e))); }}>Cancel</button></>}</div>}
 
           {active.status === 'done' && <>
+            <div className="speaker-actions"><label>Speakers<select value={speakerCount} disabled={locked || dirty} onChange={e => setSpeakerCount(e.target.value)}>
+              <option value="auto">Detect automatically</option>{[1, 2, 3, 4, 5, 6, 8, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+              <button className="secondary" disabled={locked || dirty || !draft.length || !setup?.diarizationReady} onClick={detectSpeakers}>Detect speakers</button>
+              <p>Labels identify voices within this recording. Mixed-speaker paragraphs may need correction.</p>
+            </div>
             <div className="editor-toolbar"><span>{draft.length ? 'Transcript · Click any paragraph to edit' : 'No speech detected in this recording.'}</span><div className="actions">
               {dirty && <><button className="text-button" disabled={locked} onClick={() => { setDraft(active.segments); setDirty(false); }}>Discard edits</button><button className="primary" disabled={locked} onClick={save}>Save edits</button></>}
               <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('txt')}>Export TXT</button>
               <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('srt')}>Export SRT</button>
             </div></div>
             {dirty && <p className="unsaved" role="status">Unsaved edits — save or discard before opening another recording.</p>}
-            <div className="transcript">{draft.map((segment, index) => <label className="segment" key={index}>
-              <span className="timecode">{timestamp(segment.startMs)}</span>
-              <textarea aria-label={`Transcript at ${timestamp(segment.startMs)}`} value={segment.text} disabled={locked}
-                rows={Math.max(2, Math.ceil(segment.text.length / 85))} onChange={e => {
-                  setDraft(current => current.map((item, n) => n === index ? { ...item, text: e.target.value } : item)); setDirty(true);
-                }}/>
-            </label>)}</div>
+            <div className="transcript">{draft.map((segment, index) => {
+              const isActive = index === activeIndex;
+              return <div className={`segment ${isActive ? 'active' : ''}`} key={index} aria-current={isActive ? 'true' : undefined}>
+                <button type="button" className="timecode" disabled={!audioUrl}
+                  aria-label={`Seek to ${formatClock(segment.startMs)}`}
+                  onClick={() => seekTo(segment.startMs)}>{formatClock(segment.startMs)}</button>
+                <div className="segment-content"><label className="speaker-label">Speaker
+                  <input type="text" aria-label={`Speaker at ${formatClock(segment.startMs)}`} maxLength={100} placeholder="Unknown" value={displaySpeaker(segment.speaker)} disabled={locked}
+                    onChange={e => { const speaker = e.target.value.replace(/^Speaker (\d+)$/, 'speaker_$1') || null; setDraft(current => current.map((item, n) => n === index ? { ...item, speaker } : item)); setDirty(true); }}/>
+                </label><textarea aria-label={`Transcript at ${formatClock(segment.startMs)}`} value={segment.text} disabled={locked}
+                  rows={Math.max(2, Math.ceil(segment.text.length / 85))} onChange={e => {
+                    setDraft(current => current.map((item, n) => n === index ? { ...item, text: e.target.value } : item)); setDirty(true);
+                  }}/></div>
+              </div>;
+            })}</div>
           </>}
         </section>}
-        <footer className="workspace-footer"><span>Audio is never uploaded for transcription.</span><span>No speaker separation in this preview.</span></footer>
+        <footer className="workspace-footer"><span>Audio is never uploaded for transcription.</span><span>Playback and speaker detection stay on your device.</span></footer>
       </div>
     </main>
   </div>;
