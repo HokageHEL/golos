@@ -1,5 +1,7 @@
+use crate::migrations::{self, Migration};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,17 +24,10 @@ pub struct Note {
     pub error: Option<String>,
 }
 
-pub fn init(db: &Connection) -> Result<(), String> {
-    db.execute_batch(
-        "PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS notes (
-          id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL,
-          duration_seconds REAL NOT NULL, status TEXT NOT NULL,
-          segments TEXT NOT NULL DEFAULT '[]', error TEXT);
-        UPDATE notes SET status='failed', error='Processing was interrupted. Try again.'
-          WHERE status='processing';",
-    )
-    .map_err(|e| e.to_string())
+/// Open the library schema for use: migrate to the current version (see
+/// [`migrations::migrate`]) and make interrupted recordings retryable.
+pub fn init(db: &Connection, db_path: &Path) -> Result<Migration, String> {
+    migrations::migrate(db, db_path)
 }
 
 pub fn list(db: &Connection) -> Result<Vec<Note>, String> {
@@ -106,7 +101,8 @@ mod tests {
     #[test]
     fn persists_edits_and_recovers_interrupted_jobs() {
         let db = Connection::open_in_memory().unwrap();
-        init(&db).unwrap();
+        let path = Path::new("in-memory");
+        init(&db, path).unwrap();
         insert(
             &db,
             &Note {
@@ -120,7 +116,7 @@ mod tests {
             },
         )
         .unwrap();
-        init(&db).unwrap();
+        init(&db, path).unwrap();
         let notes = list(&db).unwrap();
         assert_eq!(notes[0].status, "failed");
         assert!(notes[0].error.as_ref().unwrap().contains("interrupted"));

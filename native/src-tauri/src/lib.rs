@@ -2,6 +2,7 @@ mod audio;
 mod engine;
 mod import;
 mod library;
+mod migrations;
 mod model;
 
 use library::{Note, Segment};
@@ -291,8 +292,22 @@ pub fn run() {
         .setup(|app| {
             let root = app.path().app_data_dir()?;
             fs::create_dir_all(root.join("audio"))?;
-            let db = Connection::open(root.join("library.sqlite3"))?;
-            library::init(&db).map_err(std::io::Error::other)?;
+            let db_path = root.join("library.sqlite3");
+            let db = Connection::open(&db_path)?;
+            // Migrations validate before mutating, so an unsupported or damaged
+            // library stops startup instead of being altered. When an existing
+            // library is upgraded, the pre-upgrade snapshot is reported here
+            // because the app has no log file.
+            let migration = library::init(&db, &db_path).map_err(std::io::Error::other)?;
+            if let Some(backup) = &migration.backup {
+                eprintln!(
+                    "Golos migrated {} from schema version {} to {}; pre-upgrade backup: {}",
+                    db_path.display(),
+                    migration.from_version,
+                    migration.to_version,
+                    backup.display()
+                );
+            }
             let _ = fs::remove_file(root.join("model.pending"));
             app.manage(AppState {
                 root,
