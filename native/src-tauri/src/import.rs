@@ -4,18 +4,28 @@ use crate::audio::MAX_SECONDS;
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
+use rusty_opus::OpusDecoder as OpusStream;
 use std::{
     fs::{self, File},
     io::{BufWriter, ErrorKind},
     path::Path,
+    sync::OnceLock,
 };
 use symphonia::core::{
-    audio::SampleBuffer, codecs::DecoderOptions, errors::Error, formats::FormatOptions,
-    io::MediaSourceStream, meta::MetadataOptions, probe::Hint,
+    audio::{AsAudioBufferRef, AudioBuffer, AudioBufferRef, SampleBuffer, Signal, SignalSpec},
+    codecs::{
+        CodecDescriptor, CodecParameters, CodecRegistry, Decoder, DecoderOptions, FinalizeResult,
+        CODEC_TYPE_OPUS,
+    },
+    errors::{decode_error, unsupported_error, Error, Result as SymphoniaResult},
+    formats::{FormatOptions, Packet},
+    io::MediaSourceStream,
+    meta::MetadataOptions,
+    probe::Hint,
 };
 
 pub const EXTENSIONS: &[&str] = &[
-    "wav", "mp3", "m4a", "mp4", "aac", "flac", "ogg", "oga", "aif", "aiff",
+    "wav", "mp3", "m4a", "mp4", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff",
 ];
 pub const MAX_BYTES: u64 = 512 * 1024 * 1024;
 const CHUNK: usize = 1024;
@@ -159,6 +169,210 @@ impl Normalizer {
     }
 }
 
+/// Largest Opus frame per channel: 120 ms at 48 kHz (RFC 6716 §3.2.5). It is
+/// also the fixed output capacity of the decoder below, matching libopus.
+const OPUS_MAX_FRAME_SAMPLES: usize = 5_760;
+
+/// Parsed fields of an Ogg Opus identification header (`OpusHead`, RFC 7845 §5.1).
+struct OpusHead {
+    /// Encapsulation version; the high nibble is the incompatible major version.
+    version: u8,
+    channels: usize,
+    /// Samples at 48 kHz the decoder must discard from the start (RFC 7845 §4.2).
+    pre_skip: usize,
+    /// Signed Q7.8 dB gain applied to decoded samples (RFC 7845 §5.1).
+    gain: i16,
+    /// Channel mapping family; only family 0 (plain mono/stereo) is supported.
+    family: u8,
+}
+
+fn parse_opus_head(buf: &[u8]) -> Option<OpusHead> {
+    if buf.len() < 19 || &buf[..8] != b"OpusHead" {
+        return None;
+    }
+    Some(OpusHead {
+        version: buf[8],
+        channels: buf[9] as usize,
+        pre_skip: u16::from_le_bytes([buf[10], buf[11]]) as usize,
+        gain: i16::from_le_bytes([buf[16], buf[17]]),
+        family: buf[18],
+    })
+}
+
+/// Symphonia `Decoder` for Ogg Opus. Symphonia's Ogg demuxer parses the
+/// identification header and granule positions (including gapless start/end
+/// trims) but ships no Opus decoder, so this adapter supplies one backed by the
+/// pure-Rust `rusty-opus` crate: no FFI, no bundled C library and no external
+/// tool at build or run time.
+///
+/// Opus always decodes at 48 kHz here and is resampled to the library's 16 kHz
+/// output by [`Normalizer`], reusing the existing anti-aliasing path. Symphonia
+/// cannot express the OpusHead pre-skip through packet trims, so the adapter
+/// discards it explicitly while also honoring Symphonia's per-packet trims, and
+/// it applies the OpusHead output gain (RFC 7845 §5.1) that the demuxer drops.
+struct OpusDecoderAdapter {
+    stream: OpusStream,
+    params: CodecParameters,
+    buffer: AudioBuffer<f32>,
+    scratch: Vec<f32>,
+    channels: usize,
+    /// Linear amplitude scale from the OpusHead output gain; 1.0 for 0 dB.
+    gain: f32,
+    initial_pre_skip: usize,
+    pre_skip_remaining: usize,
+}
+
+impl OpusDecoderAdapter {
+    fn head_of(params: &CodecParameters) -> SymphoniaResult<OpusHead> {
+        match params.extra_data.as_deref().and_then(parse_opus_head) {
+            Some(head) => Ok(head),
+            None => unsupported_error("opus: invalid identification header"),
+        }
+    }
+}
+
+impl Decoder for OpusDecoderAdapter {
+    fn try_new(params: &CodecParameters, _: &DecoderOptions) -> SymphoniaResult<Self> {
+        if params.codec != CODEC_TYPE_OPUS {
+            return unsupported_error("opus: invalid codec type");
+        }
+        let head = Self::head_of(params)?;
+        // RFC 7845 §5.1: any version up to 15 is backwards compatible (the low
+        // nibble is a minor version); a higher major version is not.
+        if head.version > 15 {
+            return unsupported_error("opus: unsupported identification header version");
+        }
+        // RFC 7845 §5.1.1: family 0 is a plain single stream mapped straight to
+        // mono or stereo. Family 1 (even at one or two channels) and family 255
+        // carry a channel mapping table this single-stream adapter does not
+        // implement, so refuse them rather than decode channels that may be
+        // misassigned. Multichannel family-1 streams are thereby rejected too.
+        if head.family != 0 {
+            return unsupported_error(
+                "opus: only un-mapped mono or stereo Ogg Opus (channel mapping family 0) is supported",
+            );
+        }
+        if head.channels == 0 || head.channels > 2 {
+            return unsupported_error("opus: only mono and stereo Ogg Opus is supported");
+        }
+        let Some(layout) = params.channels else {
+            return unsupported_error("opus: missing channel layout");
+        };
+        if layout.count() != head.channels {
+            return unsupported_error("opus: inconsistent channel count");
+        }
+        let spec = SignalSpec::new(48_000, layout);
+        let stream = match OpusStream::new(48_000, head.channels) {
+            Ok(stream) => stream,
+            Err(_) => return unsupported_error("opus: cannot initialize decoder"),
+        };
+        // RFC 7845 §5.1: the gain is 20*log10 of the linear scale factor, in
+        // Q7.8, so the linear factor is 10^(gain / (20 * 256)).
+        let gain = 10f32.powf(f32::from(head.gain) / (20.0 * 256.0));
+        let scratch = vec![0f32; OPUS_MAX_FRAME_SAMPLES * head.channels];
+        Ok(Self {
+            stream,
+            params: params.clone(),
+            buffer: AudioBuffer::new(OPUS_MAX_FRAME_SAMPLES as u64, spec),
+            scratch,
+            channels: head.channels,
+            gain,
+            initial_pre_skip: head.pre_skip,
+            pre_skip_remaining: head.pre_skip,
+        })
+    }
+
+    fn supported_codecs() -> &'static [CodecDescriptor] {
+        &[CodecDescriptor {
+            codec: CODEC_TYPE_OPUS,
+            short_name: "opus",
+            long_name: "Opus",
+            inst_func: |params, options| {
+                Ok(Box::new(Self::try_new(params, options)?) as Box<dyn Decoder>)
+            },
+        }]
+    }
+
+    fn reset(&mut self) {
+        // `rusty-opus` has no state reset; a fresh decoder is the cheapest way
+        // to drop the inter-frame history, and it cannot fail for a rate that
+        // was already accepted in `try_new`.
+        if let Ok(stream) = OpusStream::new(48_000, self.channels) {
+            self.stream = stream;
+        }
+        self.buffer.clear();
+        self.pre_skip_remaining = self.initial_pre_skip;
+    }
+
+    fn codec_params(&self) -> &CodecParameters {
+        &self.params
+    }
+
+    fn decode(&mut self, packet: &Packet) -> SymphoniaResult<AudioBufferRef<'_>> {
+        // RFC 6716 §3.4: a zero-length audio packet is malformed. Never
+        // substitute decoder-generated concealment audio for real input.
+        if packet.buf().is_empty() {
+            self.buffer.clear();
+            return decode_error("opus: empty audio packet");
+        }
+        let decoded =
+            match self
+                .stream
+                .decode(packet.buf(), OPUS_MAX_FRAME_SAMPLES, &mut self.scratch)
+            {
+                Ok(frames) => frames,
+                Err(_) => {
+                    // Decoders must leave no stale audio after a failed packet.
+                    self.buffer.clear();
+                    return decode_error("opus: cannot decode audio packet");
+                }
+            };
+        let trim_start = packet.trim_start() as usize;
+        let trim_end = packet.trim_end() as usize;
+        if trim_start + trim_end > decoded {
+            self.buffer.clear();
+            return decode_error("opus: inconsistent packet trimming");
+        }
+        // Drop Symphonia's explicit frame trims, then the OpusHead pre-skip.
+        let kept = decoded - trim_start - trim_end;
+        let skip = self.pre_skip_remaining.min(kept);
+        self.pre_skip_remaining -= skip;
+        let front = trim_start + skip;
+        let frames = kept - skip;
+        self.buffer.clear();
+        if frames > 0 {
+            self.buffer.render_reserved(Some(frames));
+            for channel in 0..self.channels {
+                let samples = self.buffer.chan_mut(channel);
+                for (frame, sample) in samples.iter_mut().enumerate() {
+                    *sample = self.scratch[(front + frame) * self.channels + channel] * self.gain;
+                }
+            }
+        }
+        Ok(self.buffer.as_audio_buffer_ref())
+    }
+
+    fn finalize(&mut self) -> FinalizeResult {
+        FinalizeResult::default()
+    }
+
+    fn last_decoded(&self) -> AudioBufferRef<'_> {
+        self.buffer.as_audio_buffer_ref()
+    }
+}
+
+/// Symphonia's default codecs plus this adapter's Opus decoder. Built once and
+/// shared: the registry only holds descriptors, so it is thread-safe.
+fn codec_registry() -> &'static CodecRegistry {
+    static REGISTRY: OnceLock<CodecRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let mut registry = CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut registry);
+        registry.register_all::<OpusDecoderAdapter>();
+        registry
+    })
+}
+
 /// Only a complete, validated WAV is retained. Partial output is removed on every
 /// error; the original user-selected recording is never modified or copied whole.
 pub fn normalize(source: &Path, target: &Path) -> Result<f64, String> {
@@ -182,18 +396,30 @@ fn normalize_inner(source: &Path, target: &Path) -> Result<f64, String> {
     let mut format = symphonia::default::get_probe().format(&hint,
         MediaSourceStream::new(Box::new(file), Default::default()),
         &FormatOptions { enable_gapless: true, ..Default::default() }, &MetadataOptions::default())
-        .map_err(|e| format!("Cannot read this audio format: {e}. Try WAV, MP3, M4A/AAC, FLAC, Ogg/Vorbis or AIFF."))?.format;
+        .map_err(|e| format!("Cannot read this audio format: {e}. Try WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis or Opus) or AIFF."))?.format;
+    let registry = codec_registry();
     let (track_id, mut decoder) = format.tracks().iter().find_map(|track|
-        symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())
+        registry.make(&track.codec_params, &DecoderOptions::default())
             .ok().map(|decoder| (track.id, decoder)))
-        .ok_or("No supported audio track found. M4A needs AAC-LC or ALAC; Ogg needs Vorbis. Opus, DRM and video-only files are not supported.")?;
+        .ok_or_else(|| if format.tracks().iter().any(|track| track.codec_params.codec == CODEC_TYPE_OPUS) {
+            "Ogg Opus is limited to mono or stereo channel mapping family 0. Multichannel or custom-mapped Opus is not supported.".to_string()
+        } else {
+            "No supported audio track found. M4A needs AAC-LC or ALAC; Ogg needs Vorbis or mono/stereo Opus. DRM and video-only files are not supported.".to_string()
+        })?;
     let mut normalizer: Option<Normalizer> = None;
     loop {
-        let packet = match format.next_packet() {
-            Ok(packet) => packet,
-            Err(Error::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => break,
-            Err(error) => return Err(format!("Cannot read audio packets: {error}")),
-        };
+        let packet =
+            match format.next_packet() {
+                Ok(packet) => packet,
+                Err(Error::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => break,
+                // A second logical stream (chained Ogg) would splice unrelated audio
+                // onto the output; refuse it instead of producing a merged track.
+                Err(Error::ResetRequired) => return Err(
+                    "Chained Ogg streams are not supported. Import a single continuous recording."
+                        .into(),
+                ),
+                Err(error) => return Err(format!("Cannot read audio packets: {error}")),
+            };
         if packet.track_id() != track_id {
             continue;
         }
@@ -250,9 +476,12 @@ mod tests {
     }
     impl Fixture {
         fn new() -> Self {
+            Self::with_source_extension("wav")
+        }
+        fn with_source_extension(extension: &str) -> Self {
             let stem = std::env::temp_dir().join(format!("golos-audio-{}", uuid::Uuid::new_v4()));
             Self {
-                source: stem.with_extension("wav"),
+                source: stem.with_extension(extension),
                 output: stem.with_extension("normalized.wav"),
             }
         }
@@ -282,6 +511,318 @@ mod tests {
             }
         }
         writer.finalize().unwrap();
+    }
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+    }
+    /// Standard Ogg CRC-32: polynomial 0x04c11db7, no reflection, zero init/xor.
+    fn ogg_crc32(data: &[u8]) -> u32 {
+        let mut crc: u32 = 0;
+        for &byte in data {
+            crc ^= u32::from(byte) << 24;
+            for _ in 0..8 {
+                crc = if crc & 0x8000_0000 != 0 {
+                    (crc << 1) ^ 0x04c1_1db7
+                } else {
+                    crc << 1
+                };
+            }
+        }
+        crc
+    }
+    /// Recompute the CRC of the Ogg page starting at `page_start` in place.
+    fn rechecksum_page(bytes: &mut [u8], page_start: usize) {
+        let nseg = bytes[page_start + 26] as usize;
+        let body: usize = bytes[page_start + 27..page_start + 27 + nseg]
+            .iter()
+            .map(|&segment| segment as usize)
+            .sum();
+        let end = page_start + 27 + nseg + body;
+        bytes[page_start + 22..page_start + 26].fill(0);
+        let crc = ogg_crc32(&bytes[page_start..end]);
+        bytes[page_start + 22..page_start + 26].copy_from_slice(&crc.to_le_bytes());
+    }
+    fn page_start_for(bytes: &[u8], offset: usize) -> usize {
+        (0..=offset)
+            .rev()
+            .find(|&i| bytes[i..].starts_with(b"OggS"))
+            .expect("Ogg page start")
+    }
+    fn rms(samples: &[f32]) -> f32 {
+        (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
+    }
+    /// RMS of the middle half of a decoded clip, away from resampler edges.
+    fn middle_rms(samples: &[f32]) -> f32 {
+        rms(&samples[samples.len() / 4..samples.len() * 3 / 4])
+    }
+    /// Decode a committed fixture and assert the exact output duration and that
+    /// real (non-silent) audio survived.
+    fn decode_fixture(name: &str, expected_seconds: f64, min_rms: f32) -> Vec<f32> {
+        let fixture = Fixture::new();
+        let duration = normalize(&fixture_path(name), &fixture.output)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(
+            (duration - expected_seconds).abs() < 1e-6,
+            "{name}: duration {duration} != {expected_seconds}"
+        );
+        let samples = crate::audio::read_audio(&fixture.output).unwrap();
+        assert_eq!(
+            samples.len(),
+            (expected_seconds * 16_000.0) as usize,
+            "{name}: sample count"
+        );
+        let level = middle_rms(&samples);
+        assert!(
+            level > min_rms,
+            "{name}: output is near-silent (rms {level})"
+        );
+        samples
+    }
+    #[test]
+    fn decodes_real_ogg_opus_and_vorbis_fixtures() {
+        decode_fixture("opus-stereo.ogg", 2.0, 0.2);
+        decode_fixture("opus-mono.ogg", 1.5, 0.2);
+        // Vorbis must keep working alongside the new Opus support.
+        decode_fixture("vorbis-stereo.ogg", 2.0, 0.2);
+    }
+    #[test]
+    fn applies_opushead_output_gain_to_decoded_amplitude() {
+        // RFC 7845 §5.1: the output gain is a signed Q7.8 dB value that scales
+        // the decoded samples. -1541/256 dB is about -6.02 dB, a linear factor
+        // of ~0.5, so a stream relabelled with that gain must decode to about
+        // half the amplitude of the unmodified fixture.
+        let baseline = middle_rms(&decode_fixture("opus-stereo.ogg", 2.0, 0.2));
+        let mut bytes = fs::read(fixture_path("opus-stereo.ogg")).unwrap();
+        let head = bytes
+            .windows(8)
+            .position(|window| window == b"OpusHead")
+            .expect("OpusHead");
+        bytes[head + 16..head + 18].copy_from_slice(&(-1541i16).to_le_bytes());
+        let page = page_start_for(&bytes, head);
+        rechecksum_page(&mut bytes, page);
+        let fixture = Fixture::new();
+        fs::write(&fixture.source, &bytes).unwrap();
+        assert_eq!(normalize(&fixture.source, &fixture.output).unwrap(), 2.0);
+        let gained = middle_rms(&crate::audio::read_audio(&fixture.output).unwrap());
+        let ratio = gained / baseline;
+        assert!(
+            (ratio - 0.5).abs() < 0.02,
+            "output gain was not applied: ratio {ratio} (baseline {baseline}, gained {gained})"
+        );
+    }
+    #[test]
+    fn decodes_ogg_opus_with_a_non_48khz_input_rate_metadata() {
+        // RFC 7845 §5.1: the "input sample rate" field is informational only.
+        // Opus always decodes at 48 kHz, so a mismatched value must not change
+        // the output or its exact duration.
+        let mut bytes = fs::read(fixture_path("opus-stereo.ogg")).unwrap();
+        let head = bytes
+            .windows(8)
+            .position(|window| window == b"OpusHead")
+            .expect("OpusHead");
+        bytes[head + 12..head + 16].copy_from_slice(&44_100u32.to_le_bytes());
+        let page = page_start_for(&bytes, head);
+        rechecksum_page(&mut bytes, page);
+        let fixture = Fixture::new();
+        fs::write(&fixture.source, &bytes).unwrap();
+        assert_eq!(normalize(&fixture.source, &fixture.output).unwrap(), 2.0);
+        assert_eq!(
+            crate::audio::read_audio(&fixture.output).unwrap().len(),
+            32_000
+        );
+    }
+    #[test]
+    fn corrupted_ogg_opus_packet_never_panics_or_pads_the_duration() {
+        // Damage the payload of one middle audio packet (and repair the page CRC
+        // so the demuxer still accepts it): a hostile packet must yield a clean
+        // error or at most the true length, never a panic or invented audio.
+        let mut bytes = fs::read(fixture_path("opus-stereo.ogg")).unwrap();
+        let audio_start = bytes
+            .windows(8)
+            .position(|window| window == b"OpusTags")
+            .expect("OpusTags");
+        let page = page_start_for(&bytes, audio_start);
+        let flip = page + (bytes.len() - page) / 2;
+        bytes[flip] ^= 0xff;
+        let damaged_page = page_start_for(&bytes, flip);
+        rechecksum_page(&mut bytes, damaged_page);
+        let fixture = Fixture::new();
+        fs::write(&fixture.source, &bytes).unwrap();
+        match normalize(&fixture.source, &fixture.output) {
+            Ok(duration) => {
+                assert!(
+                    duration <= 2.0 + 1e-6,
+                    "corrupted stream grew to {duration}"
+                );
+                assert!(crate::audio::read_audio(&fixture.output).unwrap().len() <= 32_000);
+            }
+            Err(_) => assert!(!fixture.output.exists(), "failed import left audio behind"),
+        }
+    }
+    #[test]
+    fn rejects_multichannel_opus_and_cleans_up() {
+        // Relabel the stereo ID header as a six-channel mapping-family-1 stream;
+        // this must be refused, not decoded into mangled audio.
+        let mut bytes = fs::read(fixture_path("opus-stereo.ogg")).unwrap();
+        let head = bytes
+            .windows(8)
+            .position(|window| window == b"OpusHead")
+            .expect("OpusHead");
+        bytes[head + 9] = 6;
+        bytes[head + 18] = 1;
+        let page = page_start_for(&bytes, head);
+        rechecksum_page(&mut bytes, page);
+        let fixture = Fixture::with_source_extension("ogg");
+        fs::write(&fixture.source, &bytes).unwrap();
+        let error = normalize(&fixture.source, &fixture.output).unwrap_err();
+        assert!(
+            error.contains("mono or stereo"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            !fixture.output.exists(),
+            "refused import must not leave audio"
+        );
+    }
+    #[test]
+    fn rejects_chained_ogg_streams_and_cleans_up() {
+        let bytes = fs::read(fixture_path("opus-stereo.ogg")).unwrap();
+        let mut chained = bytes.clone();
+        chained.extend_from_slice(&bytes);
+        let fixture = Fixture::with_source_extension("ogg");
+        fs::write(&fixture.source, &chained).unwrap();
+        let error = normalize(&fixture.source, &fixture.output).unwrap_err();
+        assert!(error.contains("Chained"), "unexpected error: {error}");
+        assert!(
+            !fixture.output.exists(),
+            "refused import must not leave audio"
+        );
+    }
+    #[test]
+    fn rejects_garbage_masquerading_as_ogg_and_cleans_up() {
+        let fixture = Fixture::with_source_extension("ogg");
+        fs::write(&fixture.source, b"OggS not really an Ogg Opus recording").unwrap();
+        assert!(normalize(&fixture.source, &fixture.output).is_err());
+        assert!(!fixture.output.exists());
+    }
+    #[test]
+    fn truncated_ogg_opus_never_yields_fabricated_full_length_audio() {
+        // A cut-off Ogg stream must either fail cleanly or decode only the audio
+        // that is actually present -- never a padded full-length result.
+        let bytes = fs::read(fixture_path("opus-stereo.ogg")).unwrap();
+        let fixture = Fixture::with_source_extension("ogg");
+        fs::write(&fixture.source, &bytes[..bytes.len() * 3 / 5]).unwrap();
+        match normalize(&fixture.source, &fixture.output) {
+            Ok(duration) => {
+                assert!(
+                    duration < 2.0,
+                    "truncated stream reported full length {duration}"
+                );
+                assert!(crate::audio::read_audio(&fixture.output).unwrap().len() < 32_000);
+            }
+            Err(_) => assert!(!fixture.output.exists(), "failed import left audio behind"),
+        }
+    }
+    #[test]
+    fn rejects_opus_with_a_missing_or_empty_identification_header() {
+        let mut params = CodecParameters::new();
+        params.for_codec(CODEC_TYPE_OPUS);
+        assert!(OpusDecoderAdapter::try_new(&params, &DecoderOptions::default()).is_err());
+        let mut params = CodecParameters::new();
+        params
+            .for_codec(CODEC_TYPE_OPUS)
+            .with_extra_data(Box::from(&b"OpusHead"[..]));
+        assert!(OpusDecoderAdapter::try_new(&params, &DecoderOptions::default()).is_err());
+    }
+    /// Build an `OpusHead` identification header for decoder unit tests.
+    fn opus_head(version: u8, channels: u8, family: u8, gain: i16) -> Vec<u8> {
+        let mut extra = Vec::from(&b"OpusHead"[..]);
+        extra.push(version);
+        extra.push(channels);
+        extra.extend_from_slice(&312u16.to_le_bytes()); // pre-skip
+        extra.extend_from_slice(&48_000u32.to_le_bytes()); // input sample rate
+        extra.extend_from_slice(&gain.to_le_bytes());
+        extra.push(family);
+        extra
+    }
+    fn opus_params(extra: &[u8], channels: symphonia::core::audio::Channels) -> CodecParameters {
+        let mut params = CodecParameters::new();
+        params
+            .for_codec(CODEC_TYPE_OPUS)
+            .with_channels(channels)
+            .with_extra_data(Box::from(extra));
+        params
+    }
+    #[test]
+    fn accepts_supported_opushead_versions_and_rejects_incompatible_ones() {
+        // RFC 7845 §5.1: minor-version changes (the low nibble) are compatible,
+        // so any version up to 15 is readable; 16 and above is a new major
+        // version this adapter must refuse.
+        for version in [0u8, 1, 15] {
+            let head = opus_head(version, 1, 0, 0);
+            let params = opus_params(&head, symphonia::core::audio::Channels::FRONT_LEFT);
+            assert!(
+                OpusDecoderAdapter::try_new(&params, &DecoderOptions::default()).is_ok(),
+                "version {version} should be accepted"
+            );
+        }
+        for version in [16u8, 0x20, 0xff] {
+            let head = opus_head(version, 1, 0, 0);
+            let params = opus_params(&head, symphonia::core::audio::Channels::FRONT_LEFT);
+            assert!(
+                OpusDecoderAdapter::try_new(&params, &DecoderOptions::default()).is_err(),
+                "version {version} should be rejected"
+            );
+        }
+    }
+    #[test]
+    fn rejects_channel_mapping_family_one_even_for_mono_and_stereo() {
+        // RFC 7845 §5.1.1: family 1 carries a channel mapping table this
+        // single-stream adapter does not implement. Even a one- or two-channel
+        // family-1 stream looks decodable but must be refused, never guessed.
+        let cases = [
+            (1u8, symphonia::core::audio::Channels::FRONT_LEFT, vec![0u8]),
+            (
+                2,
+                symphonia::core::audio::Channels::FRONT_LEFT
+                    | symphonia::core::audio::Channels::FRONT_RIGHT,
+                vec![0, 1],
+            ),
+            (
+                6,
+                symphonia::core::audio::Channels::FRONT_LEFT,
+                vec![0, 4, 1, 2, 3, 5],
+            ),
+        ];
+        for (channels, layout, mapping) in cases {
+            let mut head = opus_head(1, channels, 1, 0);
+            head.push(1); // stream count
+            head.push(channels - 1); // coupled stream count
+            head.extend_from_slice(&mapping);
+            let params = opus_params(&head, layout);
+            assert!(
+                OpusDecoderAdapter::try_new(&params, &DecoderOptions::default()).is_err(),
+                "family-1 stream with {channels} channel(s) should be rejected"
+            );
+        }
+    }
+    #[test]
+    fn rejects_unsupported_opus_channel_counts_and_layout_mismatches() {
+        // Family 0 allows only 1 or 2 channels (RFC 7845 §5.1.1.1).
+        for channels in [0u8, 3, 255] {
+            let head = opus_head(1, channels, 0, 0);
+            let params = opus_params(&head, symphonia::core::audio::Channels::FRONT_LEFT);
+            assert!(
+                OpusDecoderAdapter::try_new(&params, &DecoderOptions::default()).is_err(),
+                "{channels} channels should be rejected"
+            );
+        }
+        // The demuxer's channel layout must agree with the header's count.
+        let head = opus_head(1, 2, 0, 0);
+        let params = opus_params(&head, symphonia::core::audio::Channels::FRONT_LEFT);
+        assert!(OpusDecoderAdapter::try_new(&params, &DecoderOptions::default()).is_err());
     }
     #[test]
     fn accepts_stereo_float_wav_at_common_sample_rates_without_padding_duration() {
@@ -382,6 +923,8 @@ mod tests {
             "speech.aac",
             "speech.flac",
             "speech.ogg",
+            "speech-opus.ogg",
+            "speech-opus.opus",
             "speech.aiff",
             "speech-24bit.wav",
         ] {
@@ -404,8 +947,13 @@ mod tests {
                 "Import modified {name}"
             );
         }
+        // Multichannel Opus must be refused rather than downmixed blindly.
         let fixture = Fixture::new();
-        assert!(normalize(&root.join("unsupported-opus.ogg"), &fixture.output).is_err());
+        let error = normalize(&root.join("multichannel-opus.ogg"), &fixture.output).unwrap_err();
+        assert!(
+            error.contains("mono or stereo"),
+            "unexpected error: {error}"
+        );
         assert!(!fixture.output.exists());
     }
 }

@@ -7,10 +7,13 @@ app is a **macOS developer preview**; multiplatform support is planned.
 ## What works today
 
 - Import WAV, MP3, M4A/MP4 audio (AAC-LC or ALAC), raw AAC-LC, FLAC,
-  Ogg/Vorbis, and AIFF, up to 30 minutes / 512 MiB per file.
-- Transcribe locally on the CPU with an imported Whisper Tiny, Base, or Small model.
+  Ogg/Vorbis or Opus, and AIFF, up to 30 minutes / 512 MiB per file.
+- Transcribe locally on the CPU with an imported Whisper GGML model,
+  including Tiny, Base, Small, Medium, Large, and Large V3 Turbo.
 - Auto-detect the spoken language, or select English or Ukrainian.
 - Keep a local SQLite library, edit timestamped transcripts, and export TXT or SRT.
+- Play local audio, seek from timestamps, and follow highlighted transcript paragraphs.
+- Detect speakers offline with optional imported ONNX models and edit speaker labels.
 - Cancel transcription, retry interrupted jobs, and delete local library entries.
 
 No account, backend, API keys, Docker, or paid transcription service is needed
@@ -53,27 +56,28 @@ each platform.
 - **iOS/iPadOS and Android:** later milestones requiring mobile file import,
   recording, responsive UI, and memory, thermal, and lifecycle validation.
 
-Only macOS has been built and validated so far. The current bundle configuration
-produces a macOS `.app`; other targets and store releases are not ready yet.
+The default bundle configuration produces a macOS `.app`. CI packaging targets
+macOS, Windows, and Linux; builds do not establish real-device support. Mobile
+feasibility probes and an optional iOS simulator build are documented separately
+in the [mobile feasibility report](docs/MOBILE_FEASIBILITY.md). Store releases
+and full platform/device validation remain outstanding.
 
 ## Development plan
 
-1. **Desktop reliability:** bounded-memory transcription beyond the current
-   30-minute cap, verified model downloads, device benchmarks, and acceleration
-   evaluation, starting with Metal on Apple silicon.
-2. **Desktop usability:** microphone recording, playback, search, DOCX export,
-   Ukrainian UI, accessibility, and keyboard support.
-3. **Multiplatform desktop beta:** Windows build and installer, then Linux
-   evaluation, with repeatable per-platform checks and import/edit/export testing.
-4. **macOS release:** finalize product identity and free/Pro scope, implement a
-   one-time purchase and restore flow, and complete signing, sandboxing, privacy
-   metadata, and store validation. The preview currently has no purchase gates.
-5. **Mobile:** initialize and validate iOS/iPadOS and Android targets, adapt native
-   integrations and UI, and measure real-device performance before release.
+The [offline-first delivery plan](docs/OFFLINE_FIRST_PLAN.md) defines the current
+priorities: durable local data, desktop validation, mobile feasibility, and optional
+device sync before store monetization. The core transcription workflow must remain
+usable offline without an account.
 
-See the [development roadmap](docs/NATIVE_ROADMAP.md) for detailed milestones,
-release criteria, and previous verification results. Speaker separation, local
-summaries, and cross-store purchase portability remain future work.
+Next work includes bounded-memory inference beyond the 30-minute cap, verified
+model downloads, device benchmarks and acceleration evaluation, microphone
+recording, search, DOCX export, Ukrainian UI, and accessibility. Playback and
+optional offline speaker detection are already implemented; see the
+[speaker guide](native/SPEAKER_DIARIZATION.md) for setup and validation limits.
+
+See the [native roadmap](docs/NATIVE_ROADMAP.md) for detailed release criteria and
+verification history. Local summaries and cross-store purchase portability remain
+future work.
 
 ## Checks and builds
 

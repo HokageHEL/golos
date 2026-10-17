@@ -1,5 +1,10 @@
 # Golos native and multiplatform development plan
 
+For the current offline-first, all-platform direction and optional device sync,
+see [the delivery plan](OFFLINE_FIRST_PLAN.md). It supersedes the sequencing below:
+cross-platform validation and durable local data now precede store monetization.
+The completed preview work and verification history below remain applicable.
+
 ## Product direction
 
 Private transcription on the user's device. Free download with a useful trial
@@ -19,16 +24,18 @@ Cloud services, if introduced, must have separately sustainable pricing.
 
 ## Milestone 2: usable desktop beta
 
-- [x] Common audio formats (M4A/AAC-LC/ALAC, MP3, FLAC, Ogg/Vorbis, AIFF, WAV),
-      stereo/multichannel downmixing and multiple sample rates.
+- [x] Common audio formats (M4A/AAC-LC/ALAC, MP3, FLAC, Ogg/Vorbis or Opus, AIFF,
+      WAV), stereo/multichannel downmixing and multiple sample rates.
 - [x] Streamed import decoding, anti-alias resampling, partial-file cleanup, and
-      Small/Base/Tiny model limits with quantized multilingual Small recommended.
+      GGML header validation across the standard Whisper family (quantized
+      multilingual Small recommended; Tiny/Base/Small were the original subset).
 - [ ] Robust long-recording handling and bounded-memory inference beyond the
       current 30-minute cap (inference still loads normalized f32 audio).
 - [ ] Curated model downloads with pinned hashes, progress, cancellation,
       free-space checks, model metadata, and removal.
 - [ ] Device benchmarks and acceleration evaluation (Metal first on Apple silicon).
-- [ ] Microphone recording, playback, search, and DOCX export.
+- [x] Local playback, seeking, and transcript highlighting.
+- [ ] Microphone recording, search, and DOCX export.
 - [ ] Ukrainian UI, accessibility, keyboard operation, and native lifecycle QA.
 - [ ] Complete the desktop platform rollout and acceptance checks below.
 
@@ -48,7 +55,7 @@ These are planned acceptance criteria, not claims of current support.
 3. **Linux evaluation:** select supported distributions and package formats, verify
    system dependencies and desktop file dialogs, then run the same workflow and
    resource checks before declaring support.
-4. **Repeatable verification:** add platform CI for the frontend build, Rust tests,
+4. **Repeatable verification:** validate the added platform CI for the frontend build, Rust tests,
    formatting, Clippy, and packaging. Keep real-model smoke tests opt-in with local
    fixtures; record manual device results and known limitations for each release.
 
@@ -73,7 +80,8 @@ platform. Microphone features also require device and permission testing.
 - [ ] Implement mobile-native file import, recording permissions, and export/share.
 - [ ] Verify persistence, cancellation, and recovery across app suspension/restarts.
 - [ ] Memory, thermal, battery, interruption, and background-execution tests.
-- [ ] Separate on-device diarization pipeline and accuracy evaluation.
+- [x] Optional offline diarization pipeline with manually imported ONNX models.
+- [ ] Broader diarization accuracy and device evaluation.
 - [ ] Optional local summaries, with independent model/hardware requirements.
 - [ ] Cross-store purchase entitlement system if one purchase covers all platforms.
 
@@ -131,3 +139,69 @@ suite. TXT/SRT export helpers and their tests now live inside `native/src/`.
 
 Root `dev`, `build`, and `typecheck` scripts target the native app. `npm test` runs
 the retained frontend helper tests; `npm run native:test` runs the Rust suite.
+
+## Ogg Opus imports — 2026-10-17
+
+- The importer accepts Ogg Opus (`.ogg`, `.oga`, `.opus`) alongside Vorbis. Opus
+  decodes at its native 48 kHz through the pure-Rust `rusty-opus` crate — no FFI,
+  no bundled C library, and nothing installed or executed at runtime — and is
+  resampled to 16 kHz by the existing Rubato path, so only the codec registry
+  changed, not the streaming/resampling design. `rusty-opus` is a new dependency
+  validated here only by the committed regression fixtures below, not by an
+  external conformance run.
+- The adapter honors the OpusHead pre-skip, Symphonia's gapless end trim, and the
+  signed Q7.8 dB OpusHead output gain (RFC 7845 §5.1). The committed 2.0 s stereo
+  and 1.5 s mono Ogg Opus fixtures import as exactly 2.0 s and 1.5 s of
+  non-silent audio, a fixture whose ID header advertises a non-48 kHz input rate
+  imports identically, and a fixture relabelled with a known -6.02 dB gain
+  decodes to about half the amplitude. Those exact durations are what the tests
+  demonstrate; this is not a claim of sample-accuracy for arbitrary Opus files.
+- Supported Opus is limited to channel mapping family 0 (plain mono or stereo).
+  Family 1 — including its one- and two-channel cases, which carry a channel
+  mapping table this single-stream adapter does not implement — family 255,
+  channel counts other than 1 or 2, and identification-header versions above 15
+  are refused. Chained Ogg streams, empty audio packets, and corrupted or
+  truncated streams fail with a clear error and remove partial output instead of
+  emitting invented audio.
+- The default `cargo test` run now exercises real Ogg Opus and Vorbis decoding
+  using small committed tone fixtures, so it needs no external binaries and no
+  network; `scripts/create-audio-fixtures.py --synthetic` rebuilds them with
+  opus-tools and vorbis-tools (test tooling only). Their provenance is documented
+  in `native/src-tauri/tests/fixtures/README.md`.
+
+## Larger Whisper models — 2026-10-17
+
+- The app-imposed model ceiling is gone. `model.rs` previously accepted only
+  Tiny/Base/Small GGML files between 1 MB and 512 MiB; it now accepts the standard
+  Whisper family (Tiny, Base, Small, Medium, Large, and Large V3 Turbo), including
+  quantized variants such as `ggml-large-v3-turbo-q5_0.bin`, with no upper file
+  size. Magic, complete-header and recognized-architecture checks remain, and
+  `import_model` still copies then loads the file once before replacing a working
+  model, so an incompatible or corrupt file never overwrites a usable one. The
+  CPU inference path and the 30-minute/512-MiB **audio** import caps are unchanged.
+- The label is derived from the real GGML header, not the file name (the stored
+  model is always `model.bin`): encoder depth names the family, and within the
+  32-layer encoder a 4-layer decoder identifies large-v3-turbo while 32 decoder
+  layers identify large (v3 when the vocabulary is 51,866). This matches
+  whisper.cpp's own header parsing and the logged header of the upstream
+  large-v3-turbo model. English-only detection (`n_vocab == 51,864`) is preserved.
+- Tests in `model.rs` build representative Tiny/Medium/Large/Turbo headers and
+  sparse fixtures larger than 512 MiB without allocating large buffers, and cover
+  bad magic, a truncated header, and an unrecognized architecture. They assert
+  header acceptance and labelling only; **no real Turbo inference or benchmark was
+  run**, because no such model is present in this checkout. Large-model memory,
+  latency and accuracy remain unmeasured, and the roadmap's "no public promise of
+  Large V3 Turbo performance" still stands.
+
+## Playback and speaker detection — 2026-10-17
+
+- Local audio playback, seeking, speed controls, timestamp navigation, and
+  paragraph highlighting are implemented.
+- Optional offline sherpa-onnx diarization uses manually imported ONNX models.
+  Labels are editable drafts and do not overwrite saved content until Save.
+- A native inference smoke test on the upstream four-speaker Chinese sample
+  passed with int8 pyannote segmentation and NeMo small embedding. This does not
+  validate Ukrainian accuracy or mobile behavior. See
+  [speaker setup and evidence](../native/SPEAKER_DIARIZATION.md).
+- Cancellation waits for the current native inference pass. Search, recording,
+  word-level alignment, and platform/device validation remain future work.
