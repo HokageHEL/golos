@@ -301,7 +301,10 @@ landed, so they describe the current tree:
 
 ## Distribution
 
-`npm run native:bundle` builds a macOS app bundle. For a faster local test bundle,
+`npm run native:bundle` builds a macOS app bundle targeting macOS 13.3 or newer.
+The explicit deployment target covers Whisper’s C++ filesystem and newer
+Accelerate interfaces; Tauri’s default macOS 10.13 target cannot build this engine.
+For a faster local test bundle,
 use `npm run native:bundle -- --debug`. The identifier is provisional and must be
 confirmed before store registration. The generated icon is a placeholder.
 
