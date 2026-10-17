@@ -30,7 +30,9 @@ Verified by source inspection, not newly executed device tests:
   Vorbis and mono/stereo Opus), downmixes and resamples to local WAV, with
   cleanup and a 30-minute/512-MiB import cap.
 - `engine.rs` uses whisper-rs CPU inference, progress and cancellation;
-  `model.rs` accepts Tiny/Base/Small GGML models, including quantized variants.
+  `model.rs` validates the GGML header and accepts the standard Whisper family
+  (Tiny through Large V3 Turbo, including quantized variants) with no app-imposed
+  file-size ceiling.
 - `library.rs` persists recordings and transcript segments in SQLite and marks
   interrupted jobs failed, allowing a manual transcription retry. There is no
   durable retry queue. The UI supports explicit save/discard and TXT/SRT
@@ -52,10 +54,12 @@ Verified by source inspection, not newly executed device tests:
 ## Architecture decisions
 
 1. **Keep the existing engine first.** Use multilingual quantized Small as the
-   desktop quality candidate and Tiny/Base as lower-resource candidates. Select
-   defaults from measured English/Ukrainian quality, peak memory, latency, battery,
-   and thermal behavior; do not promise Small on every phone. Benchmark alternative
-   engines only if an explicit device/language target fails.
+   desktop quality candidate, Tiny/Base as lower-resource candidates, and
+   Medium/Large/Large V3 Turbo (including quantized) as opt-in quality candidates.
+   Select defaults from measured English/Ukrainian quality, peak memory, latency,
+   battery, and thermal behavior; do not promise Small on every phone, and do not
+   promise large-model performance, RAM, or speed. Benchmark alternative engines
+   only if an explicit device/language target fails.
 2. **Rust owns local durability.** Keep SQLite, model/audio files, inference and
    job scheduling behind typed IPC. Extract narrow storage/job interfaces as
    needed; do not introduce a large engine abstraction before a second engine.

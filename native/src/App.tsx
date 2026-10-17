@@ -129,7 +129,7 @@ export default function App() {
 
         <section className="model-card" aria-label="Transcription model">
           <div><div className="eyebrow">OFFLINE ENGINE</div><h2>{setup?.modelReady ? `${setup.modelName} is ready` : 'Small model. Private transcription.'}</h2>
-            <p>{setup?.modelReady ? 'Audio and transcripts are processed and stored on this device.' : 'Recommended: multilingual Whisper Small (ggml-small-q5_1.bin). Import once to transcribe offline. Tiny and Base models also work.'}</p></div>
+            <p>{setup?.modelReady ? 'Audio and transcripts are processed and stored on this device.' : 'Recommended: multilingual Whisper Small (ggml-small-q5_1.bin). Import once to transcribe offline. Tiny, Base, Medium, Large and Large V3 Turbo models (including quantized GGML) also work; larger models need more memory.'}</p></div>
           <button className="secondary" disabled={locked || dirty} onClick={() => perform('Loading model', async () => {
             if (await api.importModel()) { setSetup(await api.setup()); setMessage('Model imported. You’re ready to transcribe offline.'); }
           })}>{setup?.modelReady ? 'Replace model' : 'Import model'}</button>

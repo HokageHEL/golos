@@ -40,10 +40,13 @@ Polar, Redis, accounts, or environment secrets are needed for native use.
 1. Obtain a compatible whisper.cpp GGML `.bin` model from the
    [upstream model repository](https://huggingface.co/ggerganov/whisper.cpp).
    Recommended: multilingual **`ggml-small-q5_1.bin`** for English/Ukrainian,
-   approximately 190 MB on disk. Tiny and Base also work for faster/lighter tests.
-   `.en` models support English only. Medium/Large models are rejected before
-   loading; supported models are capped at 512 MiB. Model working memory exceeds
-   file size, even with quantization.
+   approximately 190 MB on disk. Tiny and Base work for faster/lighter tests.
+   The standard Whisper family is accepted — Medium, Large, and Large V3 Turbo
+   (for example `ggml-large-v3-turbo-q5_0.bin`), including quantized variants.
+   Golos imposes no file-size ceiling of its own; the file is checked by its GGML
+   header and loaded once before it replaces a working model. `.en` models support
+   English only. Model working memory exceeds the file size, even with
+   quantization, so larger models need more RAM.
 2. Choose **Import model**. Golos copies and loads the model before activating it.
    Importing/replacing a model can take time; the previous model is retained if
    validation fails. Automatic downloads and disk-space estimates are follow-up work.
@@ -149,8 +152,10 @@ npm test
 ```
 
 The default Rust tests cover PCM decoding, stereo/float imports at common rates,
-downmixing, anti-alias filtering, exact output duration, invalid/oversized files,
-model limits, timestamp validation, SQLite persistence, interrupted-job recovery,
+downmixing, anti-alias filtering, exact output duration, invalid/oversized audio
+files, Whisper model-header validation (family, English-only and Large V3 Turbo
+detection, plus sparse fixtures beyond the old 512 MiB ceiling), timestamp
+validation, SQLite persistence, interrupted-job recovery,
 and the library migrations: fresh creation and reopen; a preview (`user_version` 0)
 fixture whose title, timestamps and transcript survive; the pre-upgrade snapshot
 (including content that is only in the `-wal` file) opened as an independent
@@ -256,7 +261,9 @@ toolchain-free evidence:
 
 On 2026-10-17 the Rust and CMake toolchain was installed in this checkout and the
 native checks were run here for real, on the same tree that carries
-`native/src-tauri/src/migrations.rs`:
+`native/src-tauri/src/migrations.rs`. The counts below were refreshed the same day
+after the Ogg Opus import support and the larger-Whisper-model header validation
+landed, so they describe the current tree:
 
 - Present: Node 22.22.3 with npm 10.9.8; Rust/Cargo 1.99.1 through rustup 1.29.1,
   with the `clippy` and `rustfmt` components; CMake 4.4.4; and Apple clang 21.0.0
@@ -271,9 +278,12 @@ native checks were run here for real, on the same tree that carries
   exits 0 with no warnings, and the same command with `--all-targets` (which also
   lints the test code) also exits 0.
 - `cargo test --locked --manifest-path native/src-tauri/Cargo.toml` passes:
-  **24 passed; 0 failed; 2 ignored** — `audio` 2, `import` 5 executed (1 ignored),
-  `library` 2, `migrations` 14, `model` 1. The two `#[ignore]`d integration tests
-  need local model/audio fixtures and were not run.
+  **39 passed; 0 failed; 2 ignored** — `audio` 2, `import` 17 executed (1 ignored),
+  `library` 2, `migrations` 14, `model` 4. Both `#[ignore]`d integration tests
+  (real inference and real codecs) need local fixtures and were not run. The 39
+  include the committed Ogg Opus/Vorbis fixtures and the model-header tests added
+  with the larger-model support (family, English-only and Large V3 Turbo labels,
+  plus sparse fixtures beyond the old 512 MiB ceiling).
 - `npm run lint`, `npm run typecheck`, `npm run native:build` and `npm test` (22
   files, 112 tests) all pass on the same date.
 - Not executed here: desktop bundle builds, Windows/Linux builds, device runs and

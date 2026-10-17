@@ -27,7 +27,8 @@ Cloud services, if introduced, must have separately sustainable pricing.
 - [x] Common audio formats (M4A/AAC-LC/ALAC, MP3, FLAC, Ogg/Vorbis or Opus, AIFF,
       WAV), stereo/multichannel downmixing and multiple sample rates.
 - [x] Streamed import decoding, anti-alias resampling, partial-file cleanup, and
-      Small/Base/Tiny model limits with quantized multilingual Small recommended.
+      GGML header validation across the standard Whisper family (quantized
+      multilingual Small recommended; Tiny/Base/Small were the original subset).
 - [ ] Robust long-recording handling and bounded-memory inference beyond the
       current 30-minute cap (inference still loads normalized f32 audio).
 - [ ] Curated model downloads with pinned hashes, progress, cancellation,
@@ -123,3 +124,27 @@ the local bridge is covered by real transcription and mid-call cancellation test
   network; `scripts/create-audio-fixtures.py --synthetic` rebuilds them with
   opus-tools and vorbis-tools (test tooling only). Their provenance is documented
   in `native/src-tauri/tests/fixtures/README.md`.
+
+## Larger Whisper models — 2026-10-17
+
+- The app-imposed model ceiling is gone. `model.rs` previously accepted only
+  Tiny/Base/Small GGML files between 1 MB and 512 MiB; it now accepts the standard
+  Whisper family (Tiny, Base, Small, Medium, Large, and Large V3 Turbo), including
+  quantized variants such as `ggml-large-v3-turbo-q5_0.bin`, with no upper file
+  size. Magic, complete-header and recognized-architecture checks remain, and
+  `import_model` still copies then loads the file once before replacing a working
+  model, so an incompatible or corrupt file never overwrites a usable one. The
+  CPU inference path and the 30-minute/512-MiB **audio** import caps are unchanged.
+- The label is derived from the real GGML header, not the file name (the stored
+  model is always `model.bin`): encoder depth names the family, and within the
+  32-layer encoder a 4-layer decoder identifies large-v3-turbo while 32 decoder
+  layers identify large (v3 when the vocabulary is 51,866). This matches
+  whisper.cpp's own header parsing and the logged header of the upstream
+  large-v3-turbo model. English-only detection (`n_vocab == 51,864`) is preserved.
+- Tests in `model.rs` build representative Tiny/Medium/Large/Turbo headers and
+  sparse fixtures larger than 512 MiB without allocating large buffers, and cover
+  bad magic, a truncated header, and an unrecognized architecture. They assert
+  header acceptance and labelling only; **no real Turbo inference or benchmark was
+  run**, because no such model is present in this checkout. Large-model memory,
+  latency and accuracy remain unmeasured, and the roadmap's "no public promise of
+  Large V3 Turbo performance" still stands.
