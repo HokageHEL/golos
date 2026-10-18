@@ -5,6 +5,8 @@ import { toPlainText } from '../../lib/export/txt';
 import { toSrt } from '../../lib/export/srt';
 import type { Segment } from '../../lib/transcript/types';
 import { api, nativeAvailable, type Note, type Setup } from './api';
+import Settings from './Settings';
+import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 
 const timestamp = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -22,8 +24,18 @@ export default function App() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(readTheme);
   const active = notes.find(note => note.id === selected);
   const locked = Boolean(busy) || loading || !nativeAvailable;
+
+  useEffect(() => {
+    applyTheme(theme);
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => applyTheme(theme);
+    if (theme === 'system') media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [theme]);
 
   useEffect(() => {
     if (!nativeAvailable) return;
@@ -73,6 +85,14 @@ export default function App() {
       if (note) { setNotes(await api.list()); select(note); }
     });
   }
+  async function importModel() {
+    await perform('Loading model', async () => {
+      if (await api.importModel()) {
+        setSetup(await api.setup());
+        setMessage('Model imported. You’re ready to transcribe offline.');
+      }
+    });
+  }
   async function transcribe() {
     if (!active) return;
     setProgress(0);
@@ -116,6 +136,9 @@ export default function App() {
           <span className="recording-meta">{timestamp(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
         </button>)}
       </nav>
+      <button className="settings-trigger" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
+        <span aria-hidden="true">⚙</span> Settings
+      </button>
       <div className="sidebar-footer"><span className="status-dot"/> Local processing <span className="version">Preview 0.1</span></div>
     </aside>
 
@@ -123,17 +146,9 @@ export default function App() {
       <header className="topbar"><span>Private transcription</span><span className="pill">No account needed</span></header>
       <div className="workspace">
         {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to import files, transcribe, and save to your local library.</div>}
-        {error && <div className="notice error" role="alert">{error}</div>}
-        {message && <div className="notice success" role="status">{message}</div>}
+        {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
+        {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
         {busy && !active && <div className="processing" role="status">{busy}…</div>}
-
-        <section className="model-card" aria-label="Transcription model">
-          <div><div className="eyebrow">OFFLINE ENGINE</div><h2>{setup?.modelReady ? `${setup.modelName} is ready` : 'Small model. Private transcription.'}</h2>
-            <p>{setup?.modelReady ? 'Audio and transcripts are processed and stored on this device.' : 'Recommended: multilingual Whisper Small (ggml-small-q5_1.bin). Import once to transcribe offline. Tiny and Base models also work.'}</p></div>
-          <button className="secondary" disabled={locked || dirty} onClick={() => perform('Loading model', async () => {
-            if (await api.importModel()) { setSetup(await api.setup()); setMessage('Model imported. You’re ready to transcribe offline.'); }
-          })}>{setup?.modelReady ? 'Replace model' : 'Import model'}</button>
-        </section>
 
         {!active ? <section className="welcome">
           <div className="wave" aria-hidden="true">{[18, 36, 60, 42, 80, 54, 30, 60, 38, 18].map((height, i) => <span key={i} style={{ height }}/>)}</div>
@@ -157,6 +172,7 @@ export default function App() {
           {active.status !== 'done' && <div className="transcribe-card">
             <div><h2>{active.status === 'failed' ? 'Ready for another try' : 'Ready when you are'}</h2><p>Transcription runs locally. Audio is automatically converted to the format Whisper needs.</p>
               {active.error && <p className="error-text">{active.error}</p>}</div>
+            {!loading && !setup?.modelReady && <p>Choose a transcription model in <button className="inline-button" onClick={() => setSettingsOpen(true)}>Settings</button> to get started.</p>}
             <div className="actions"><label>Audio language<select value={language} disabled={locked} onChange={e => setLanguage(e.target.value)}>
               <option value="auto">Detect automatically</option><option value="en">English</option><option value="uk">Ukrainian</option></select></label>
               <button className="primary" disabled={locked || !setup?.modelReady} onClick={transcribe}>Transcribe offline</button></div>
@@ -184,5 +200,9 @@ export default function App() {
         <footer className="workspace-footer"><span>Audio is never uploaded for transcription.</span><span>No speaker separation in this preview.</span></footer>
       </div>
     </main>
+    {settingsOpen && <Settings theme={theme} onThemeChange={value => { saveTheme(value); setTheme(value); }}
+      setup={setup} modelDisabled={locked || dirty} loadingModel={busy === 'Loading model'} dirty={dirty}
+      nativeAvailable={nativeAvailable} error={error} message={message} onImportModel={importModel}
+      onClose={() => setSettingsOpen(false)}/>}
   </div>;
 }

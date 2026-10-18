@@ -31,7 +31,8 @@ Polar, Redis, accounts, or environment secrets are needed for native use.
    `.en` models support English only. Medium/Large models are rejected before
    loading; supported models are capped at 512 MiB. Model working memory exceeds
    file size, even with quantization.
-2. Choose **Import model**. Golos copies and loads the model before activating it.
+2. Open **Settings** in the sidebar and choose **Import model** under
+   **Transcription model**. Golos copies and loads the model before activating it.
    Importing/replacing a model can take time; the previous model is retained if
    validation fails. Automatic downloads and disk-space estimates are follow-up work.
 3. Import **WAV, MP3, M4A/MP4 (AAC-LC or ALAC), raw AAC-LC, FLAC, Ogg/Vorbis,
@@ -46,6 +47,13 @@ Polar, Redis, accounts, or environment secrets are needed for native use.
 Inference currently uses the CPU for a portable baseline. No speaker separation,
 recording, summaries, cloud sync, ads, or payment integration is included yet.
 An imported English-only model cannot produce Ukrainian transcription.
+
+## Appearance
+
+Open **Settings → Appearance** to choose Light, Dark, or System. The choice is
+saved on this device and applied at startup; System follows changes to the
+device's color scheme. Appearance settings also work in the browser preview.
+Model import/replacement remains available only in the desktop app.
 
 ## Storage and privacy
 
