@@ -42,7 +42,17 @@ Polar, Redis, accounts, or environment secrets are needed for native use.
    MP4 imports its first supported audio track, not video. Opus, HE-AAC, DRM,
    video-only files, and mid-file rate/layout changes are not supported.
 4. Choose auto-detection, English, or Ukrainian, then **Transcribe offline**.
-5. Edit paragraphs, save locally, and export TXT or SRT through a native save dialog.
+5. Review the transcript with the local audio player. Click a paragraph timestamp
+   to play from that point; adjust speed or skip back/forward ten seconds.
+   The paragraph at the current playback position is highlighted.
+6. Find text with **Find in transcript** and navigate occurrences with the arrows
+   or Enter / Shift+Enter in the search field. Search includes unsaved edits.
+7. Edit paragraphs, save locally, and export TXT or SRT through a native save dialog.
+
+When the player itself has keyboard focus, Space toggles playback and Left/Right
+skip ten seconds. These shortcuts do not intercept typing in the transcript or
+search field. Switching recordings stops playback. Missing audio shows a retry
+option without preventing transcript editing or export.
 
 Inference currently uses the CPU for a portable baseline. No speaker separation,
 recording, summaries, cloud sync, ads, or payment integration is included yet.
@@ -62,6 +72,11 @@ in Tauri's application data directory (normally
 `~/Library/Application Support/com.golos.transcription` on macOS). This is local
 storage, not application-level encrypted storage; normal OS permissions and disk
 encryption apply. Exported files go where the user chooses.
+
+Playback reads the normalized WAV through Tauri's local asset protocol, scoped to
+`$APPDATA/audio/*.wav`. The native command accepts a library recording ID rather
+than an arbitrary file path. No audio is uploaded or copied into JavaScript memory
+for playback.
 
 Imports decode packet by packet, downmix to mono, and use a sinc resampler with
 anti-alias filtering to write 16 kHz PCM directly to disk. It does not keep a

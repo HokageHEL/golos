@@ -32,7 +32,9 @@ release commitments; audio-linked review and search are the recommended next sli
 - [ ] Curated model downloads with pinned hashes, progress, cancellation,
       free-space checks, model metadata, and removal.
 - [ ] Device benchmarks and acceleration evaluation (Metal first on Apple silicon).
-- [ ] Microphone recording, playback, search, and DOCX export.
+- [x] Local audio playback, timestamp seeking, speed/skip controls, current-segment
+      highlighting, and search within the editable transcript.
+- [ ] Microphone recording, library-wide search, and DOCX export.
 - [ ] Ukrainian UI, accessibility, keyboard operation, and native lifecycle QA.
 - [ ] Windows build/packaging and real-device tests; then Linux evaluation.
 
@@ -56,6 +58,22 @@ release commitments; audio-linked review and search are the recommended next sli
 
 No public promise of Large V3 Turbo performance, unlimited-length recordings,
 speaker identification, or all-platform purchase portability until validated.
+
+## Transcript review — 2026-10-18
+
+- Added local playback of normalized audio with a constrained Tauri asset scope,
+  segment timestamp seeking, playback speed, ten-second skips, and highlighting.
+- Transcript search matches English/Ukrainian text and literal punctuation,
+  selects individual occurrences, and includes unsaved edits.
+- Playback is released when leaving a recording. Missing audio leaves editing and
+  exports available and provides an explicit retry action.
+- Native frontend build, repository lint, web/native TypeScript checks, 116
+  JavaScript tests, 10 native tests, Rust Clippy, and formatting checks passed.
+  The two opt-in codec/inference tests were not rerun for this change.
+- An unsigned macOS debug bundle was tested with synthetic WAV audio and an
+  isolated QA library, including timestamp playback, speed selection, match
+  navigation, live edits, and recovery after missing audio was restored. This does not replace
+  accessibility review or testing in a signed, sandboxed release.
 
 ## Preview verification — 2026-10-16
 

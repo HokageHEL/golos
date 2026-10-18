@@ -6,6 +6,7 @@ import { toSrt } from '../../lib/export/srt';
 import type { Segment } from '../../lib/transcript/types';
 import { api, nativeAvailable, type Note, type Setup } from './api';
 import Settings from './Settings';
+import RecordingReview from './RecordingReview';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 
 const timestamp = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
@@ -188,13 +189,10 @@ export default function App() {
               <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('srt')}>Export SRT</button>
             </div></div>
             {dirty && <p className="unsaved" role="status">Unsaved edits — save or discard before opening another recording.</p>}
-            <div className="transcript">{draft.map((segment, index) => <label className="segment" key={index}>
-              <span className="timecode">{timestamp(segment.startMs)}</span>
-              <textarea aria-label={`Transcript at ${timestamp(segment.startMs)}`} value={segment.text} disabled={locked}
-                rows={Math.max(2, Math.ceil(segment.text.length / 85))} onChange={e => {
-                  setDraft(current => current.map((item, n) => n === index ? { ...item, text: e.target.value } : item)); setDirty(true);
-                }}/>
-            </label>)}</div>
+            <RecordingReview key={active.id} noteId={active.id} durationSeconds={active.durationSeconds}
+              segments={draft} disabled={locked} onChange={(index, text) => {
+                setDraft(current => current.map((item, n) => n === index ? { ...item, text } : item)); setDirty(true);
+              }}/>
           </>}
         </section>}
         <footer className="workspace-footer"><span>Audio is never uploaded for transcription.</span><span>No speaker separation in this preview.</span></footer>

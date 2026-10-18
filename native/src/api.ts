@@ -1,4 +1,4 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import type { Segment } from '../../lib/transcript/types';
 
 export type Note = {
@@ -10,6 +10,7 @@ export const nativeAvailable = isTauri();
 export const api = {
   setup: () => invoke<Setup>('setup_status'),
   list: () => invoke<Note[]>('list_notes'),
+  audioSource: async (id: string) => convertFileSrc(await invoke<string>('recording_audio', { id })),
   importAudio: () => invoke<Note | null>('import_audio'),
   importModel: () => invoke<boolean>('import_model'),
   transcribe: (id: string, language: string) => invoke<void>('transcribe', { id, language }),

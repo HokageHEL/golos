@@ -72,6 +72,27 @@ fn list_notes(state: State<AppState>) -> Result<Vec<Note>, String> {
     library::list(&*state.db()?)
 }
 
+#[tauri::command]
+fn recording_audio(state: State<AppState>, id: String) -> Result<String, String> {
+    let path = state.audio_path(&id)?;
+    let exists: bool = state
+        .db()?
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM notes WHERE id=?1)",
+            [&id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !exists || !path.is_file() {
+        return Err(
+            "Audio is missing from this device. Your saved transcript is still available.".into(),
+        );
+    }
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "Unsupported audio path.".into())
+}
+
 // Pickers run on a blocking worker, never on the webview thread. Paths are chosen
 // natively: the webview cannot supply arbitrary filesystem paths to these commands.
 #[tauri::command]
@@ -305,6 +326,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             setup_status,
             list_notes,
+            recording_audio,
             import_audio,
             import_model,
             transcribe,

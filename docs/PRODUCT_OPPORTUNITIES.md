@@ -3,6 +3,11 @@
 Research date: 2026-10-18. Recommendations for the offline native app, following
 the direction in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md).
 
+Implementation update: audio-linked playback and transcript search from this
+proposal are now implemented. See [native usage](../native/README.md) and the
+[roadmap verification record](NATIVE_ROADMAP.md). The baseline below records
+the app as inspected before those additions.
+
 ## Recommendation
 
 Build a private workspace for turning interviews and lectures into reviewed,
@@ -15,7 +20,7 @@ uses public first-party documentation, not hands-on competitor testing. Features
 can vary by platform, edition, model, and configuration. Proposed differentiators
 are opportunities, not claims that no competing product offers them.
 
-## What Golos has today
+## Baseline inspected for this review
 
 Verified against `native/src/App.tsx`, `native/src/api.ts`, the Rust commands,
 and `native/README.md`:
