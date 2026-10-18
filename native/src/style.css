@@ -1,444 +1,599 @@
+:root {
+  color-scheme: light;
+  --text: #25392f;
+  --background: #f7f6f2;
+  --sidebar: #eeeee7;
+  --border: #dce1d4;
+  --muted: #65735e;
+  --accent: #2d5140;
+  --accent-hover: #203d2e;
+  --on-accent: #fff;
+  --surface: #fff;
+  --surface-hover: #f2f4ee;
+  --selected: #dde5d8;
+  --subtle: #edf0e6;
+  --decoration: #bccbb1;
+  --decoration-strong: #8fa683;
+  --brand: #b87947;
+  --status: #5e8a63;
+  --focus: #a36b21;
+  --error-background: #fff0e8;
+  --error-border: #efd4c7;
+  --error: #9b4d35;
+  --danger-action: #a35139;
+  --success-background: #eaf2e5;
+  --success: #3b643d;
+  --warning: #8b632e;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --text: #e1e8dd;
+  --background: #191f1c;
+  --sidebar: #202822;
+  --border: #3a473d;
+  --muted: #a7b5a1;
+  --accent: #a9c79b;
+  --accent-hover: #bed6b2;
+  --on-accent: #17251b;
+  --surface: #252e28;
+  --surface-hover: #303d33;
+  --selected: #354838;
+  --subtle: #27372c;
+  --decoration: #435941;
+  --decoration-strong: #78956d;
+  --brand: #d6a275;
+  --status: #9cbd88;
+  --focus: #e4b97d;
+  --error-background: #3d2b25;
+  --error-border: #6c493b;
+  --error: #efb19b;
+  --success-background: #293e2a;
+  --success: #b1d6a5;
+  --warning: #e2bd85;
+}
 :root{
   font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  color:#25392f;
-  background:#f7f6f2;
+  color:var(--text);
+  background:var(--background);
   font-synthesis:none;
   text-rendering:optimizeLegibility;
   -webkit-font-smoothing:antialiased;
-  font-size:14px}
-  *{
-    box-sizing:border-box}
-    body{
-      margin:0}
-      button,select,textarea{
-        font:inherit}
-        button{
-          cursor:pointer;
-          transition:background .15s,opacity .15s}
-          button:disabled{
-            cursor:default;
-            opacity:.45}
-            button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{
-              outline:3px solid #d3a45e;
-              outline-offset:3px}
-              button{
-                border:0;
-                border-radius:8px;
-                padding:11px 16px;
-                font-weight:600}
-                h1,h2,p{
-                  margin:0}
-                  h2{
-                    font-size:17px;
-                    line-height:1.4}
-                    p{
-                      line-height:1.6}
-                      a{
-                        color:inherit;
-                        text-decoration:none}
-                        .app{
-                          display:grid;
-                          grid-template-columns:254px 1fr;
-                          min-height:100vh}
-                          .sidebar{
-                            background:#eeeee7;
-                            border-right:1px solid #dedfd5;
-                            padding:35px 20px 20px;
-                            display:flex;
-                            flex-direction:column;
-                            height:100vh;
-                            position:sticky;
-                            top:0}
-                            .brand{
-                              font-size:40px;
-                              font-weight:750;
-                              letter-spacing:-2px;
-                              padding-left:10px}
-                              .brand-dot{
-                                color:#b87947;
-                                font-size:13px;
-                                padding-left:4px}
-                                .tagline{
-                                  color:#798176;
-                                  font-size:12px;
-                                  padding:4px 10px 29px}
-                                  .primary{
-                                    background:#2d5140;
-                                    color:#fff}
-                                    .primary:hover:enabled{
-                                      background:#203d2e}
-                                      .secondary{
-                                        background:#fff;
-                                        border:1px solid #dadfd5;
-                                        color:#354a3b;
-                                        white-space:nowrap}
-                                        .secondary:hover:enabled{
-                                          background:#f2f4ee}
-                                          .import{
-                                            width:100%;
-                                            margin-bottom:35px}
-                                            .library-heading{
-                                              display:flex;
-                                              justify-content:space-between;
-                                              align-items:center;
-                                              padding:0 10px 13px}
-                                              .library-heading h2{
-                                                font-size:11px;
-                                                letter-spacing:1.5px;
-                                                text-transform:uppercase;
-                                                color:#7b8375}
-                                                .library-heading>span{
-                                                  font-size:12px;
-                                                  color:#7b8375}
-                                                  .recordings{
-                                                    overflow:auto;
-                                                    flex:1}
-                                                    .recording{
-                                                      display:block;
-                                                      width:100%;
-                                                      padding:14px 12px;
-                                                      text-align:left;
-                                                      background:transparent;
-                                                      margin:3px 0}
-                                                      .recording.selected{
-                                                        background:#dde5d8}
-                                                        .recording-title{
-                                                          display:block;
-                                                          overflow:hidden;
-                                                          text-overflow:ellipsis;
-                                                          white-space:nowrap;
-                                                          font-weight:600}
-                                                          .recording-meta{
-                                                            display:block;
-                                                            font-size:11px;
-                                                            color:#7a8375;
-                                                            font-weight:400;
-                                                            margin-top:6px}
-                                                            .empty-library{
-                                                              font-size:12px;
-                                                              padding:15px 10px}
-                                                              .sidebar-footer{
-                                                                border-top:1px solid #d9ddd2;
-                                                                padding-top:20px;
-                                                                display:flex;
-                                                                align-items:center;
-                                                                gap:6px;
-                                                                font-size:10px;
-                                                                color:#74806e}
-                                                                .status-dot{
-                                                                  width:6px;
-                                                                  height:6px;
-                                                                  background:#5e8a63;
-                                                                  border-radius:50%}
-                                                                  .version{
-                                                                    margin-left:auto;
-                                                                    color:#949c8d}
-                                                                    main{
-                                                                      min-width:0}
-                                                                      .topbar{
-                                                                        height:77px;
-                                                                        display:flex;
-                                                                        align-items:center;
-                                                                        justify-content:space-between;
-                                                                        border-bottom:1px solid #e5e6dd;
-                                                                        padding:0 38px;
-                                                                        font-size:12px;
-                                                                        color:#7a8476}
-                                                                        .pill{
-                                                                          border:1px solid #dce1d4;
-                                                                          border-radius:20px;
-                                                                          padding:6px 11px;
-                                                                          color:#6d7d68;
-                                                                          font-size:10px}
-                                                                          .workspace{
-                                                                            padding:32px 38px;
-                                                                            max-width:1250px;
-                                                                            margin:auto}
-                                                                            .model-card{
-                                                                              display:flex;
-                                                                              justify-content:space-between;
-                                                                              align-items:center;
-                                                                              gap:25px;
-                                                                              background:#edf0e6;
-                                                                              border:1px solid #dde4d4;
-                                                                              border-radius:13px;
-                                                                              padding:22px 24px}
-                                                                              .eyebrow{
-                                                                                font-size:9px;
-                                                                                font-weight:700;
-                                                                                letter-spacing:1.8px;
-                                                                                color:#8a9a7b;
-                                                                                margin-bottom:8px}
-                                                                                .model-card p{
-                                                                                  font-size:12px;
-                                                                                  color:#78856d;
-                                                                                  margin-top:6px;
-                                                                                  max-width:550px}
-                                                                                  .model-card button{
-                                                                                    font-size:12px}
-                                                                                    .welcome{
-                                                                                      text-align:center;
-                                                                                      padding:68px 0 70px}
-                                                                                      .wave{
-                                                                                        height:85px;
-                                                                                        display:flex;
-                                                                                        align-items:center;
-                                                                                        justify-content:center;
-                                                                                        gap:5px;
-                                                                                        margin-bottom:30px}
-                                                                                        .wave span{
-                                                                                          width:6px;
-                                                                                          border-radius:6px;
-                                                                                          background:#bccbb1}
-                                                                                          .wave span:nth-child(3n){
-                                                                                            background:#8fa683}
-                                                                                            .welcome h1{
-                                                                                              font-family:Georgia,serif;
-                                                                                              font-weight:400;
-                                                                                              font-size:42px;
-                                                                                              line-height:1.18;
-                                                                                              letter-spacing:-1.3px;
-                                                                                              margin:16px 0 20px}
-                                                                                              .welcome>p{
-                                                                                                font-size:13px;
-                                                                                                color:#85907c;
-                                                                                                margin-bottom:25px}
-                                                                                                .welcome .format-note{
-                                                                                                  font-size:10px;
-                                                                                                  margin-top:18px;
-                                                                                                  color:#9a9f93}
-                                                                                                  .document{
-                                                                                                    padding-top:37px}
-                                                                                                    .document-heading{
-                                                                                                      display:flex;
-                                                                                                      justify-content:space-between;
-                                                                                                      align-items:center;
-                                                                                                      gap:20px;
-                                                                                                      margin-bottom:28px}
-                                                                                                      .document h1{
-                                                                                                        font-family:Georgia,serif;
-                                                                                                        font-weight:400;
-                                                                                                        font-size:32px;
-                                                                                                        overflow-wrap:anywhere;
-                                                                                                        line-height:1.2;
-                                                                                                        margin-bottom:12px}
-                                                                                                        .muted{
-                                                                                                          color:#84907e;
-                                                                                                          font-size:12px}
-                                                                                                          .transcribe-card{
-                                                                                                            background:#fff;
-                                                                                                            border:1px solid #e1e5db;
-                                                                                                            padding:25px;
-                                                                                                            border-radius:12px}
-                                                                                                            .transcribe-card p{
-                                                                                                              font-size:12px;
-                                                                                                              color:#7c8774;
-                                                                                                              margin-top:8px}
-                                                                                                              .actions{
-                                                                                                                display:flex;
-                                                                                                                gap:10px;
-                                                                                                                align-items:center;
-                                                                                                                flex-wrap:wrap}
-                                                                                                                .transcribe-card>.actions{
-                                                                                                                  margin-top:25px;
-                                                                                                                  align-items:flex-end}
-                                                                                                                  label>select{
-                                                                                                                    display:block;
-                                                                                                                    margin-top:7px}
-                                                                                                                    select{
-                                                                                                                      padding:10px;
-                                                                                                                      border:1px solid #dce2d5;
-                                                                                                                      border-radius:8px;
-                                                                                                                      background:#f9faf5;
-                                                                                                                      color:#354a3b}
-                                                                                                                      .actions label{
-                                                                                                                        font-size:11px;
-                                                                                                                        color:#78856d}
-                                                                                                                        .notice{
-                                                                                                                          border:1px solid #d9dfd0;
-                                                                                                                          background:#f0f2e9;
-                                                                                                                          padding:15px 20px;
-                                                                                                                          border-radius:9px;
-                                                                                                                          margin-bottom:20px;
-                                                                                                                          font-size:12px;
-                                                                                                                          line-height:1.6}
-                                                                                                                          .notice.error{
-                                                                                                                            background:#fff0e8;
-                                                                                                                            border-color:#efd4c7;
-                                                                                                                            color:#9b4d35}
-                                                                                                                            .notice.success{
-                                                                                                                              background:#eaf2e5;
-                                                                                                                              color:#3b643d}
-                                                                                                                              .processing{
-                                                                                                                                display:flex;
-                                                                                                                                flex-wrap:wrap;
-                                                                                                                                align-items:center;
-                                                                                                                                gap:20px;
-                                                                                                                                padding:20px 0;
-                                                                                                                                color:#627859;
-                                                                                                                                font-size:12px}
-                                                                                                                                progress{
-                                                                                                                                  accent-color:#456b4e;
-                                                                                                                                  flex:1;
-                                                                                                                                  min-width:120px}
-                                                                                                                                  .text-button{
-                                                                                                                                    padding:8px;
-                                                                                                                                    background:none;
-                                                                                                                                    font-size:12px;
-                                                                                                                                    color:#6d7f61}
-                                                                                                                                    .danger{
-                                                                                                                                      color:#a16e59}
-                                                                                                                                      .danger-button{
-                                                                                                                                        background:#a35139;
-                                                                                                                                        color:white}
-                                                                                                                                        .delete-confirm p{
-                                                                                                                                          margin-bottom:14px}
-                                                                                                                                          .delete-confirm button{
-                                                                                                                                            margin-right:10px}
-                                                                                                                                            .error-text{
-                                                                                                                                              color:#a35139!important}
-                                                                                                                                              .editor-toolbar{
-                                                                                                                                                display:flex;
-                                                                                                                                                justify-content:space-between;
-                                                                                                                                                align-items:center;
-                                                                                                                                                gap:15px;
-                                                                                                                                                padding:19px 0;
-                                                                                                                                                border-top:1px solid #e1e5d9;
-                                                                                                                                                border-bottom:1px solid #e1e5d9;
-                                                                                                                                                font-size:11px;
-                                                                                                                                                color:#85907c;
-                                                                                                                                                flex-wrap:wrap}
-                                                                                                                                                .editor-toolbar button{
-                                                                                                                                                  font-size:11px;
-                                                                                                                                                  padding:9px 12px}
-                                                                                                                                                      .transcript{
-                                                                                                                                                        padding:22px 0}
-                                                                                                                                                        .segment{
-                                                                                                                                                          display:grid;
-                                                                                                                                                          grid-template-columns:52px 1fr;
-                                                                                                                                                          gap:13px;
-                                                                                                                                                          padding:12px 0;
-                                                                                                                                                          align-items:start;
-                                                                                                                                                          border-radius:9px}
-                                                                                                                                                          .segment.active{
-                                                                                                                                                            background:#eef3e6;
-                                                                                                                                                            box-shadow:inset 3px 0 0 #6f9160}
-                                                                                                                                                            .timecode{
-                                                                                                                                                              background:none;
-                                                                                                                                                              border:0;
-                                                                                                                                                              border-radius:6px;
-                                                                                                                                                              padding:12px 0 0;
-                                                                                                                                                              text-align:left;
-                                                                                                                                                              font-size:11px;
-                                                                                                                                                              font-variant-numeric:tabular-nums;
-                                                                                                                                                              color:#a1a893}
-                                                                                                                                                              .timecode:hover:enabled{
-                                                                                                                                                                color:#5d6b52;
-                                                                                                                                                                text-decoration:underline}
-                                                                                                                                                                .segment.active .timecode{
-                                                                                                                                                                  color:#3c5a45;
-                                                                                                                                                                  font-weight:700}
-                                                                                                                                                                  .segment textarea{
-                                                                                                                                                                    resize:vertical;
-                                                                                                                                                                    width:100%;
-                                                                                                                                                                    background:transparent;
-                                                                                                                                                                    border:1px solid transparent;
-                                                                                                                                                                    border-radius:7px;
-                                                                                                                                                                    padding:9px 10px;
-                                                                                                                                                                    color:#394b3a;
-                                                                                                                                                                    line-height:1.75;
-                                                                                                                                                                    font-size:14px}
-                                                                                                                                                                    .segment textarea:hover,.segment textarea:focus{
-                                                                                                                                                                      background:#fff;
-                                                                                                                                                                      border-color:#e0e5d7}
-                                                                                                                                                            .unsaved{
-                                                                                                                                                              font-size:11px;
-                                                                                                                                                              color:#9c7440;
-                                                                                                                                                              padding-top:15px}
-                                                                                                                                                              .workspace-footer{
-                                                                                                                                                                border-top:1px solid #e5e6dd;
-                                                                                                                                                                padding:20px 0;
-                                                                                                                                                                display:flex;
-                                                                                                                                                                justify-content:space-between;
-                                                                                                                                                                gap:15px;
-                                                                                                                                                                font-size:10px;
-                                                                                                                                                                color:#9ba391}
-                                                                                                                                                                @media(max-width:900px){
-                                                                                                                                                                  .app{
-                                                                                                                                                                    grid-template-columns:210px 1fr}
-                                                                                                                                                                    .workspace{
-                                                                                                                                                                      padding:24px}
-                                                                                                                                                                      .topbar{
-                                                                                                                                                                        padding:0 24px}
-                                                                                                                                                                        .model-card{
-                                                                                                                                                                          align-items:flex-start;
-                                                                                                                                                                          flex-direction:column;
-                                                                                                                                                                          gap:15px}
-                                                                                                                                                                          .welcome h1{
-                                                                                                                                                                            font-size:34px}
-                                                                                                                                                                            .workspace-footer{
-                                                                                                                                                                              flex-direction:column}
-                                                                                                                                                                              .sidebar{
-                                                                                                                                                                                padding:25px 14px}
-                                                                                                                                                                                .welcome{
-                                                                                                                                                                                  padding:45px 0}
-                                                                                                                                                                                }
+  font-size:14px
+}
+*{
+  box-sizing:border-box
+}
+body{
+  margin:0
+}
+button,select,textarea{
+  font:inherit
+}
+button{
+  cursor:pointer;
+  transition:background .15s,opacity .15s
+}
+button:disabled{
+  cursor:default;
+  opacity:.45
+}
+button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{
+  outline:3px solid var(--focus);
+  outline-offset:3px
+}
+button{
+  border:0;
+  border-radius:8px;
+  padding:11px 16px;
+  font-weight:600
+}
+h1,h2,p{
+  margin:0
+}
+h2{
+  font-size:17px;
+  line-height:1.4
+}
+p{
+  line-height:1.6
+}
+a{
+  color:inherit;
+  text-decoration:none
+}
+.app{
+  display:grid;
+  grid-template-columns:254px 1fr;
+  min-height:100vh
+}
+.sidebar{
+  background:var(--sidebar);
+  border-right:1px solid var(--border);
+  padding:35px 20px 20px;
+  display:flex;
+  flex-direction:column;
+  height:100vh;
+  position:sticky;
+  top:0
+}
+.brand{
+  font-size:40px;
+  font-weight:750;
+  letter-spacing:-2px;
+  padding-left:10px
+}
+.brand-dot{
+  color:var(--brand);
+  font-size:13px;
+  padding-left:4px
+}
+.tagline{
+  color:var(--muted);
+  font-size:12px;
+  padding:4px 10px 29px
+}
+.primary{
+  background:var(--accent);
+  color:var(--on-accent)
+}
+.primary:hover:enabled{
+  background:var(--accent-hover)
+}
+.secondary{
+  background:var(--surface);
+  border:1px solid var(--border);
+  color:var(--text);
+  white-space:nowrap
+}
+.secondary:hover:enabled{
+  background:var(--surface-hover)
+}
+.import{
+  width:100%;
+  margin-bottom:35px
+}
+.library-heading{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:0 10px 13px
+}
+.library-heading h2{
+  font-size:11px;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  color:var(--muted)
+}
+.library-heading>span{
+  font-size:12px;
+  color:var(--muted)
+}
+.recordings{
+  overflow:auto;
+  flex:1
+}
+.recording{
+  display:block;
+  width:100%;
+  padding:14px 12px;
+  text-align:left;
+  background:transparent;
+  margin:3px 0
+}
+.recording.selected{
+  background:var(--selected)
+}
+.recording-title{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-weight:600
+}
+.recording-meta{
+  display:block;
+  font-size:11px;
+  color:var(--muted);
+  font-weight:400;
+  margin-top:6px
+}
+.empty-library{
+  font-size:12px;
+  padding:15px 10px
+}
+.sidebar-footer{
+  border-top:1px solid var(--border);
+  padding-top:20px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:10px;
+  color:var(--muted)
+}
+.status-dot{
+  width:6px;
+  height:6px;
+  background:var(--status);
+  border-radius:50%
+}
+.version{
+  margin-left:auto;
+  color:var(--muted)
+}
+main{
+  min-width:0
+}
+.topbar{
+  height:77px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  border-bottom:1px solid var(--border);
+  padding:0 38px;
+  font-size:12px;
+  color:var(--muted)
+}
+.pill{
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:6px 11px;
+  color:var(--muted);
+  font-size:10px
+}
+.workspace{
+  padding:32px 38px;
+  max-width:1250px;
+  margin:auto
+}
+.model-card{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:25px;
+  background:var(--subtle);
+  border:1px solid var(--border);
+  border-radius:13px;
+  padding:22px 24px
+}
+.eyebrow{
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:1.8px;
+  color:var(--muted);
+  margin-bottom:8px
+}
+.model-card p{
+  font-size:12px;
+  color:var(--muted);
+  margin-top:6px;
+  max-width:550px
+}
+.model-card button{
+  font-size:12px
+}
+.welcome{
+  text-align:center;
+  padding:68px 0 70px
+}
+.wave{
+  height:85px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:5px;
+  margin-bottom:30px
+}
+.wave span{
+  width:6px;
+  border-radius:6px;
+  background:var(--decoration)
+}
+.wave span:nth-child(3n){
+  background:var(--decoration-strong)
+}
+.welcome h1{
+  font-family:Georgia,serif;
+  font-weight:400;
+  font-size:42px;
+  line-height:1.18;
+  letter-spacing:-1.3px;
+  margin:16px 0 20px
+}
+.welcome>p{
+  font-size:13px;
+  color:var(--muted);
+  margin-bottom:25px
+}
+.welcome .format-note{
+  font-size:10px;
+  margin-top:18px;
+  color:var(--muted)
+}
+.document{
+  padding-top:37px
+}
+.document-heading{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:20px;
+  margin-bottom:28px
+}
+.document h1{
+  font-family:Georgia,serif;
+  font-weight:400;
+  font-size:32px;
+  overflow-wrap:anywhere;
+  line-height:1.2;
+  margin-bottom:12px
+}
+.muted{
+  color:var(--muted);
+  font-size:12px
+}
+.transcribe-card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  padding:25px;
+  border-radius:12px
+}
+.transcribe-card p{
+  font-size:12px;
+  color:var(--muted);
+  margin-top:8px
+}
+.actions{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap
+}
+.transcribe-card>.actions{
+  margin-top:25px;
+  align-items:flex-end
+}
+label>select{
+  display:block;
+  margin-top:7px
+}
+select{
+  padding:10px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface-hover);
+  color:var(--text)
+}
+.actions label{
+  font-size:11px;
+  color:var(--muted)
+}
+.notice{
+  border:1px solid var(--border);
+  background:var(--subtle);
+  padding:15px 20px;
+  border-radius:9px;
+  margin-bottom:20px;
+  font-size:12px;
+  line-height:1.6
+}
+.notice.error{
+  background:var(--error-background);
+  border-color:var(--error-border);
+  color:var(--error)
+}
+.notice.success{
+  background:var(--success-background);
+  color:var(--success)
+}
+.processing{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:20px;
+  padding:20px 0;
+  color:var(--muted);
+  font-size:12px
+}
+progress{
+  accent-color:var(--accent);
+  flex:1;
+  min-width:120px
+}
+.text-button{
+  padding:8px;
+  background:none;
+  font-size:12px;
+  color:var(--muted)
+}
+.danger{
+  color:var(--error)
+}
+.danger-button{
+  background:var(--danger-action);
+  color:white
+}
+.delete-confirm p{
+  margin-bottom:14px
+}
+.delete-confirm button{
+  margin-right:10px
+}
+.error-text{
+  color:var(--error)!important
+}
+.editor-toolbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:15px;
+  padding:19px 0;
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  font-size:11px;
+  color:var(--muted);
+  flex-wrap:wrap
+}
+.editor-toolbar button{
+  font-size:11px;
+  padding:9px 12px
+}
+.transcript{
+  padding:22px 0
+}
+.segment{
+  display:grid;
+  grid-template-columns:52px 1fr;
+  gap:13px;
+  padding:12px 0;
+  align-items:start;
+  border-radius:9px
+}
+.segment.active{
+  background:var(--subtle);
+  box-shadow:inset 3px 0 0 var(--accent)
+}
+.timecode{
+  background:none;
+  border:0;
+  border-radius:6px;
+  padding:12px 0 0;
+  text-align:left;
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+  color:var(--muted)
+}
+.timecode:hover:enabled{
+  color:var(--muted);
+  text-decoration:underline
+}
+.segment.active .timecode{
+  color:var(--text);
+  font-weight:700
+}
+.segment textarea{
+  resize:vertical;
+  width:100%;
+  background:transparent;
+  border:1px solid transparent;
+  border-radius:7px;
+  padding:9px 10px;
+  color:var(--text);
+  line-height:1.75;
+  font-size:14px
+}
+.segment textarea:hover,.segment textarea:focus{
+  background:var(--surface);
+  border-color:var(--border)
+}
+.unsaved{
+  font-size:11px;
+  color:var(--warning);
+  padding-top:15px
+}
+.workspace-footer{
+  border-top:1px solid var(--border);
+  padding:20px 0;
+  display:flex;
+  justify-content:space-between;
+  gap:15px;
+  font-size:10px;
+  color:var(--muted)
+}
+@media(max-width:900px){
+  .app{
+    grid-template-columns:210px 1fr
+  }
+  .workspace{
+    padding:24px
+  }
+  .topbar{
+    padding:0 24px
+  }
+  .model-card{
+    align-items:flex-start;
+    flex-direction:column;
+    gap:15px
+  }
+  .welcome h1{
+    font-size:34px
+  }
+  .workspace-footer{
+    flex-direction:column
+  }
+  .sidebar{
+    padding:25px 14px
+  }
+  .welcome{
+    padding:45px 0
+  }
+}
 .audio-player{
-  background:#fff;
-  border:1px solid #e1e5db;
+  background:var(--surface);
+  border:1px solid var(--border);
   border-radius:12px;
   padding:16px 20px;
-  margin-bottom:22px}
+  margin-bottom:22px
+}
 .audio-player audio{
-  display:none}
+  display:none
+}
 .audio-player-controls{
   display:flex;
   align-items:center;
   gap:16px;
-  flex-wrap:wrap}
+  flex-wrap:wrap
+}
 .play-button{
   flex:0 0 auto;
   width:44px;
   height:44px;
   padding:0;
   border-radius:50%;
-  background:#2d5140;
-  color:#fff;
+  background:var(--accent);
+  color:var(--on-accent);
   font-size:13px;
   line-height:1;
   display:flex;
   align-items:center;
-  justify-content:center}
+  justify-content:center
+}
 .play-button:hover:enabled{
-  background:#203d2e}
+  background:var(--accent-hover)
+}
 .audio-player-timeline{
   flex:1;
-  min-width:170px}
+  min-width:170px
+}
 .scrubber{
   width:100%;
   margin:0;
-  accent-color:#456b4e;
-  cursor:pointer}
+  accent-color:var(--accent);
+  cursor:pointer
+}
 .scrubber:disabled{
-  cursor:default}
+  cursor:default
+}
 .audio-player-times{
   display:flex;
   justify-content:space-between;
   gap:12px;
   margin-top:3px;
   font-size:10px;
-  color:#85907c;
-  font-variant-numeric:tabular-nums}
+  color:var(--muted);
+  font-variant-numeric:tabular-nums
+}
 .audio-player-rate{
   display:flex;
   align-items:center;
   gap:7px;
   font-size:11px;
-  color:#78856d;
-  white-space:nowrap}
+  color:var(--muted);
+  white-space:nowrap
+}
 .audio-player-rate select{
   padding:7px 9px;
-  font-size:12px}
+  font-size:12px
+}
 .audio-player-now{
   display:-webkit-box;
   -webkit-line-clamp:2;
@@ -446,76 +601,503 @@
   overflow:hidden;
   margin-top:13px;
   padding-top:11px;
-  border-top:1px solid #eef0e8;
+  border-top:1px solid var(--border);
   font-size:12px;
-  color:#6d7f61}
+  color:var(--muted)
+}
 .audio-player-now-label{
   display:inline-block;
   margin-right:7px;
   padding:2px 7px;
   border-radius:20px;
-  background:#eef3e6;
-  color:#4b6b52;
+  background:var(--subtle);
+  color:var(--text);
   font-size:9px;
   font-weight:700;
   letter-spacing:1px;
-  text-transform:uppercase}
+  text-transform:uppercase
+}
 .audio-player-status{
   margin-top:12px;
   font-size:11px;
-  color:#85907c}
+  color:var(--muted)
+}
 @media(max-width:900px){
   .audio-player-controls{
-    align-items:flex-start}
+    align-items:flex-start
+  }
   .audio-player-timeline{
     flex-basis:100%;
-    order:3}}
-
-.speaker-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 24px; margin-bottom: 28px; border: 1px solid var(--line, #e5e4df); border-radius: 12px; background: #fff; }
-.speaker-card h2 { font-size: 16px; margin: 0 0 8px; }
-.speaker-card p, .speaker-actions p { font-size: 13px; color: #6a6a63; margin: 0; max-width: 580px; }
-.speaker-card button { flex-shrink: 0; }
-.speaker-actions { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; margin: 24px 0; }
-.speaker-actions label { display: grid; gap: 6px; font-size: 12px; }
-.segment-content { min-width: 0; width: 100%; }
-.speaker-label { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #696b66; margin-bottom: 6px; }
-.speaker-label input { font: inherit; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; color: #416456; max-width: 220px; }
-.speaker-label input:focus { border-color: #416456; outline: 1px solid #416456; }
-@media (max-width: 800px) { .speaker-card { flex-direction: column; align-items: start; } }
-
-/* Compact transcript: fit each paragraph's actual wrapped content. */
-.model-settings { margin-bottom: 16px; border-bottom: 1px solid #e2e5da; }
-.model-settings > summary { cursor: pointer; padding: 10px 0; font-size: 12px; font-weight: 600; }
-.model-settings > summary span { color: #7d8674; font-weight: 400; margin-left: 10px; }
-.model-settings .model-card, .model-settings .speaker-card { margin-bottom: 12px; padding: 14px 16px; }
-.document { padding-top: 0; }
-.document-heading { margin-bottom: 16px; }
-.document-heading h1 { font-size: 27px; }
-.audio-player { margin: 12px 0; padding: 12px 16px; }
-.audio-player-now { display: none; }
-.speaker-actions { margin: 12px 0; gap: 10px; align-items: center; }
-.speaker-actions label { display: flex; align-items: center; gap: 8px; }
-.speaker-actions select, .speaker-actions button { padding: 7px 10px; font-size: 12px; }
-.speaker-actions p { flex: 1; font-size: 12px; }
-.editor-toolbar { padding: 10px 0; margin-bottom: 0; }
-.transcript { padding: 6px 0 14px; }
-.segment { padding: 5px 8px; gap: 10px; border-radius: 6px; border-bottom: 0; margin: 1px 0; }
-.segment .timecode { align-self: start; padding: 3px 0; margin-top: 0; font-size: 11px; }
-.segment-content { display: flex; align-items: start; gap: 8px; }
-.segment .speaker-label { flex: 0 0 94px; margin: 0; }
-.speaker-label input { width: 94px; max-width: 94px; padding: 3px 2px; font-size: 11px; }
-.segment textarea { display: block; padding: 2px 4px; resize: none; overflow: hidden; min-height: 26px; line-height: 1.5; font-size: 14px; border-radius: 4px; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.auto-speakers { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.recording-menu { position: fixed; z-index: 100; width: 216px; padding: 5px; border: 1px solid #dce0d4; border-radius: 9px; background: #fff; box-shadow: 0 8px 30px #25392f24; }
-.recording-menu button { display: block; width: 100%; text-align: left; background: transparent; padding: 10px 12px; font-size: 13px; }
-.recording-menu button:hover, .recording-menu button:focus { background: #fff1ec; outline-offset: -2px; }
-.delete-dialog { max-width: 430px; width: calc(100% - 40px); border: 1px solid #dce0d4; border-radius: 12px; padding: 24px; color: #25392f; }
-.delete-dialog::backdrop { background: #17281d66; }
-.delete-dialog p { font-size: 13px; color: #6a7365; margin: 12px 0 22px; }
-.delete-dialog .actions { justify-content: flex-end; }
-@media (max-width: 800px) {
-  .segment-content { display: block; }
-  .segment .speaker-label { margin-bottom: 1px; }
-  .model-settings > summary span { display: block; margin: 5px 0 0; }
+    order:3
+  }
 }
+.speaker-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 24px;
+  margin-bottom: 28px;
+  border: 1px solid var(--line, var(--border));
+  border-radius: 12px;
+  background: var(--surface);
+}
+.speaker-card h2 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+.speaker-card p, .speaker-actions p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  max-width: 580px;
+}
+.speaker-card button {
+  flex-shrink: 0;
+}
+.speaker-actions {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+.speaker-actions label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.segment-content {
+  min-width: 0;
+  width: 100%;
+}
+.speaker-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.speaker-label input {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: var(--text);
+  max-width: 220px;
+}
+.speaker-label input:focus {
+  border-color: var(--text);
+  outline: 1px solid var(--text);
+}
+@media (max-width: 800px) {
+  .speaker-card {
+    flex-direction: column;
+    align-items: start;
+  }
+}
+/* Compact transcript: fit each paragraph's actual wrapped content. */
+.model-settings {
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.model-settings > summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.model-settings > summary span {
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 10px;
+}
+.model-settings .model-card, .model-settings .speaker-card {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+}
+.document {
+  padding-top: 0;
+}
+.document-heading {
+  margin-bottom: 16px;
+}
+.document-heading h1 {
+  font-size: 27px;
+}
+.audio-player {
+  margin: 12px 0;
+  padding: 12px 16px;
+}
+.audio-player-now {
+  display: none;
+}
+.speaker-actions {
+  margin: 12px 0;
+  gap: 10px;
+  align-items: center;
+}
+.speaker-actions label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.speaker-actions select, .speaker-actions button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.speaker-actions p {
+  flex: 1;
+  font-size: 12px;
+}
+.editor-toolbar {
+  padding: 10px 0;
+  margin-bottom: 0;
+}
+.transcript {
+  padding: 6px 0 14px;
+}
+.segment {
+  padding: 5px 8px;
+  gap: 10px;
+  border-radius: 6px;
+  border-bottom: 0;
+  margin: 1px 0;
+}
+.segment .timecode {
+  align-self: start;
+  padding: 3px 0;
+  margin-top: 0;
+  font-size: 11px;
+}
+.segment-content {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+.segment .speaker-label {
+  flex: 0 0 94px;
+  margin: 0;
+}
+.speaker-label input {
+  width: 94px;
+  max-width: 94px;
+  padding: 3px 2px;
+  font-size: 11px;
+}
+.segment textarea {
+  display: block;
+  padding: 2px 4px;
+  resize: none;
+  overflow: hidden;
+  min-height: 26px;
+  line-height: 1.5;
+  font-size: 14px;
+  border-radius: 4px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.auto-speakers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.recording-menu {
+  position: fixed;
+  z-index: 100;
+  width: 216px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 8px 30px #25392f24;
+}
+.recording-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.recording-menu button:hover, .recording-menu button:focus {
+  background: var(--error-background);
+  outline-offset: -2px;
+}
+.delete-dialog {
+  max-width: 430px;
+  width: calc(100% - 40px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  color: var(--text);
+}
+.delete-dialog::backdrop {
+  background: #17281d66;
+}
+.delete-dialog p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 12px 0 22px;
+}
+.delete-dialog .actions {
+  justify-content: flex-end;
+}
+@media (max-width: 800px) {
+  .segment-content {
+    display: block;
+  }
+  .segment .speaker-label {
+    margin-bottom: 1px;
+  }
+  .model-settings > summary span {
+    display: block;
+    margin: 5px 0 0;
+  }
+}
+.settings-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 16px 0;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+}
+.settings-trigger:hover {
+  background: var(--selected);
+}
+.settings-trigger > span {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+}
+.inline-button {
+  padding: 0;
+  background: none;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.settings-dialog {
+  width: min(660px, calc(100% - 40px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--background);
+  color: var(--text);
+  box-shadow: 0 24px 80px #0004;
+}
+.settings-dialog::backdrop {
+  background: #101a14aa;
+  backdrop-filter: blur(4px);
+}
+.settings-content {
+  padding: 30px;
+}
+.settings-header, .settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-header h1 {
+  font-family: Georgia, serif;
+  font-size: 32px;
+  font-weight: 400;
+}
+.settings-close {
+  padding: 8px 12px;
+}
+.settings-section {
+  padding: 26px 0;
+}
+.settings-section + .settings-section {
+  border-top: 1px solid var(--border);
+}
+.settings-section > p {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+}
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  border: 0;
+  padding: 0;
+  margin: 18px 0 0;
+}
+.theme-option {
+  position: relative;
+  cursor: pointer;
+  min-width: 0;
+}
+.theme-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.theme-option-body {
+  display: block;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.theme-option input:checked + .theme-option-body {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.theme-option input:focus-visible + .theme-option-body {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+.theme-option:hover .theme-option-body {
+  background: var(--surface-hover);
+}
+.theme-preview {
+  display: flex;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 5px;
+  border: 1px solid #7d8d7644;
+  background: #f7f6f2;
+}
+.theme-preview > span:first-child {
+  width: 30%;
+  background: #e1e6da;
+}
+.theme-preview > span:last-child {
+  flex: 1;
+  margin: 12px 10px;
+  border-top: 5px solid #8fa683;
+  border-bottom: 16px double #dce1d4;
+}
+.theme-preview-dark {
+  background: #191f1c;
+}
+.theme-preview-dark > span:first-child {
+  background: #354838;
+}
+.theme-preview-dark > span:last-child {
+  border-bottom-color: #3a473d;
+}
+.theme-preview-system {
+  background: linear-gradient(115deg, #f7f6f2 50%, #191f1c 50%);
+}
+.theme-option-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-top: 12px;
+}
+.theme-check {
+  visibility: hidden;
+  color: var(--accent);
+}
+.theme-option input:checked + .theme-option-body .theme-check {
+  visibility: visible;
+}
+.theme-option-description {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.5;
+}
+.settings-section .model-card {
+  margin: 18px 0 12px;
+  padding: 18px;
+  gap: 16px;
+}
+.model-card h3 {
+  font-size: 15px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.model-card .eyebrow {
+  font-size: 8px;
+}
+.model-guidance code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.settings-section .settings-hint {
+  color: var(--warning);
+  margin-top: 12px;
+}
+.settings-section .notice {
+  margin: 14px 0 0;
+}
+.settings-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  color: var(--muted);
+  font-size: 11px;
+}
+@media (max-width: 600px) {
+  .settings-content {
+    padding: 22px;
+  }
+  .theme-options {
+    gap: 8px;
+  }
+  .theme-option-body {
+    padding: 8px;
+  }
+  .theme-option-description {
+    font-size: 10px;
+  }
+}
+.transcript-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.transcript-search input {
+  flex: 1;
+  min-width: 150px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.transcript-search input::placeholder {
+  color: var(--muted);
+}
+.transcript-search button {
+  padding: 9px 12px;
+}
+.search-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+input { font: inherit; color: inherit; }
+input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.search-match textarea { border-color: var(--focus); }
+.selected-match { background: var(--selected); }
+.settings-section > button { margin-top: 16px; }
+.player-skip { padding: 7px 10px; font-size: 11px; background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.audio-retry { margin-top: 10px; }
+.delete-dialog { background: var(--background); }

@@ -1,13 +1,13 @@
 import type { Segment } from './transcript/types';
 
 /** Playback speeds offered by the audio player. `1` is the natural rate. */
-export const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
+export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
 export type PlaybackRate = (typeof PLAYBACK_RATES)[number];
 
 /** An external "move the playhead here" request. The nonce makes repeated
  * seeks to the same millisecond observable. */
-export type SeekRequest = { ms: number; nonce: number };
+export type SeekRequest = { ms: number; nonce: number; play?: boolean };
 
 /**
  * Format milliseconds as a clock. Under an hour this is `m:ss` (matching the

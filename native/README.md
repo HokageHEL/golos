@@ -47,7 +47,7 @@ are needed for native use.
    header and loaded once before it replaces a working model. `.en` models support
    English only. Model working memory exceeds the file size, even with
    quantization, so larger models need more RAM.
-2. Choose **Import model**. Golos copies and loads the model before activating it.
+2. Open **Settings → Transcription model** and choose **Import model**. Golos copies and loads the model before activating it.
    Importing/replacing a model can take time; the previous model is retained if
    validation fails. Automatic downloads and disk-space estimates are follow-up work.
 3. Import **WAV, MP3, M4A/MP4 (AAC-LC or ALAC), raw AAC-LC, FLAC, Ogg (Vorbis
@@ -64,15 +64,29 @@ are needed for native use.
 5. Edit paragraphs, save locally, and export TXT or SRT through a native save dialog.
 
 Listen to imported audio in the app with play/pause, seeking and speed controls.
-Transcript paragraphs highlight as they play; click a timestamp to seek.
+Transcript paragraphs highlight as they play; click a timestamp to seek and play.
+Use the ten-second skip buttons, or focus the player and use Space to play/pause
+and Left/Right to skip. These shortcuts do not intercept typing in editors.
+Find text with **Find in transcript**, then use the arrows or Enter / Shift+Enter
+to select occurrences. Search includes unsaved edits. Missing audio has a retry
+action and does not prevent transcript editing or export.
 Right-click a library entry for a confirmed delete action (Shift+F10 also works).
-For optional offline speaker labels, import two ONNX models. Detection runs
+For optional offline speaker labels, import two ONNX models from **Settings →
+Offline speaker detection**. Detection runs
 after new transcriptions by default; existing transcripts use **Detect speakers**. Review/correct labels, then save. See
 [model setup and limitations](SPEAKER_DIARIZATION.md). Speaker detection cannot
 stop mid-pass; cancellation discards the result after the current pass returns.
 
 Inference currently uses the CPU for a portable baseline. No recording, summaries, cloud sync, ads, or payment integration is included yet.
 An imported English-only model cannot produce Ukrainian transcription.
+
+## Appearance
+
+Open **Settings → Appearance** to choose Light, Dark, or System. The choice is
+saved on this device and applied at startup; System follows changes to the
+device's color scheme. Settings also contains transcription and speaker model
+import/replacement. Appearance works in the browser preview; native model and
+recording actions require the desktop app.
 
 ## Storage and privacy
 

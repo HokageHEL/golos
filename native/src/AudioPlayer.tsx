@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Segment } from './transcript/types';
 import {
   PLAYBACK_RATES,
@@ -26,6 +26,7 @@ type AudioPlayerProps = {
   error: string | null;
   onTimeUpdate: (ms: number) => void;
   onSeek: (ms: number) => void;
+  onRetry: () => void;
 };
 
 /**
@@ -45,6 +46,7 @@ export default function AudioPlayer({
   error,
   onTimeUpdate,
   onSeek,
+  onRetry,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Latest callbacks and duration, read from callbacks that are not re-created
@@ -63,6 +65,14 @@ export default function AudioPlayer({
   const [rate, setRate] = useState<PlaybackRate>(1);
   const [mediaDurationMs, setMediaDurationMs] = useState(0);
   const [mediaError, setMediaError] = useState<string | null>(null);
+
+  const startPlayback = useCallback((audio: HTMLAudioElement) => {
+    void audio.play().catch(error => {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setPlaying(false);
+      setMediaError('Playback could not start. Check that the audio is available and try again.');
+    });
+  }, []);
 
   const totalMs = mediaDurationMs > 0 ? mediaDurationMs : durationMs;
   const positionMs = clampSeek(currentMs, totalMs > 0 ? totalMs : undefined);
@@ -112,7 +122,8 @@ export default function AudioPlayer({
     if (audio.readyState > 0) audio.currentTime = target / 1000;
     else pendingSeek.current = target;
     callbacks.current.onSeek(target);
-  }, [seekRequest]);
+    if (seekRequest.play) startPlayback(audio);
+  }, [seekRequest, startPlayback]);
 
   function applyMediaDuration(audio: HTMLAudioElement) {
     if (Number.isFinite(audio.duration) && audio.duration > 0) {
@@ -126,10 +137,7 @@ export default function AudioPlayer({
     const audio = audioRef.current;
     if (!audio || !src) return;
     if (audio.paused) {
-      void audio.play().catch(() => {
-        setPlaying(false);
-        setMediaError('Playback could not start. Check that the audio is available and try again.');
-      });
+      startPlayback(audio);
     } else {
       audio.pause();
     }
@@ -146,7 +154,13 @@ export default function AudioPlayer({
   const message = error ?? mediaError;
 
   return (
-    <section className="audio-player" aria-label={`Audio player for ${title}`}>
+    <section className="audio-player" aria-label={`Audio player for ${title}`} tabIndex={0}
+      aria-keyshortcuts="Space ArrowLeft ArrowRight" onKeyDown={event => {
+        if (event.target !== event.currentTarget || disabled) return;
+        if (event.key === ' ') { event.preventDefault(); toggle(); }
+        if (event.key === 'ArrowLeft') { event.preventDefault(); seek(positionMs - 10000); }
+        if (event.key === 'ArrowRight') { event.preventDefault(); seek(positionMs + 10000); }
+      }}>
       <audio
         ref={audioRef}
         src={src ?? undefined}
@@ -165,6 +179,7 @@ export default function AudioPlayer({
           }
         }}
         onError={() => {
+          if (!audioRef.current?.getAttribute('src')) return;
           setPlaying(false);
           setMediaError('This recording’s audio could not be played.');
         }}
@@ -179,6 +194,8 @@ export default function AudioPlayer({
         >
           <span aria-hidden="true">{playing ? '❚❚' : '▶'}</span>
         </button>
+        <button className="player-skip" disabled={disabled} aria-label="Back 10 seconds" onClick={() => seek(positionMs - 10000)}>−10s</button>
+        <button className="player-skip" disabled={disabled} aria-label="Forward 10 seconds" onClick={() => seek(positionMs + 10000)}>+10s</button>
         <div className="audio-player-timeline">
           <input
             type="range"
@@ -229,6 +246,7 @@ export default function AudioPlayer({
       )}
       {loading && <p className="audio-player-status" role="status">Preparing audio…</p>}
       {message && <p className="audio-player-status error-text" role="alert">{message}</p>}
+      {message && <button className="secondary audio-retry" onClick={onRetry}>Retry audio</button>}
       {!src && !loading && !message && (
         <p className="audio-player-status">Audio is unavailable for this recording.</p>
       )}

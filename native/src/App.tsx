@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -10,6 +10,9 @@ import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';
 import DeleteRecordingDialog from './DeleteRecordingDialog';
 import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
 import { api, nativeAvailable, type Note, type Setup } from './api';
+import Settings from './Settings';
+import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
+import { findTranscriptMatches, type TranscriptMatch } from './review';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -36,10 +39,27 @@ export default function App() {
   const [audioError, setAudioError] = useState<string | null>(null);
   const [playheadMs, setPlayheadMs] = useState(0);
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(readTheme);
+  const [query, setQuery] = useState('');
+  const [matchIndex, setMatchIndex] = useState(-1);
+  const [selection, setSelection] = useState<(TranscriptMatch & { nonce: number }) | null>(null);
+  const [audioAttempt, setAudioAttempt] = useState(0);
+  const matches = useMemo(() => findTranscriptMatches(draft, query), [draft, query]);
+  const matchingSegments = useMemo(() => new Set(matches.map(match => match.segmentIndex)), [matches]);
+  const selectedMatch = matchIndex < 0 ? -1 : Math.min(matchIndex, matches.length - 1);
   const active = notes.find(note => note.id === selected);
   const locked = Boolean(busy) || loading || !nativeAvailable;
   const activeIndex = activeSegmentIndex(draft, playheadMs);
   const hasSpeakerLabels = draft.some(segment => segment.speaker !== null);
+
+  useEffect(() => {
+    applyTheme(theme);
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => applyTheme(theme);
+    if (theme === 'system') media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [theme]);
 
   useEffect(() => {
     if (!nativeAvailable) return;
@@ -86,7 +106,7 @@ export default function App() {
       .catch(e => { if (!disposed) setAudioError(errorText(e)); })
       .finally(() => { if (!disposed) setAudioLoading(false); });
     return () => { disposed = true; };
-  }, [selected]);
+  }, [selected, audioAttempt]);
 
   async function perform(label: string, task: () => Promise<void>) {
     setBusy(label); setError(null); setMessage(null);
@@ -100,17 +120,29 @@ export default function App() {
     setPlayheadMs(0); setSeekRequest(null);
   }
   function select(note: Note) {
-    if (note.id !== selected) resetPlayback();
+    if (note.id !== selected) { resetPlayback(); setQuery(''); setMatchIndex(-1); setSelection(null); }
     setSelected(note.id); setDraft(note.segments); setDirty(false); setConfirmDelete(null); setMessage(null); setError(null);
   }
   function seekTo(ms: number) {
-    setSeekRequest(current => ({ ms, nonce: (current?.nonce ?? 0) + 1 }));
+    setSeekRequest(current => ({ ms, nonce: (current?.nonce ?? 0) + 1, play: true }));
   }
   async function importAudio() {
     await perform('Importing recording', async () => {
       const note = await api.importAudio();
       if (note) { setNotes(await api.list()); select(note); }
     });
+  }
+  async function importModel() {
+    await perform('Loading model', async () => {
+      if (await api.importModel()) { setSetup(await api.setup()); setMessage('Model imported. You’re ready to transcribe offline.'); }
+    });
+  }
+  function navigateMatch(direction: 1 | -1) {
+    if (!matches.length) return;
+    const index = selectedMatch < 0 ? (direction === 1 ? 0 : matches.length - 1)
+      : (selectedMatch + direction + matches.length) % matches.length;
+    setMatchIndex(index);
+    setSelection(current => ({ ...matches[index], nonce: (current?.nonce ?? 0) + 1 }));
   }
   async function prepareSpeakerDraft(id: string) {
     setBusy('Detecting speakers'); setCancelRequested(false);
@@ -195,6 +227,7 @@ export default function App() {
           <span className="recording-meta">{formatClock(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
         </button>)}
       </nav>
+      <button className="settings-trigger" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}><span aria-hidden="true">⚙</span> Settings</button>
       <div className="sidebar-footer"><span className="status-dot"/> Local processing <span className="version">Preview 0.1</span></div>
     </aside>
 
@@ -202,25 +235,9 @@ export default function App() {
       <header className="topbar"><span>Private transcription</span><span className="pill">No account needed</span></header>
       <div className="workspace">
         {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to import files, transcribe, and save to your local library.</div>}
-        {error && <div className="notice error" role="alert">{error}</div>}
-        {message && <div className="notice success" role="status">{message}</div>}
+        {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
+        {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
         {busy && !active && <div className="processing" role="status">{busy}…</div>}
-
-        <details className="model-settings" open={!setup?.modelReady}>
-          <summary>Models <span>{setup?.modelName ?? 'Set up transcription'} · {setup?.diarizationReady ? 'Speakers ready' : 'Speaker models not installed'}</span></summary>
-        <section className="model-card" aria-label="Transcription model">
-          <div><div className="eyebrow">OFFLINE ENGINE</div><h2>{setup?.modelReady ? `${setup.modelName} is ready` : 'Small model. Private transcription.'}</h2>
-            <p>{setup?.modelReady ? 'Audio and transcripts are processed and stored on this device.' : 'Recommended: multilingual Whisper Small (ggml-small-q5_1.bin). Import once to transcribe offline. Tiny, Base, Medium, Large and Large V3 Turbo models (including quantized GGML) also work; larger models need more memory.'}</p></div>
-          <button className="secondary" disabled={locked || dirty} onClick={() => perform('Loading model', async () => {
-            if (await api.importModel()) { setSetup(await api.setup()); setMessage('Model imported. You’re ready to transcribe offline.'); }
-          })}>{setup?.modelReady ? 'Replace model' : 'Import model'}</button>
-        </section>
-
-        <section className="speaker-card" aria-label="Speaker detection models">
-          <div><h2>Offline speaker detection</h2><p>{setup?.diarizationReady ? 'Ready. Detection runs after transcription; existing transcripts can use Detect speakers.' : 'Import a pyannote segmentation model and a speaker embedding model to label recurring voices. Models and audio stay on this device.'}</p></div>
-          <button className="secondary" disabled={locked || dirty} onClick={importSpeakerModels}>{setup?.diarizationReady ? 'Replace speaker models' : 'Import speaker models'}</button>
-        </section>
-        </details>
 
         {!active ? <section className="welcome">
           <div className="wave" aria-hidden="true">{[18, 36, 60, 42, 80, 54, 30, 60, 38, 18].map((height, i) => <span key={i} style={{ height }}/>)}</div>
@@ -235,7 +252,8 @@ export default function App() {
             <button className="text-button danger" disabled={locked || dirty} onClick={() => { setError(null); setConfirmDelete(active); }}>Delete</button></div>
 
           {nativeAvailable && confirmDelete?.id !== active.id && <AudioPlayer
-            key={active.id}
+            key={`${active.id}:${audioAttempt}`}
+            onRetry={() => { resetPlayback(); setAudioAttempt(value => value + 1); }}
             src={audioUrl}
             title={active.title}
             durationMs={active.durationSeconds * 1000}
@@ -251,6 +269,7 @@ export default function App() {
           {active.status !== 'done' && <div className="transcribe-card">
             <div><h2>{active.status === 'failed' ? 'Ready for another try' : 'Ready when you are'}</h2><p>Transcription runs locally. Audio is automatically converted to the format Whisper needs.</p>
               {active.error && <p className="error-text">{active.error}</p>}</div>
+            {!loading && !setup?.modelReady && <p>Choose a model in <button className="inline-button" onClick={() => setSettingsOpen(true)}>Settings</button> to get started.</p>}
             <div className="actions"><label>Audio language<select value={language} disabled={locked} onChange={e => setLanguage(e.target.value)}>
               <option value="auto">Detect automatically</option><option value="en">English</option><option value="uk">Ukrainian</option></select></label>
               {setup?.diarizationReady && <label className="auto-speakers"><input type="checkbox" checked={autoSpeakers} disabled={locked} onChange={e => setAutoSpeakers(e.target.checked)}/> Detect speakers after transcription</label>}
@@ -265,7 +284,7 @@ export default function App() {
             <div className="speaker-actions"><label>Speakers<select value={speakerCount} disabled={locked || dirty} onChange={e => setSpeakerCount(e.target.value)}>
               <option value="auto">Detect automatically</option>{[1, 2, 3, 4, 5, 6, 8, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
               <button className="secondary" disabled={locked || dirty || !draft.length || !setup?.diarizationReady} onClick={detectSpeakers}>Detect speakers</button>
-              <p>{!setup?.diarizationReady ? 'Install separate speaker models in Models above. A Whisper model transcribes text only.' : !hasSpeakerLabels ? 'Speakers have not been detected for this transcript. Choose Detect speakers.' : 'Labels are per recording. Correct mixed-speaker paragraphs below.'}</p>
+              <p>{!setup?.diarizationReady ? 'Install separate speaker models in Settings. A Whisper model transcribes text only.' : !hasSpeakerLabels ? 'Speakers have not been detected for this transcript. Choose Detect speakers.' : 'Labels are per recording. Correct mixed-speaker paragraphs below.'}</p>
             </div>
             <div className="editor-toolbar"><span>{draft.length ? 'Transcript · Click any paragraph to edit' : 'No speech detected in this recording.'}</span><div className="actions">
               {dirty && <><button className="text-button" disabled={locked} onClick={() => { setDraft(active.segments); setDirty(false); }}>Discard edits</button><button className="primary" disabled={locked} onClick={save}>Save edits</button></>}
@@ -273,16 +292,30 @@ export default function App() {
               <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('srt')}>Export SRT</button>
             </div></div>
             {dirty && <p className="unsaved" role="status">Unsaved edits — save or discard before opening another recording.</p>}
+            {!!draft.length && <div className="transcript-search" role="search" aria-label="Search transcript">
+              <label className="sr-only" htmlFor="transcript-search">Find in transcript</label>
+              <input id="transcript-search" type="search" placeholder="Find in transcript…" value={query} onChange={event => {
+                setQuery(event.target.value); setMatchIndex(-1); setSelection(null);
+              }} onKeyDown={event => {
+                if (event.key === 'Enter') { event.preventDefault(); navigateMatch(event.shiftKey ? -1 : 1); }
+                if (event.key === 'Escape') { setQuery(''); setMatchIndex(-1); setSelection(null); }
+              }}/>
+              <span className="search-count" role="status">{query.trim() ? matches.length
+                ? selectedMatch < 0 ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : `${selectedMatch + 1} of ${matches.length}`
+                : 'No matches' : 'Search your edits too'}</span>
+              <button className="secondary" disabled={!matches.length} aria-label="Previous match" onClick={() => navigateMatch(-1)}>↑</button>
+              <button className="secondary" disabled={!matches.length} aria-label="Next match" onClick={() => navigateMatch(1)}>↓</button>
+            </div>}
             <div className="transcript">{draft.map((segment, index) => {
               const isActive = index === activeIndex;
-              return <div className={`segment ${isActive ? 'active' : ''}`} key={index} aria-current={isActive ? 'true' : undefined}>
+              return <div className={`segment ${isActive ? 'active' : ''}${matchingSegments.has(index) ? ' search-match' : ''}${matches[selectedMatch]?.segmentIndex === index ? ' selected-match' : ''}`} key={index} aria-current={isActive ? 'true' : undefined}>
                 <button type="button" className="timecode" disabled={!audioUrl}
                   aria-label={`Seek to ${formatClock(segment.startMs)}`}
                   onClick={() => seekTo(segment.startMs)}>{formatClock(segment.startMs)}</button>
                 <div className="segment-content"><label className="speaker-label"><span className="sr-only">Speaker</span>
                   <input type="text" aria-label={`Speaker at ${formatClock(segment.startMs)}`} maxLength={100} placeholder={hasSpeakerLabels ? 'Unassigned' : 'Not detected'} value={displaySpeaker(segment.speaker)} disabled={locked}
                     onChange={e => { const speaker = e.target.value.replace(/^Speaker (\d+)$/, 'speaker_$1') || null; setDraft(current => current.map((item, n) => n === index ? { ...item, speaker } : item)); setDirty(true); }}/>
-                </label><TranscriptText label={`Transcript at ${formatClock(segment.startMs)}`} text={segment.text} disabled={locked}
+                </label><TranscriptText selection={selection?.segmentIndex === index ? selection : null} label={`Transcript at ${formatClock(segment.startMs)}`} text={segment.text} disabled={locked}
                   onChange={text => { setDraft(current => current.map((item, n) => n === index ? { ...item, text } : item)); setDirty(true); }}/></div>
               </div>;
             })}</div>
@@ -291,6 +324,11 @@ export default function App() {
         <footer className="workspace-footer"><span>Audio is never uploaded for transcription.</span><span>Playback and speaker detection stay on your device.</span></footer>
       </div>
     </main>
+    {settingsOpen && <Settings theme={theme} onThemeChange={value => { saveTheme(value); setTheme(value); }}
+      setup={setup} modelDisabled={locked || dirty} loadingModel={busy === 'Loading model'} dirty={dirty}
+      nativeAvailable={nativeAvailable} error={error} message={message} onImportModel={importModel}
+      onImportSpeakerModels={importSpeakerModels} loadingSpeakers={busy === 'Importing speaker models'}
+      onClose={() => setSettingsOpen(false)}/>}
     {recordingMenu && <RecordingMenu target={recordingMenu} onClose={closeMenu} onDelete={note => { closeMenu(); if (!locked && !dirty) { setError(null); setConfirmDelete(note); } }}/>}
     {confirmDelete && <DeleteRecordingDialog title={confirmDelete.title} busy={Boolean(busy)} error={error} onClose={() => setConfirmDelete(null)} onDelete={deleteRecording}/>}
   </div>;

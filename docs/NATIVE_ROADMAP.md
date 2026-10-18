@@ -5,6 +5,9 @@ see [the delivery plan](OFFLINE_FIRST_PLAN.md). It supersedes the sequencing bel
 cross-platform validation and durable local data now precede store monetization.
 The completed preview work and verification history below remain applicable.
 
+See [product opportunities](PRODUCT_OPPORTUNITIES.md) for the earlier competitor
+review; the current delivery plan above remains authoritative.
+
 ## Product direction
 
 Private transcription on the user's device. Free download with a useful trial
@@ -35,7 +38,9 @@ Cloud services, if introduced, must have separately sustainable pricing.
       free-space checks, model metadata, and removal.
 - [ ] Device benchmarks and acceleration evaluation (Metal first on Apple silicon).
 - [x] Local playback, seeking, and transcript highlighting.
-- [ ] Microphone recording, search, and DOCX export.
+- [x] Transcript search, including unsaved edits, with occurrence navigation.
+- [x] Persistent Light/Dark/System themes and model controls in Settings.
+- [ ] Microphone recording, library-wide search, and DOCX export.
 - [ ] Ukrainian UI, accessibility, keyboard operation, and native lifecycle QA.
 - [ ] Complete the desktop platform rollout and acceptance checks below.
 
@@ -205,3 +210,18 @@ the retained frontend helper tests; `npm run native:test` runs the Rust suite.
   [speaker setup and evidence](../native/SPEAKER_DIARIZATION.md).
 - Cancellation waits for the current native inference pass. Search, recording,
   word-level alignment, and platform/device validation remain future work.
+
+## Feature branch integration — 2026-10-19
+
+- Merged appearance settings and transcript search into the current native-only
+  app, preserving its compact editor, speaker detection, model support, migrations,
+  and per-recording audio authorization. Both model import controls live in Settings.
+- Extended the existing player with ten-second skips, focused-player keyboard
+  controls, timestamp playback, half-speed playback, and missing-audio retry.
+- Native frontend build, lint, both TypeScript checks, 18 frontend tests, 54
+  native tests, Rust Clippy, and Rust formatting passed. Three opt-in native tests
+  remain ignored without their model/audio fixtures.
+- Browser integration QA used Tauri's IPC mocks and synthetic audio to check
+  search selection in the compact editor, unsaved edits, retained speaker fields,
+  timestamp playback, and dark-mode styling. This was not a new real-model or
+  signed/sandboxed release validation.
