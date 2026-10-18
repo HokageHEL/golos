@@ -7,6 +7,10 @@ and a non-consumable, one-time Pro unlock. Pricing and free-tier limits are not
 final; the developer preview has no purchase gates. No ads in the first release.
 Cloud services, if introduced, must have separately sustainable pricing.
 
+See [product opportunities](PRODUCT_OPPORTUNITIES.md) for the 2026-10-18
+competitor review and proposed feature priorities. Those proposals are not
+release commitments; audio-linked review and search are the recommended next slice.
+
 ## Milestone 1: macOS development preview
 
 - [x] New `codex/tauri-local-transcription` branch; preserve the existing web app.
