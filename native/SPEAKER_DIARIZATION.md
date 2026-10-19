@@ -22,8 +22,10 @@ and [NVIDIA’s TitaNet small model card](https://catalog.ngc.nvidia.com/orgs/nv
    **Detect speakers after transcription** checkbox can disable this).
    For other completed transcripts, select Auto or a known count, then choose
    **Detect speakers**.
-5. Review the labels. Correct an individual paragraph's Speaker field if needed.
-   Choose **Save edits**, or **Discard edits** to retain the saved version.
+5. Review the labels. Editing a named Speaker field renames every entry with
+   that speaker in this transcript. Clearing and retyping keeps those entries
+   together while you edit. Assigning an unlabelled paragraph affects only that
+   paragraph. Choose **Save edits**, or **Discard edits** to retain the saved version.
 
 Files are copied to `speakers/generation-<number>/` in the application data
 directory. The pair is validated before a new generation is published. A failed

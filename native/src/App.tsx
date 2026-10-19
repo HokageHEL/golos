@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { exportWithSpeakers, displaySpeaker } from './speakerLabels';
+import { exportWithSpeakers, displaySpeaker, speakerEntryIndexes, renameSpeakerEntries } from './speakerLabels';
 import type { Segment } from './transcript/types';
 import AudioPlayer from './AudioPlayer';
 import TranscriptText from './TranscriptText';
@@ -20,6 +20,7 @@ export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<Segment[]>([]);
+  const speakerEntries = useRef<number[]>([]);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(nativeAvailable);
@@ -314,7 +315,9 @@ export default function App() {
                   onClick={() => seekTo(segment.startMs)}>{formatClock(segment.startMs)}</button>
                 <div className="segment-content"><label className="speaker-label"><span className="sr-only">Speaker</span>
                   <input type="text" aria-label={`Speaker at ${formatClock(segment.startMs)}`} maxLength={100} placeholder={hasSpeakerLabels ? 'Unassigned' : 'Not detected'} value={displaySpeaker(segment.speaker)} disabled={locked}
-                    onChange={e => { const speaker = e.target.value.replace(/^Speaker (\d+)$/, 'speaker_$1') || null; setDraft(current => current.map((item, n) => n === index ? { ...item, speaker } : item)); setDirty(true); }}/>
+                    title={segment.speaker ? 'Rename this speaker throughout the transcript' : 'Assign a speaker to this entry'}
+                    onFocus={() => { speakerEntries.current = speakerEntryIndexes(draft, index); }}
+                    onChange={e => { const label = e.target.value; const entries = speakerEntries.current; setDraft(current => renameSpeakerEntries(current, entries, label)); setDirty(true); }}/>
                 </label><TranscriptText selection={selection?.segmentIndex === index ? selection : null} label={`Transcript at ${formatClock(segment.startMs)}`} text={segment.text} disabled={locked}
                   onChange={text => { setDraft(current => current.map((item, n) => n === index ? { ...item, text } : item)); setDirty(true); }}/></div>
               </div>;
