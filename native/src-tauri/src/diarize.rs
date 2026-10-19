@@ -113,6 +113,11 @@ fn create_pipeline(
     embedding: String,
     speaker_count: Option<u32>,
 ) -> Result<OfflineSpeakerDiarization, String> {
+    // sherpa-onnx 1.13.8 can construct a diarizer with a null embedding
+    // implementation for an unsupported model. sample_rate() still succeeds,
+    // but process() then segfaults in SpeakerEmbeddingExtractor::Dim(). Check
+    // both roles in Rust before entering FFI, including already-installed pairs.
+    validate_model_roles(Path::new(&segmentation), Path::new(&embedding))?;
     let config = OfflineSpeakerDiarizationConfig {
         segmentation: OfflineSpeakerSegmentationModelConfig {
             pyannote: OfflineSpeakerSegmentationPyannoteModelConfig {
@@ -149,6 +154,25 @@ fn create_pipeline(
     }
 
     Ok(diarizer)
+}
+
+pub fn validate_model_roles(segmentation: &Path, embedding: &Path) -> Result<(), String> {
+    let read = |path, role| {
+        crate::onnx_metadata::read(path)
+            .map_err(|_| format!("Cannot read the {role} ONNX model. Import speaker models again."))
+    };
+    let segmentation = read(segmentation, "segmentation")?;
+    if segmentation.get("model_type").map(String::as_str) != Some("pyannote-segmentation-3.0") {
+        return Err("The first speaker model must be a pyannote segmentation-3.0 ONNX model. Import speaker models again.".into());
+    }
+    let embedding = read(embedding, "embedding")?;
+    if !matches!(
+        embedding.get("framework").map(String::as_str),
+        Some("nemo" | "wespeaker" | "3d-speaker")
+    ) {
+        return Err("The second speaker model must be a speaker embedding model, such as nemo_en_titanet_small.onnx. A segmentation model cannot be used for both roles. Import speaker models again.".into());
+    }
+    Ok(())
 }
 
 /// Map transcript segments onto diarized turns without changing text or
@@ -568,6 +592,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rejects_wrong_model_roles_before_native_loading() {
+        // Minimal ModelProto metadata is enough for role checks. These are not
+        // loadable neural networks: a regression entering FFI would fail here.
+        let root = std::env::temp_dir().join(format!("golos-roles-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let write = |name: &str, key: &str, value: &str| {
+            let entry = [
+                vec![10, key.len() as u8],
+                key.as_bytes().to_vec(),
+                vec![18, value.len() as u8],
+                value.as_bytes().to_vec(),
+            ]
+            .concat();
+            let bytes = [vec![114, entry.len() as u8], entry].concat();
+            let path = root.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        };
+        let seg = write("seg.onnx", "model_type", "pyannote-segmentation-3.0");
+        for framework in ["nemo", "wespeaker", "3d-speaker"] {
+            let emb = write("emb.onnx", "framework", framework);
+            assert!(validate_model_roles(&seg, &emb).is_ok());
+            assert!(validate_models(&emb, &seg)
+                .unwrap_err()
+                .contains("first speaker model"));
+        }
+        // The reported crash: two valid segmentation files, with one imported
+        // as the embedding model. Reject during import and for an old install.
+        assert!(validate_models(&seg, &seg)
+            .unwrap_err()
+            .contains("second speaker model"));
+        let unknown = write("unknown.onnx", "framework", "unsupported");
+        assert!(validate_models(&seg, &unknown).is_err());
+        std::fs::write(&unknown, b"not an ONNX model").unwrap();
+        assert!(validate_models(&seg, &unknown)
+            .unwrap_err()
+            .contains("Cannot read"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     // Explicit opt-in: no network calls, downloads, or private recordings.
     // Point the variables at the public sherpa-onnx pyannote segmentation model
     // and a 3D-Speaker embedding model plus a public multi-speaker WAV.
@@ -577,6 +642,23 @@ mod tests {
         let segmentation = std::env::var("GOLOS_TEST_SEG_MODEL").expect("GOLOS_TEST_SEG_MODEL");
         let embedding = std::env::var("GOLOS_TEST_EMB_MODEL").expect("GOLOS_TEST_EMB_MODEL");
         let audio = std::env::var("GOLOS_TEST_AUDIO").expect("GOLOS_TEST_AUDIO");
+
+        // Real pyannote models used to pass import in both slots, then crash
+        // only when processing a long enough recording to need embeddings.
+        assert!(
+            validate_models(Path::new(&segmentation), Path::new(&segmentation))
+                .unwrap_err()
+                .contains("second speaker model")
+        );
+        assert!(run(
+            Path::new(&audio),
+            Path::new(&segmentation),
+            Path::new(&segmentation),
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap_err()
+        .contains("second speaker model"));
 
         let count = std::env::var("GOLOS_TEST_SPEAKERS")
             .ok()

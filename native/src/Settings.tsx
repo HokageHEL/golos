@@ -81,6 +81,7 @@ export default function Settings({ theme, onThemeChange, setup, modelDisabled, l
       <section className="settings-section" aria-labelledby="speakers-title">
         <h2 id="speakers-title">Offline speaker detection</h2>
         <p>{setup?.diarizationReady ? 'Ready. Detection runs after transcription; existing transcripts can use Detect speakers.' : 'Import a pyannote segmentation model and a speaker embedding model to label recurring voices. Models and audio stay on this device.'}</p>
+        <p>Choose pyannote <code>model.int8.onnx</code> first, then <code>nemo_en_titanet_small.onnx</code>. These are two different models.</p>
         <button className="secondary" disabled={modelDisabled} onClick={onImportSpeakerModels}>
           {loadingSpeakers ? 'Loading speaker models…' : setup?.diarizationReady ? 'Replace speaker models' : 'Import speaker models'}
         </button>

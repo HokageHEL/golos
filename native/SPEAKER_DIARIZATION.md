@@ -31,6 +31,21 @@ replacement keeps the previous pair. Pending directories left by interruption
 are ignored. Older generations remain on disk; with Golos closed they may be
 removed if no longer needed. The latest complete generation is selected.
 
+Model roles are checked from ONNX metadata before native loading, both when
+importing and when detecting with an existing installation. The first model
+must identify itself as `pyannote-segmentation-3.0`; the embedding model must
+declare a supported `nemo`, `wespeaker`, or `3d-speaker` framework. Selecting
+pyannote files in both dialogs previously passed the engine's load check and
+could crash during embedding extraction. Such pairs now produce an error and
+are no longer shown as ready. Reimport with `model.int8.onnx` first and
+`nemo_en_titanet_small.onnx` second to repair an affected installation.
+
+The 2026-10-19 regression checks reject two real segmentation models before
+native inference. The supported int8 pyannote/NeMo pair still returns four
+speakers on the public four-speaker sample. All 57 default native tests and
+18 JavaScript tests pass, alongside the frontend build, ESLint, Rust formatting,
+and Clippy with warnings denied (three native tests remain opt-in).
+
 ## Playback and labels
 
 Play/pause, speed (0.75–2×), and seeking use the library's normalized local WAV.

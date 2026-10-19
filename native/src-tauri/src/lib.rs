@@ -5,6 +5,7 @@ mod import;
 mod library;
 mod migrations;
 mod model;
+mod onnx_metadata;
 mod speaker_models;
 
 use library::{Note, Segment};
@@ -110,7 +111,10 @@ fn setup_status(state: State<AppState>) -> Setup {
         model_ready: model_name.is_some(),
         model_name,
         data_directory: state.root.to_string_lossy().into(),
-        diarization_ready: speaker_models::active(&state.root).ok().flatten().is_some(),
+        diarization_ready: speaker_models::active(&state.root)
+            .ok()
+            .flatten()
+            .is_some_and(|(seg, emb)| diarize::validate_model_roles(&seg, &emb).is_ok()),
     }
 }
 #[tauri::command]
