@@ -100,7 +100,7 @@ unsaved-draft protection remains in the webview.
 
 Schema **4** adds folder observations/deduplication, explicit local settings and
 export task/completion tables. Existing preview, v1, v2 and v3 libraries receive a
-verified `library.pre-v4-*.sqlite3` snapshot before transactional migration. Version-3
+verified `library.pre-v5-*.sqlite3` snapshot before transactional migration. Version-3
 queue data and prior notes, organization and search are retained. No watched-folder
 or output-folder access is granted by migration; automatic export defaults off.
 Newer or damaged current schemas are refused before recovery writes.

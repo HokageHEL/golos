@@ -1,3 +1,6 @@
+mod ai;
+mod ai_commands;
+mod ai_generation;
 mod audio;
 mod auto_export;
 mod automation;
@@ -14,6 +17,7 @@ mod import;
 mod jobs;
 mod languages;
 mod library;
+mod local_ai;
 mod migrations;
 mod model;
 mod onnx_metadata;
@@ -1001,6 +1005,7 @@ async fn export_saved(app: tauri::AppHandle, id: String, format: String) -> Resu
                     &pending,
                     audio.as_ref().ok_or("Audio is unavailable.")?,
                     &note,
+                    &*state.db()?,
                 )?,
                 _ => {
                     fs::copy(audio.as_ref().ok_or("Audio is unavailable.")?, &pending)
@@ -1109,6 +1114,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             setup_status,
             transcription_languages,
+            ai_commands::ai_status,
+            ai_commands::ai_configure,
+            ai_commands::ai_models,
+            ai_commands::ai_generate,
+            ai_commands::ai_retry,
+            ai_commands::ai_get,
+            ai_commands::ai_delete,
+            ai_commands::ai_segments,
+            ai_commands::ai_recording,
+            ai_commands::ai_docx,
             automation_commands::automation_status,
             automation_commands::add_watch_folder,
             automation_commands::watch_folder_action,

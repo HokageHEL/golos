@@ -129,6 +129,10 @@ device's color scheme. Settings also contains transcription and speaker model
 import/replacement. Appearance works in the browser preview; native model and
 recording actions require the desktop app.
 
+## Optional local AI and translation
+
+See [setup, saved results, backups and validation limits](../docs/LOCAL_AI.md). The optional service receives text only over loopback; core recording/transcription stays independent. Cloud providers and external uploads are excluded.
+
 ## Storage and privacy
 
 The app stores `library.sqlite3`, normalized WAV files under `audio/`, and `model.bin`

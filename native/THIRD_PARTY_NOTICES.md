@@ -2,6 +2,7 @@
 
 The application links to Tauri, whisper-rs/whisper.cpp, SQLite via rusqlite,
 hound, Symphonia, Rubato, sherpa-onnx (with the bundled ONNX Runtime), serde,
+reqwest/Tokio for the optional loopback AI adapter,
 and other crates listed in `src-tauri/Cargo.lock`. The UI uses React
 and Tauri's JavaScript API, locked in the root `package-lock.json`.
 
@@ -37,3 +38,5 @@ models into the distribution. This file is an inventory, not that completed bund
 The locally tested alternative embedding is `nemo_en_titanet_small.onnx`,
 converted by sherpa-onnx from NVIDIA NeMo. Consult [NVIDIA's TitaNet small model card](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_small) and license for weight terms; the NeMo software license alone does not
 license model weights. No NeMo weights are distributed with Golos.
+
+Ollama and local instruct-model weights are installed separately by the user and are not bundled. Their software/model licenses apply independently; the starter smoke test used Qwen2.5-1.5B-Instruct via Ollama.

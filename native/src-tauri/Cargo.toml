@@ -24,6 +24,9 @@ uuid = { version = "1", features = ["v4"] }
 hound = "3.5"
 sha2 = "0.10"
 ureq = "2.12"
+# Loopback-only local AI requests; no TLS/provider SDK or automatic proxy support.
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "stream"] }
+tokio = { version = "1", features = ["time", "macros"] }
 fs2 = "0.4"
 bzip2 = "0.4"
 tar = "0.4"

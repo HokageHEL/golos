@@ -11,15 +11,17 @@ app is a **macOS developer preview**; multiplatform support is planned.
   Ogg/Vorbis or Opus, and AIFF, up to 30 minutes / 512 MiB per file.
 - Download checksum-verified recommended models or import manually, then transcribe locally on the CPU with a Whisper GGML model,
   including Tiny, Base, Small, Medium, Large, and Large V3 Turbo.
-- Auto-detect the spoken language, or select English or Ukrainian.
+- Auto-detect the spoken language, or choose among the bundled engine’s supported languages.
 - Rename, organize and search a local SQLite library; edit timestamped transcripts with undo/redo, replacement and paragraph tools.
-- Export TXT, SRT, VTT, DOCX, audio and portable project backups.
+- Export TXT, SRT, VTT, DOCX, Markdown, HTML, CSV, JSON, audio and portable project backups.
+- Import batches, watch selected local folders and automatically export locally.
+- Generate separate local summaries, actions, chat, cleanup and translations with optional Ollama; translate speech to English with multilingual Whisper. See [local AI setup and validation limits](docs/LOCAL_AI.md).
 - Play local audio, seek from timestamps, and follow highlighted transcript paragraphs.
 - Detect speakers offline with optional imported ONNX models and edit speaker labels.
 - Cancel transcription, retry interrupted jobs, and delete local library entries.
 
 No account, backend, API keys, Docker, or paid transcription service is needed
-for the native app. Models are downloaded during guided setup or imported separately. Local storage is not encrypted
+for core transcription. Optional local AI uses a separately installed, cloud-disabled Ollama service. Models are downloaded during guided setup or imported separately. Local storage is not encrypted
 by the app; see [storage and privacy](native/README.md#storage-and-privacy).
 
 ## Start developing

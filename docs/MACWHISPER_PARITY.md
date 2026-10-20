@@ -21,8 +21,8 @@ accuracy, accessibility, signing and release validation are separate gates.
 | Model download / manual model management | Partial | Verified Small + optional speaker downloads exist; add curated choices, removal, per-model selection and resource guidance. |
 | Multilingual transcription | Implemented language picker | Enumerate bundled engine languages; reject incompatible English-only/Cantonese selections. Accuracy per language remains unmeasured. |
 | Mixed languages in one recording | Partial | Auto detection is not proof of reliable code switching; validate multilingual samples and expose engine limitations. |
-| Speech translation to English | Gap | Opt-in supported Whisper translation, reject incompatible models; retain source transcript/audio. |
-| Translate transcript/subtitles to other languages | Gap | Local text model, explicit target language and separate translated result retaining timestamps/speakers. |
+| Speech translation to English | Implemented; language/accuracy gates open | Separate saved Whisper translation; multilingual non-Turbo model required. Real English-fixture task smoke passed; non-English quality/hardware review remains. |
+| Translate transcript/subtitles to other languages | Implemented manual local workflow; quality gates open | Optional local Ollama, explicit target language, bounded chunks, separate result with native paragraph metadata. Review translation quality; see [local AI](LOCAL_AI.md). |
 | Microphone recording, pause/resume, stop/save/discard | Implemented; hardware unvalidated | Permissions, interruptions, save failure and 30-minute device tests. |
 | Application/system recording and microphone mixing | Implemented; hardware unvalidated | macOS 13.3+ system / 15+ mixed; verify common clocks, denied access, source loss, drift, headphones and actual Zoom/Teams/browser capture. |
 | Automatic meeting detection and recording prompts | Gap | Opt-in supported native detection, per-app controls, start/end transitions, no recording without visible indication; false-positive and permission testing. |
@@ -43,12 +43,13 @@ accuracy, accessibility, signing and release validation are separate gates.
 | PDF / DOTE / Avid timecode export | Gap | Real formats with documented schema/timebase; native PDF must render correctly without network. |
 | Export layouts / timestamp offset / line wrapping | Gap | Explicit options, nonnegative ordered cues, speaker grouping and width tests; do not imply word timing. |
 | Local video import and inline video/subtitles | Partial | MP4 audio decoding exists; MOV format support and retained video playback with synchronized subtitle overlay still needed. |
-| Local summaries / action points / prompts / transcript chat | Gap | Local model only, explicit setup/resource needs, cancellation, separate saved output, long-context errors and groundedness evaluation. |
+| Local summaries / action points / prompts / transcript chat | Implemented manual workflow; partial parity | Local Ollama only, explicit setup, cancellation, separate saved results and captured sources, chunked long inputs, explicit budget errors. Small-model hallucinations observed; groundedness evaluation and other local provider support remain. |
+| Automatic AI cleanup / summaries after transcription | Gap | Manual cleanup exists. Add opt-in durable post-transcription rules, provenance, source/settings deduplication and independent retry without overwriting original text. |
 | Local CLI / automation | Gap | Stable documented commands, serial access to library, structured output, model/language options, nonzero failures and no overwrite by default. |
 | Local Obsidian / filesystem auto-export | Implemented | User-selected local destination, multi-format automatic/batch exports, safe collision handling, content-revision tracking and independent retry. Markdown can target a local vault; no HTTP/upload integration. Native slow-volume/disk-full/consumer QA remains. |
 | Managed deployment | Gap | Offline model provisioning and documented managed preferences for applicable local features. Licensing/pricing remains undecided. |
 | YouTube / remote media URL import | Excluded | Requires online fetching; import an already-downloaded local file instead. |
-| Cloud transcription, online AI, external webhooks/services | Excluded | User explicitly excluded cloud services and external uploads. No network transcript/audio requests. |
+| Cloud transcription, online AI, external webhooks/services | Excluded | User explicitly excluded cloud services and external uploads. No external transcript/audio requests; optional AI sends text only to the trusted loopback service. |
 | iOS app / mobile features | Separate platform work | Existing task does not establish mobile implementation or device support. |
 
 ## Delivery milestones
@@ -103,4 +104,6 @@ choice and a similar UI alone do not establish equivalent functionality or quali
 
 Milestone 1 merged in [PR #5](https://github.com/HokageHEL/golos/pull/5), with all four GitHub checks passing.
 
-The durable batch milestone merged in [PR #6](https://github.com/HokageHEL/golos/pull/6), with all four GitHub checks passing. Folder automation and durable local multi-format exports are the next submitted milestone; full parity remains open.
+The durable batch milestone merged in [PR #6](https://github.com/HokageHEL/golos/pull/6), with all four GitHub checks passing. Folder automation and durable local multi-format exports merged in [PR #7](https://github.com/HokageHEL/golos/pull/7), with all four checks passing. Manual local AI and translation are the next milestone; full parity remains open.
+
+Manual local AI milestone validation: 112 Rust default tests (seven opt-in skips), 51 frontend tests, 10 mocked-native Chromium flows, separately executed real local Ollama and Whisper translation-task smoke tests, strict checks and an unsigned arm64 macOS app build. See [full evidence and limitations](LOCAL_AI.md). Full parity, automatic AI processing and native hardware validation remain open.

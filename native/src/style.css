@@ -1140,3 +1140,11 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 .automation-path { overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
 .export-formats { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; border: 1px solid var(--border); padding: 12px; }
 .export-formats label { display: flex; align-items: center; gap: 6px; }
+
+.ai-dialog { width: min(880px, calc(100vw - 32px)); }
+.ai-dialog input:not([type=checkbox]), .ai-dialog select, .ai-dialog textarea { width: 100%; min-width: 0; }
+.ai-dialog label { display: grid; gap: 6px; margin: 12px 0; }
+.ai-dialog code, .ai-dialog .ai-models { overflow-wrap: anywhere; }
+.ai-output { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; border: 1px solid var(--border); border-radius: 10px; max-height: 420px; overflow-y: auto; }
+.ai-result { min-width: 0; }
+.ai-result details p { overflow-wrap: anywhere; }

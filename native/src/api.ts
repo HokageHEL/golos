@@ -20,6 +20,16 @@ export type AutomationView = {
 };
 export const nativeAvailable = isTauri();
 export const api = {
+  aiStatus: (noteId: string, offset = 0) => invoke<{ settings: AiSettings; results: AiSummary[] }>('ai_status', { noteId, offset }),
+  aiConfigure: (settings: AiSettings) => invoke<void>('ai_configure', { settings }),
+  aiModels: (port: number) => invoke<{ name: string; size: number; digest: string; context: number }[]>('ai_models', { port }),
+  aiGet: (id: string) => invoke<AiWork>('ai_get', { id }),
+  aiGenerate: (request: AiRequest) => invoke<AiWork>('ai_generate', { request }),
+  aiRetry: (id: string) => invoke<AiWork>('ai_retry', { id }),
+  aiDelete: (id: string) => invoke<void>('ai_delete', { id }),
+  aiSegments: (id: string) => invoke<Segment[]>('ai_segments', { id }),
+  aiRecording: (id: string) => invoke<Note>('ai_recording', { id }),
+  aiDocx: (id: string) => invoke<boolean>('ai_docx', { id }),
   automation: () => invoke<AutomationView>('automation_status'),
   addWatch: (language: string, autoTranscribe: boolean, includeExisting: boolean) => invoke<boolean>('add_watch_folder', { language, autoTranscribe, includeExisting }),
   watchAction: (id: string, action: 'pause' | 'resume' | 'auto' | 'manual' | 'remove' | 'retry') => invoke<void>('watch_folder_action', { id, action }),
@@ -59,3 +69,8 @@ export const api = {
   // checked that the note exists and authorized only that file for playback.
   audioSource: (id: string) => invoke<string>('audio_source', { id }),
 };
+
+export type AiSettings = { port: number; model: string; contextWindow: number };
+export type AiSummary = { prompt: string; id: string; kind: string; target: string; model: string; status: string; createdAt: number; phase: string; error: string | null; stale: boolean; conversation: string };
+export type AiWork = Omit<AiSummary, 'stale'> & { noteId: string; prompt: string; sourceLanguage: string; contextWindow: number; source: Segment[]; sourceHash: string; content: string; segments: Segment[] };
+export type AiRequest = { noteId: string; kind: string; target: string; prompt: string; conversation: string; sourceLanguage: string };
