@@ -603,11 +603,11 @@ pub fn has_queued(db: &Connection) -> Result<bool, String> {
     .map_err(|e| e.to_string())
 }
 pub fn action(db: &Connection, id: &str, action: &str) -> Result<(), String> {
-    let (status, note_id, source_hash): (String, String, String) = db
+    let (status, note_id, source_hash, rule_id): (String, String, String, String) = db
         .query_row(
-            "SELECT status,note_id,source_hash FROM ai_automation_tasks WHERE id=?1",
+            "SELECT status,note_id,source_hash,rule_id FROM ai_automation_tasks WHERE id=?1",
             [id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|_| "Automatic task not found.".to_string())?;
     match action {
@@ -616,6 +616,17 @@ pub fn action(db: &Connection, id: &str, action: &str) -> Result<(), String> {
                 return Err(
                     "Only a failed, cancelled or skipped automatic task can be retried.".into(),
                 );
+            }
+            let enabled: Option<bool> = db
+                .query_row(
+                    "SELECT enabled FROM ai_automation_rules WHERE id=?1",
+                    [&rule_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
+            if enabled != Some(true) {
+                return Err("Re-enable this rule before retrying its automatic task.".into());
             }
             let current_hash = ai::hash(&library::get(db, &note_id)?.segments)?;
             if current_hash != source_hash {
@@ -832,7 +843,11 @@ mod tests {
         let mut off = rule;
         off.enabled = false;
         configure(&db, vec![off]).unwrap();
-        assert_eq!(tasks(&db).unwrap()[0].status, "skipped");
+        let skipped = tasks(&db).unwrap()[0].clone();
+        assert_eq!(skipped.status, "skipped");
+        assert!(action(&db, &skipped.id, "retry")
+            .unwrap_err()
+            .contains("Re-enable"));
         assert!(prepare_next(&db).unwrap().is_none());
         let mut back = sample("summary", "summary", true, &["single"]);
         back.id = sample("new", "summary", true, &["single"]).id;
