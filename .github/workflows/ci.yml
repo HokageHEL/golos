@@ -73,7 +73,11 @@ jobs:
         # outside Cargo's tracked build outputs. rust-cache can restore its
         # fingerprint/link-search metadata without that directory. Force only
         # this package's build script to rerun and restore its native archives.
-        run: cargo clean --manifest-path native/src-tauri/Cargo.toml -p sherpa-onnx-sys
+        # The cache cleanup leaves empty lib/ directories; upstream treats the
+        # directory's presence as a complete install, so remove that cache too.
+        run: |
+          node -e "require('node:fs').rmSync('native/src-tauri/target/sherpa-onnx-prebuilt', { recursive: true, force: true })"
+          cargo clean --manifest-path native/src-tauri/Cargo.toml -p sherpa-onnx-sys
 
       - name: Verify native prerequisites
         run: node scripts/check-native-prerequisites.mjs
