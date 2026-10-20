@@ -6,6 +6,7 @@ mod library;
 mod migrations;
 mod model;
 mod onnx_metadata;
+mod recording;
 mod speaker_models;
 
 use library::{Note, Segment};
@@ -71,6 +72,15 @@ struct AppState {
     db: Mutex<Connection>,
     busy: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
+    recording: Mutex<Option<ActiveRecording>>,
+}
+
+struct ActiveRecording {
+    session: recording::Session,
+    _guard: BusyGuard,
+    id: String,
+    created_at: i64,
+    title: String,
 }
 struct BusyGuard(Arc<AtomicBool>);
 impl Drop for BusyGuard {
@@ -120,6 +130,107 @@ fn setup_status(state: State<AppState>) -> Setup {
 #[tauri::command]
 fn list_notes(state: State<AppState>) -> Result<Vec<Note>, String> {
     library::list(&*state.db()?)
+}
+
+#[tauri::command]
+async fn start_recording(app: tauri::AppHandle, title: String) -> Result<(), String> {
+    if title.trim().is_empty() || title.len() > 200 {
+        return Err("Choose a recording title of up to 200 bytes.".into());
+    }
+    let guard = app.state::<AppState>().claim()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut recording = state
+            .recording
+            .lock()
+            .map_err(|_| "Recording is unavailable. Restart Golos.")?;
+        let session = recording::Session::start(&state.root)?;
+        *recording = Some(ActiveRecording {
+            session,
+            title,
+            _guard: guard,
+            id: uuid::Uuid::new_v4().to_string(),
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs() as i64,
+        });
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn recording_status(state: State<AppState>) -> Result<recording::Status, String> {
+    state
+        .recording
+        .lock()
+        .map_err(|_| "Recording is unavailable.")?
+        .as_ref()
+        .ok_or("No recording is active.")?
+        .session
+        .status()
+}
+
+#[derive(Serialize)]
+struct SavedRecording {
+    note: Note,
+    warning: Option<String>,
+}
+
+#[tauri::command]
+async fn stop_recording(
+    app: tauri::AppHandle,
+    discard: bool,
+) -> Result<Option<SavedRecording>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut slot = state
+            .recording
+            .lock()
+            .map_err(|_| "Recording is unavailable.")?;
+        if discard {
+            slot.take();
+            return Ok(None);
+        }
+        let recording = slot.as_mut().ok_or("No recording is active.")?;
+        let result = save_recording(&state, recording);
+        if result.is_ok() {
+            slot.take();
+        }
+        // On failure the source and busy guard remain available for retry.
+        result.map(Some)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn save_recording(
+    state: &AppState,
+    recording: &mut ActiveRecording,
+) -> Result<SavedRecording, String> {
+    let capture_error = recording.session.finish().err();
+    let target = state.audio_path(&recording.id)?;
+    let result = (|| {
+        let duration_seconds = import::normalize(&recording.session.source, &target)?;
+        let note = Note {
+            id: recording.id.clone(),
+            title: recording.title.clone(),
+            created_at: recording.created_at,
+            duration_seconds,
+            status: "ready".into(),
+            segments: vec![],
+            error: None,
+        };
+        let warning = capture_error.or(recording.session.status()?.error);
+        library::insert(&*state.db()?, &note)?;
+        Ok(SavedRecording { note, warning })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(target);
+    }
+    result
 }
 
 // Pickers run on a blocking worker, never on the webview thread. Paths are chosen
@@ -469,6 +580,7 @@ pub fn run() {
                 db: Mutex::new(db),
                 busy: Arc::new(AtomicBool::new(false)),
                 cancelled: Arc::new(AtomicBool::new(false)),
+                recording: Mutex::new(None),
             });
             Ok(())
         })
@@ -476,6 +588,9 @@ pub fn run() {
             setup_status,
             list_notes,
             import_audio,
+            start_recording,
+            recording_status,
+            stop_recording,
             import_model,
             import_diarization_models,
             detect_speakers,
@@ -494,6 +609,60 @@ pub fn run() {
 mod tests {
     use super::*;
     use rusqlite::Connection;
+
+    #[test]
+    fn captured_audio_survives_failed_save_then_becomes_playable_library_entry() {
+        let root = std::env::temp_dir().join(format!("golos-record-save-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let source = root.join("capture.wav");
+        let mut writer = hound::WavWriter::create(
+            &source,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 48_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..48_000 {
+            writer.write_sample(1000i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let db = Connection::open_in_memory().unwrap();
+        library::init(&db, Path::new("in-memory")).unwrap();
+        let state = AppState {
+            root: root.clone(),
+            db: Mutex::new(db),
+            busy: Arc::new(AtomicBool::new(false)),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            recording: Mutex::new(None),
+        };
+        let mut recording = ActiveRecording {
+            session: recording::Session::from_saved_fixture(source.clone()),
+            _guard: state.claim().unwrap(),
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "Interview".into(),
+            created_at: 123,
+        };
+        // Missing audio directory simulates a failed filesystem save.
+        assert!(save_recording(&state, &mut recording).is_err());
+        assert!(source.exists());
+        assert!(state.claim().is_err());
+        assert!(library::list(&state.db().unwrap()).unwrap().is_empty());
+        fs::create_dir(root.join("audio")).unwrap();
+        let saved = save_recording(&state, &mut recording).unwrap();
+        assert_eq!(saved.note.title, "Interview");
+        assert_eq!(saved.note.status, "ready");
+        let audio = authorize_audio(&root, &state.db().unwrap(), &saved.note.id).unwrap();
+        assert_eq!(audio::read_audio(&audio).unwrap().len(), 16_000);
+        assert_eq!(library::list(&state.db().unwrap()).unwrap().len(), 1);
+        drop(recording);
+        assert!(!source.exists());
+        assert!(state.claim().is_ok());
+        assert!(audio.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn insert_ready_note(db: &Connection, id: &str) {
         library::insert(

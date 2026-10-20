@@ -42,6 +42,7 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libclang-dev \
+            libasound2-dev \
             build-essential \
             cmake \
             patchelf \

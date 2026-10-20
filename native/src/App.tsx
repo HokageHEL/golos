@@ -9,7 +9,7 @@ import TranscriptText from './TranscriptText';
 import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';
 import DeleteRecordingDialog from './DeleteRecordingDialog';
 import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
-import { api, nativeAvailable, type Note, type Setup } from './api';
+import { api, nativeAvailable, type Note, type Setup, type RecordingStatus } from './api';
 import Settings from './Settings';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 import { findTranscriptMatches, type TranscriptMatch } from './review';
@@ -17,6 +17,9 @@ import { findTranscriptMatches, type TranscriptMatch } from './review';
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export default function App() {
+  const [capture, setCapture] = useState<RecordingStatus | null>(null);
+  const [capturePhase, setCapturePhase] = useState<'starting' | 'recording' | 'saving' | null>(null);
+  const [discardCapture, setDiscardCapture] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<Segment[]>([]);
@@ -108,6 +111,49 @@ export default function App() {
       .finally(() => { if (!disposed) setAudioLoading(false); });
     return () => { disposed = true; };
   }, [selected, audioAttempt]);
+
+  useEffect(() => {
+    if (capturePhase !== 'recording') return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const status = await api.recordingStatus();
+        if (!disposed) setCapture(status);
+      } catch (e) { if (!disposed) setError(errorText(e)); }
+      if (!disposed) timer = setTimeout(() => { void poll(); }, 250);
+    };
+    void poll();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [capturePhase]);
+
+  async function startRecording() {
+    setBusy('Starting microphone'); setError(null); setMessage(null);
+    setCapturePhase('starting'); setDiscardCapture(false);
+    setCapture({ elapsedSeconds: 0, stopped: false, error: null });
+    try {
+      await api.startRecording(`Recording · ${new Date().toLocaleString()}`);
+      setCapturePhase('recording'); setBusy('Recording');
+    } catch (e) {
+      setError(errorText(e)); setCapturePhase(null); setCapture(null); setBusy(null);
+    }
+  }
+  async function stopRecording(discard = false) {
+    setCapturePhase('saving'); setBusy(discard ? 'Discarding recording' : 'Saving recording'); setError(null);
+    try {
+      const saved = await api.stopRecording(discard);
+      // Clear capture only after native saving succeeds; failures retain the
+      // source audio and let the user retry Stop and save.
+      setCapturePhase(null); setCapture(null); setDiscardCapture(false); setBusy(null);
+      if (saved) {
+        setNotes(current => [saved.note, ...current.filter(note => note.id !== saved.note.id)]);
+        select(saved.note);
+        setMessage(saved.warning ?? 'Recording saved on this device. Ready to transcribe.');
+      } else setMessage('Recording discarded.');
+    } catch (e) {
+      setError(errorText(e)); setCapturePhase('recording'); setBusy('Recording stopped');
+    }
+  }
 
   async function perform(label: string, task: () => Promise<void>) {
     setBusy(label); setError(null); setMessage(null);
@@ -215,7 +261,8 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="#">golos<span className="brand-dot">●</span></a>
       <p className="tagline">Your words. Your device.</p>
-      <button className="primary import" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
+      <button className="primary record-trigger" disabled={locked || dirty} onClick={startRecording}>● Record audio</button>
+      <button className="secondary import" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
       <div className="library-heading"><h2>Library</h2><span>{notes.length}</span></div>
       <nav aria-label="Recordings" className="recordings">
         {loading && <p className="muted">Opening your library…</p>}
@@ -235,17 +282,26 @@ export default function App() {
     <main>
       <header className="topbar"><span>Private transcription</span><span className="pill">No account needed</span></header>
       <div className="workspace">
-        {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to import files, transcribe, and save to your local library.</div>}
+        {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to record audio, import files, transcribe, and save to your local library.</div>}
         {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
         {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
-        {busy && !active && <div className="processing" role="status">{busy}…</div>}
+        {capture && <section className="capture-card" aria-label="Microphone recording">
+          <div className="capture-heading"><span className={`capture-dot ${capture.stopped ? 'stopped' : ''}`} aria-hidden="true"/><h2>{capturePhase === 'starting' ? 'Opening microphone…' : capturePhase === 'saving' ? 'Finishing recording…' : capture.stopped ? 'Recording stopped' : 'Recording from your microphone'}</h2></div>
+          <p className="capture-timer" role="timer" aria-label="Recorded duration">{formatClock(capture.elapsedSeconds * 1000)}</p>
+          <p className="muted">{capture.error ?? (capture.stopped ? 'Save the captured audio to your library, then transcribe it.' : 'Audio stays on this device. Recording stops at 30 minutes.')}</p>
+          {discardCapture ? <div role="group" aria-label="Discard this recording?">
+            <p>Discard this recording? The captured audio will be deleted.</p>
+            <div className="actions"><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(false)}>Keep recording</button><button className="danger-button" disabled={capturePhase !== 'recording'} onClick={() => stopRecording(true)}>Discard recording</button></div>
+          </div> : <div className="actions"><button className="primary" disabled={capturePhase !== 'recording'} onClick={() => stopRecording()}>Stop and save</button><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(true)}>Discard…</button></div>}
+        </section>}
+        {busy && !active && !capture && <div className="processing" role="status">{busy}…</div>}
 
-        {!active ? <section className="welcome">
+        {!capture && (!active ? <section className="welcome">
           <div className="wave" aria-hidden="true">{[18, 36, 60, 42, 80, 54, 30, 60, 38, 18].map((height, i) => <span key={i} style={{ height }}/>)}</div>
           <div className="eyebrow">MAKE ROOM FOR THE CONVERSATION</div>
           <h1>From spoken words<br/>to something you can keep.</h1>
-          <p>Import a recording, turn it into text, and make it your own.<br/>Your audio stays with you.</p>
-          <button className="primary" disabled={locked} onClick={importAudio}>Import your first recording</button>
+          <p>Record or import audio, turn it into text, and make it your own.<br/>Your audio stays with you.</p>
+          <div className="actions welcome-actions"><button className="primary" disabled={locked} onClick={startRecording}>Record your first conversation</button><button className="secondary" disabled={locked} onClick={importAudio}>Import recording</button></div>
           <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis/Opus), AIFF · Up to 30 minutes / 512 MiB</p>
         </section> : <section className="document">
           <div className="document-heading"><div><div className="eyebrow">RECORDING</div><h1>{active.title}</h1>
@@ -323,7 +379,7 @@ export default function App() {
               </div>;
             })}</div>
           </>}
-        </section>}
+        </section>)}
         <footer className="workspace-footer"><span>Audio is never uploaded for transcription.</span><span>Playback and speaker detection stay on your device.</span></footer>
       </div>
     </main>

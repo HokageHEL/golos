@@ -16,7 +16,7 @@ The repository root provides the shared npm scripts and frontend tooling.
   (it includes CMake), LLVM/`libclang` (set `LIBCLANG_PATH` if it is not on
   `PATH`), and the WebView2 Evergreen Runtime (preinstalled on Windows 10 1803+).
 - Linux (Debian/Ubuntu): `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
-  librsvg2-dev libxdo-dev libssl-dev libclang-dev build-essential cmake patchelf`.
+  librsvg2-dev libxdo-dev libssl-dev libclang-dev libasound2-dev build-essential cmake patchelf`.
 
 From the repository root:
 
@@ -34,6 +34,45 @@ install hints, so local setup and CI share the same definition of "ready".
 `native:app` opens the actual Tauri app. `npm run native:dev` only opens a browser
 preview: native actions are intentionally disabled there. No cloud backend, paid transcription service, accounts, or environment secrets
 are needed for native use.
+
+## Record directly in Golos
+
+1. Choose **Record audio** (or **Record your first conversation** in an empty library).
+2. Allow microphone access when the operating system asks. Golos uses the default
+   system input device; choose another microphone in your system sound settings
+   before recording. No transcription model is needed to record.
+3. Watch the recorded-audio timer, then choose **Stop and save**. Capture stops
+   automatically at 30 minutes; choose **Stop and save** to keep it in the library.
+4. The saved entry opens with local playback and **Transcribe offline**. Import a
+   Whisper model in Settings if needed. Audio and its eventual transcript share
+   the same library entry. Failed or cancelled transcription keeps the saved audio.
+
+**Discard…** asks before deleting an unsaved capture. Closing the window is blocked
+while recording or saving. If library saving fails, the stopped capture stays
+available for another **Stop and save** attempt; free disk space and retry, or
+explicitly discard it. A disconnected microphone or overloaded capture queue
+stops capture and reports that interruption when the captured audio is saved.
+No system/meeting audio capture, pause/resume, or input-device picker is included.
+
+On macOS, enable Golos under **System Settings → Privacy & Security → Microphone**
+if access was denied, then retry (restart Golos if the system requires it). The
+bundle includes `NSMicrophoneUsageDescription`. A development launch may be
+attributed to its launcher; use the bundled `.app` when validating permissions.
+Windows microphone access is controlled by its system privacy settings as well.
+
+Capture uses CPAL on a dedicated native worker and a bounded audio queue. Input
+at 8–96 kHz is downmixed to mono and written incrementally as 16-bit PCM; this
+keeps a 30-minute source below the import size limit. On save, the existing
+anti-aliased importer converts it to the library's 16 kHz WAV format and the
+source is removed. Unsaved capture sources are `microphone-*.pending.wav` in
+Golos's data directory. Forced termination/power loss during capture has no
+recovery workflow yet and may leave an incomplete source; this is not a backup.
+
+Verification includes synthetic capture/downmix/queue overload/limit/import
+checks, discard cleanup, and failed-save retry into a playable library entry.
+Browser QA with mocked native commands checks the controls; it does not validate
+microphone hardware or OS permission prompts. Physical-device permission,
+disconnection, and long-duration recording checks remain release gates.
 
 ## First transcription
 
@@ -77,7 +116,7 @@ after new transcriptions by default; existing transcripts use **Detect speakers*
 [model setup and limitations](SPEAKER_DIARIZATION.md). Speaker detection cannot
 stop mid-pass; cancellation discards the result after the current pass returns.
 
-Inference currently uses the CPU for a portable baseline. No recording, summaries, cloud sync, ads, or payment integration is included yet.
+Inference currently uses the CPU for a portable baseline. No summaries, cloud sync, ads, or payment integration is included yet.
 An imported English-only model cannot produce Ukrainian transcription.
 
 ## Appearance
