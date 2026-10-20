@@ -125,6 +125,35 @@ test('batch import reports each failure, retains pending jobs and removes jobs w
 });
 
 
+test('mocked native drop previews names, discards explicitly and imports only after Add', async ({ page }, info) => {
+  await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();
+  const queue = page.getByRole('dialog', { name: 'Batch transcription', exact: true });
+  // Explicitly mocked native drag/drop event: no Finder, WebKit drag or file read.
+  await page.evaluate(async () => {
+    const bridge = window as unknown as { mockNativeBatchDrop: (id: string, names: string[]) => Promise<void> };
+    await bridge.mockNativeBatchDrop('drop-1', ['Dropped A.wav', 'Dropped B.wav']);
+  });
+  await expect(queue.getByText('2 dropped files ready.', { exact: true })).toBeVisible();
+  await expect(queue.getByText('Dropped A.wav', { exact: true })).toBeVisible();
+  await expect(queue.getByText('Dropped B.wav', { exact: true })).toBeVisible();
+  await expect(queue.getByText(/0 queued/)).toBeVisible();
+  await queue.getByRole('button', { name: 'Discard selection', exact: true }).click();
+  await expect(queue.getByText('Dropped A.wav', { exact: true })).toHaveCount(0);
+  await page.evaluate(async () => {
+    const bridge = window as unknown as { mockNativeBatchDrop: (id: string, names: string[]) => Promise<void> };
+    await bridge.mockNativeBatchDrop('drop-2', ['Dropped A.wav', 'Dropped C.wav']);
+  });
+  await queue.getByRole('combobox', { name: 'Batch audio language', exact: true }).selectOption('uk');
+  await queue.getByRole('button', { name: 'Add dropped files', exact: true }).click();
+  await expect(queue.getByText('2 recordings imported and queued. 1 duplicate file skipped within this selection.', { exact: true })).toBeVisible();
+  await expect(queue.getByText('broken-drop.mp3: Mocked decode failure', { exact: true })).toBeVisible();
+  await expect(queue.getByText('Mock dropped interview A', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 760, height: 560 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('batch-drop-import.png'), fullPage: true });
+});
+
+
 test('watched-folder and local export controls preserve opt-in choices and retry failed output', async ({ page }, info) => {
   await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
   const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
