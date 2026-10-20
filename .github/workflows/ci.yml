@@ -98,6 +98,11 @@ jobs:
         # tauri-build embeds `frontendDist`, so this must run before cargo.
         run: npm run native:build
 
+      - name: Browser usability checks (mocked native IPC)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:ui
+
       - name: Rust formatting
         run: cargo fmt --manifest-path native/src-tauri/Cargo.toml -- --check
 

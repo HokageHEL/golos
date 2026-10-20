@@ -37,6 +37,10 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
     return () => element?.close();
   }, []);
 
+  useEffect(() => {
+    if (error) dialog.current?.querySelector('[role="alert"]')?.scrollIntoView({ block: 'nearest' });
+  }, [error]);
+
   return <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-title"
     onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="settings-content">
@@ -44,6 +48,8 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
         <div><div className="eyebrow">MAKE IT YOURS</div><h1 id="settings-title">Settings</h1></div>
         <button className="secondary settings-close" aria-label="Close settings" onClick={onClose} autoFocus>✕</button>
       </header>
+        {error && <div className="notice error" role="alert">{error}</div>}
+        {message && <div className="notice success" role="status">{message}</div>}
         {downloadProgress && <div role="status"><p>{downloadProgress.phase} · {(downloadProgress.received / 1_000_000).toFixed(1)} / {(downloadProgress.total / 1_000_000).toFixed(1)} MB</p><progress value={downloadProgress.received} max={downloadProgress.total}/><button className="secondary" onClick={onCancelDownload}>Cancel download</button></div>}
 
       <section className="settings-section" aria-labelledby="appearance-title">
@@ -82,8 +88,6 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
           Tiny, Base, Medium, Large, and Large V3 Turbo also work; larger models need more memory. English-only models support English audio only.</p>
         {!nativeAvailable && <p className="settings-hint">Open the desktop app to import a model.</p>}
         {dirty && <p className="settings-hint">Save or discard transcript edits before replacing the model.</p>}
-        {error && <div className="notice error" role="alert">{error}</div>}
-        {message && <div className="notice success" role="status">{message}</div>}
       </section>
       <section className="settings-section" aria-labelledby="speakers-title">
         <h2 id="speakers-title">Offline speaker detection</h2>

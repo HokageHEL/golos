@@ -7,18 +7,26 @@ const notes = ['Research interview', 'Weekly planning'].map((title, i) => ({
   error: null, folder: 'Work', tags: ['research'],
 }));
 let paused = false;
+let recordingTitle = 'Mock recording';
 mockWindows('main');
-mockIPC((command, args = {}) => {
+mockIPC((command, payload = {}) => {
+  if (Array.isArray(payload) || payload instanceof ArrayBuffer || payload instanceof Uint8Array) return;
+  const args = payload;
   switch (command) {
     case 'setup_status': return { modelReady: false, modelName: null, dataDirectory: '/mock/local', diarizationReady: false };
     case 'capture_info': return args.applications ? [{ pid: 123, name: 'Browser (mock)' }] : { system: true, mixed: true };
     case 'list_notes': return notes.filter(n => n.title.toLowerCase().includes(String(args.search ?? '').toLowerCase()));
     case 'get_note': return notes.find(n => n.id === args.id);
     case 'audio_source': throw new Error('Mocked audio: native playback is not tested here.');
-    case 'start_recording': return;
+    case 'start_recording': recordingTitle = String(args.title); paused = false; return;
     case 'pause_recording': paused = Boolean(args.paused); return;
     case 'recording_status': return { elapsedSeconds: 7, stopped: false, paused, error: null };
-    case 'stop_recording': return null;
+    case 'stop_recording': {
+      if (args.discard) return null;
+      const note = { ...notes[0], id: String(notes.length), title: recordingTitle, durationSeconds: 7, status: 'ready', segments: [] };
+      notes.unshift(note);
+      return { note, warning: null };
+    }
     case 'download_models': throw new Error('Mocked network failure. Retry or import a model.');
     case 'organize_note': Object.assign(notes.find(n => n.id === args.id)!, { title: args.title, folder: args.folder, tags: args.tags }); return;
     case 'save_note': Object.assign(notes.find(n => n.id === args.id)!, { segments: args.segments }); return;

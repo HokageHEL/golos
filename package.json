@@ -14,7 +14,8 @@
     "native:check": "tsc -p native/tsconfig.json",
     "native:app": "cd native && tauri dev",
     "native:bundle": "cd native && tauri build",
-    "native:test": "cargo test --manifest-path native/src-tauri/Cargo.toml"
+    "native:test": "cargo test --manifest-path native/src-tauri/Cargo.toml",
+    "test:ui": "playwright test --config native/tests/playwright.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.64.1",
     "@tauri-apps/cli": "^2.12.3",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^20",

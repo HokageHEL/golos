@@ -1,4 +1,9 @@
 {
   "extends": "./native/tsconfig.json",
-  "include": ["native/src", "native/vite.config.mts", "vitest.config.mts"]
+  "include": [
+    "native/src",
+    "native/vite.config.mts",
+    "vitest.config.mts",
+    "native/tests"
+  ]
 }

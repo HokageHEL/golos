@@ -86,6 +86,8 @@ future work.
 npm run build
 npm run typecheck
 npm test
+npx playwright install chromium
+npm run test:ui  # browser flows with mocked native IPC
 npm run native:test
 cargo clippy --manifest-path native/src-tauri/Cargo.toml -- -D warnings
 cargo fmt --manifest-path native/src-tauri/Cargo.toml -- --check

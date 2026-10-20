@@ -145,10 +145,20 @@ GOLOS_TEST_MODEL=/path/ggml-small-q5_1.bin GOLOS_TEST_AUDIO=/path/jfk.wav \
 ```
 
 The developer-only browser fixture is `/tests/ui.html` on `npm run native:dev`.
-It uses Tauri's mock IPC and is not a production build entry. Visual browser
-inspection could not be completed in this environment: T3 preview timed out, and
-fallback computer-use browser control was unavailable. DOM interaction regression
-tests ran successfully. No visual-inspection success is claimed.
+It uses Tauri's mock IPC and is not a production build entry. Four real Chromium
+browser tests exercise navigation/draft retention, editing/export controls,
+rename/organization at the minimum window size, model-download error recovery,
+and mixed-source recording controls. Rendered screenshots were inspected. This
+caught and fixed sidebar overflow from long source names; model errors are also
+kept in view. These browser checks still use mocked native commands.
+
+Run them with `npx playwright install chromium` followed by `npm run test:ui`.
+The test runner starts a separate local Vite server on port 1421 and writes
+screenshots/results to the operating system's temporary directory under
+`golos-usability-browser/`. CI installs Chromium and runs the same suite. T3's
+collaborative preview timed out, so this verification used standalone headless
+Chromium instead. Microphone, system audio, native dialogs and inference are not
+exercised by browser tests.
 
 Still required on physical macOS devices before release:
 - Fresh allow/deny/recovery prompts for both microphone and system audio, including
@@ -160,7 +170,7 @@ Still required on physical macOS devices before release:
 - Pause/resume repeatedly, stop/save while paused, failed-save retry, and a full
   30-minute run excluding substantial pauses.
 - Actual Word/Pages/LibreOffice rendering and VTT playback in external consumers.
-- Interactive visual/accessibility QA, large-library benchmarks and signed packaging.
+- Native WebKit and keyboard/accessibility QA beyond the mocked Chromium flows, large-library benchmarks and signed packaging.
 
 Actual microphone/system-audio capture has not been claimed as tested here.
 
@@ -168,7 +178,7 @@ Actual microphone/system-audio capture has not been claimed as tested here.
 
 - Native frontend build, both TypeScript checks, ESLint, Rust formatting and
   Clippy across all targets with warnings denied passed.
-- Frontend: 28 tests passed, including four mounted UI interaction regressions.
+- Frontend: 28 unit/DOM tests passed, including four mounted UI interaction regressions; four Chromium browser tests also passed with mocked native IPC and screenshot inspection.
 - Default Rust suite: 72 passed, four opt-in checks skipped.
 - Separately executed: real upstream download/hash verification for all three
   artifacts and native speaker-model validation; real Whisper Small CPU inference
@@ -178,4 +188,4 @@ Actual microphone/system-audio capture has not been claimed as tested here.
   host. This is capability detection, not actual sound capture.
 - Real speaker diarization on a recording and external codec integration tests
   were not rerun. Microphone/system-audio hardware and OS permission flows were
-  not exercised. The physical-device and visual-inspection gates above remain open.
+  not exercised. The physical-device, native WebKit/accessibility and external-consumer gates above remain open.
