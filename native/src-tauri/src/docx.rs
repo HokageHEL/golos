@@ -11,7 +11,6 @@ fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 pub fn export(path: &Path, note: &Note) -> Result<(), String> {
-    let mut zip = ZipWriter::new(File::create(path).map_err(|e| e.to_string())?);
     let mut body = format!("<w:p><w:r><w:t>{}</w:t></w:r></w:p>", escape(&note.title));
     for segment in &note.segments {
         let label = segment.speaker.as_deref().unwrap_or("");
@@ -35,6 +34,27 @@ pub fn export(path: &Path, note: &Note) -> Result<(), String> {
         }
         body.push_str("</w:p>");
     }
+    write_document(path, &body)
+}
+pub fn export_text(path: &Path, title: &str, text: &str) -> Result<(), String> {
+    let mut body = format!("<w:p><w:r><w:t>{}</w:t></w:r></w:p>", escape(title));
+    for paragraph in text.split("\n\n") {
+        body.push_str("<w:p>");
+        for (index, line) in paragraph.lines().enumerate() {
+            if index > 0 {
+                body.push_str("<w:r><w:br/></w:r>");
+            }
+            body.push_str(&format!(
+                "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r>",
+                escape(line)
+            ));
+        }
+        body.push_str("</w:p>");
+    }
+    write_document(path, &body)
+}
+fn write_document(path: &Path, body: &str) -> Result<(), String> {
+    let mut zip = ZipWriter::new(File::create(path).map_err(|e| e.to_string())?);
     let document = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>"#
     );
@@ -61,6 +81,30 @@ pub fn export(path: &Path, note: &Note) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn untimed_generated_text_exports_without_fabricated_timestamps() {
+        use std::io::Read;
+        let path =
+            std::env::temp_dir().join(format!("golos-ai-docx-{}.docx", uuid::Uuid::new_v4()));
+        export_text(
+            &path,
+            "Summary & notes",
+            "Привіт <world>\nNext line\n\nDecision [s1]",
+        )
+        .unwrap();
+        let mut zip = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        let mut xml = String::new();
+        zip.by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut xml)
+            .unwrap();
+        assert!(xml.contains("Summary &amp; notes"));
+        assert!(xml.contains("&lt;world&gt;"));
+        assert!(xml.contains("Decision [s1]"));
+        assert!(!xml.contains("0.000"));
+        drop(zip);
+        std::fs::remove_file(path).unwrap();
+    }
     #[test]
     fn writes_complete_docx_with_title_timestamps_labels_and_unicode() {
         use std::io::Read;

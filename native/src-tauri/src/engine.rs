@@ -36,7 +36,27 @@ pub fn transcribe(
     cancelled: Arc<AtomicBool>,
     progress: impl FnMut(i32) + Send + 'static,
 ) -> Result<Vec<Segment>, String> {
-    crate::languages::validate(language, &model::inspect(model)?)?;
+    transcribe_task(model, audio, language, false, cancelled, progress)
+}
+
+pub fn validate_task(model_name: &str, translate: bool) -> Result<(), String> {
+    if translate && (model_name.contains("English only") || model_name.contains("Turbo")) {
+        return Err("Speech translation needs a multilingual non-Turbo Whisper model. Recommended: multilingual Small.".into());
+    }
+    Ok(())
+}
+
+pub fn transcribe_task(
+    model: &Path,
+    audio: &Path,
+    language: &str,
+    translate: bool,
+    cancelled: Arc<AtomicBool>,
+    progress: impl FnMut(i32) + Send + 'static,
+) -> Result<Vec<Segment>, String> {
+    let name = model::inspect(model)?;
+    crate::languages::validate(language, &name)?;
+    validate_task(&name, translate)?;
     let samples = audio::read_audio(audio)?;
     if cancelled.load(Ordering::SeqCst) {
         return Err("Transcription cancelled. You can try again.".into());
@@ -53,7 +73,7 @@ pub fn transcribe(
             .map(|n| n.get().min(8) as i32)
             .unwrap_or(2),
     );
-    params.set_translate(false);
+    params.set_translate(translate);
     params.set_language(if language == "auto" {
         None
     } else {
@@ -152,5 +172,35 @@ mod tests {
             |_| {},
         );
         assert!(cancelled.unwrap_err().contains("cancelled"));
+    }
+}
+
+#[cfg(test)]
+mod translation_tests {
+    #[test]
+    fn only_multilingual_non_turbo_models_translate() {
+        assert!(super::validate_task("Whisper Small · multilingual", true).is_ok());
+        assert!(super::validate_task("Whisper Tiny · English only", true).is_err());
+        assert!(super::validate_task("Whisper Large V3 Turbo · multilingual", true).is_err());
+        assert!(super::validate_task("Whisper Tiny · English only", false).is_ok());
+    }
+    #[test]
+    #[ignore = "Requires GOLOS_TEST_MODEL and GOLOS_TEST_AUDIO public local fixtures"]
+    fn real_whisper_translation() {
+        let model = std::env::var("GOLOS_TEST_MODEL").unwrap();
+        let audio = std::env::var("GOLOS_TEST_AUDIO").unwrap();
+        let segments = super::transcribe_task(
+            std::path::Path::new(&model),
+            std::path::Path::new(&audio),
+            "en",
+            true,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            |_| {},
+        )
+        .unwrap();
+        assert!(!segments.is_empty());
+        assert!(segments
+            .iter()
+            .any(|segment| segment.text.to_lowercase().contains("country")));
     }
 }
