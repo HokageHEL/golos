@@ -378,3 +378,17 @@ work needs platform-specific implementation.
 See the [main README](../README.md#multiplatform-direction) for platform status
 and the [development roadmap](../docs/NATIVE_ROADMAP.md) for planned milestones
 and release criteria.
+
+## Offline MacWhisper parity work
+
+Audio language selection now comes from the bundled Whisper engine, including
+languages beyond English and Ukrainian. English-only models reject other explicit
+languages; Cantonese requires Large V3/V3 Turbo. Language availability does not
+establish measured accuracy. Auto detection does not guarantee mixed-language accuracy.
+
+Additional saved-transcript exports: Markdown, standalone print-ready HTML, CSV
+and versioned JSON with paragraph millisecond timestamps and speaker labels.
+CSV protects spreadsheet formulas; HTML escapes content and loads no remote assets.
+**Copy transcript** can copy unsaved edits and does not save them. Word-level times
+are not invented. Native PDF and advanced layout options remain open.
+See the [complete parity audit](../docs/MACWHISPER_PARITY.md) for implementation gaps.

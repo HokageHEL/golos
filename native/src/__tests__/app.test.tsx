@@ -6,11 +6,12 @@ import App from '../App';
 const fixture = vi.hoisted(() => {
   const segment = { startMs: 0, endMs: 1000, speaker: 'Alice', text: 'Original saved text' };
   const notes = ['One', 'Two'].map((title, index) => ({ id: String(index), title, createdAt: 1, durationSeconds: 1, status: 'done', segments: [segment], error: null, folder: '', tags: [] }));
-  return { notes, capture: { elapsedSeconds: 1, stopped: false, paused: false, error: null }, saves: vi.fn(), exports: vi.fn(), source: vi.fn(), download: vi.fn(), cancel: vi.fn(), progressListener: null as null | ((event: { payload: { received: number; total: number; phase: string } }) => void) };
+  return { notes, capture: { elapsedSeconds: 1, stopped: false, paused: false, error: null }, saves: vi.fn(), transcribes: vi.fn(), exports: vi.fn(), source: vi.fn(), download: vi.fn(), cancel: vi.fn(), progressListener: null as null | ((event: { payload: { received: number; total: number; phase: string } }) => void) };
 });
 vi.mock('../api', () => ({
   nativeAvailable: true,
   api: {
+    languages: async () => [{ code: 'en', name: 'english' }, { code: 'uk', name: 'ukrainian' }, { code: 'ja', name: 'japanese' }],
     setup: async () => ({ modelReady: true, modelName: 'Small', diarizationReady: false }),
     list: async ({ search = '' } = {}) => fixture.notes.filter(n => n.title.toLowerCase().includes(search.toLowerCase())),
     get: async (id: string) => fixture.notes.find(n => n.id === id),
@@ -21,6 +22,7 @@ vi.mock('../api', () => ({
     pauseRecording: async (paused: boolean) => { fixture.capture.paused = paused; },
     stopRecording: async () => null,
     save: fixture.saves,
+    transcribe: fixture.transcribes,
     export: fixture.exports,
     exportSaved: fixture.exports,
     downloadModels: fixture.download, cancel: fixture.cancel,
@@ -104,4 +106,40 @@ it('shows model download progress and cancellation, then retries successfully', 
   fireEvent.click(screen.getByRole('button', { name: 'Retry recommended model' }));
   await screen.findByText('Models installed. Recording and transcription are ready offline.');
   expect(fixture.download).toHaveBeenCalledTimes(2);
+});
+
+
+it('exports structured formats and copies the current draft without silently saving it', async () => {
+  fixture.exports.mockResolvedValue(true);
+  const copy = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } });
+  render(<App/>);
+  const editor = await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Other export format' }), { target: { value: 'json' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Export JSON' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('json', expect.stringContaining('"timestampUnit": "milliseconds"')));
+  fireEvent.change(editor, { target: { value: 'Private unsaved revision' } });
+  expect((screen.getByRole('button', { name: 'Export JSON' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Copy transcript' }));
+  await waitFor(() => expect(copy).toHaveBeenCalledWith('Alice: Private unsaved revision'));
+  expect(fixture.saves).not.toHaveBeenCalled();
+  expect(screen.getByText('Draft copied to clipboard. Your edits are still unsaved.')).toBeTruthy();
+});
+
+
+it('offers engine languages beyond English and Ukrainian and forwards the selected code', async () => {
+  const previousStatus = fixture.notes[0].status;
+  fixture.notes[0].status = 'ready';
+  fixture.transcribes.mockResolvedValue(undefined);
+  try {
+    render(<App/>);
+    const language = await screen.findByRole('combobox', { name: 'Audio language' });
+    await screen.findByRole('option', { name: 'Japanese' });
+    fireEvent.change(language, { target: { value: 'ja' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Transcribe offline', exact: true }));
+    await waitFor(() => expect(fixture.transcribes).toHaveBeenCalledWith('0', 'ja'));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Transcribe offline', exact: true }) as HTMLButtonElement).disabled).toBe(false));
+  } finally {
+    fixture.notes[0].status = previousStatus;
+  }
 });

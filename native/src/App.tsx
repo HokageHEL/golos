@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { exportWithSpeakers, displaySpeaker, speakerEntryIndexes, renameSpeakerEntries } from './speakerLabels';
+import { displaySpeaker, speakerEntryIndexes, renameSpeakerEntries } from './speakerLabels';
 import type { Segment } from './transcript/types';
 import AudioPlayer from './AudioPlayer';
 import TranscriptText from './TranscriptText';
 import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';
 import DeleteRecordingDialog from './DeleteRecordingDialog';
 import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
-import { api, nativeAvailable, type Note, type Setup, type RecordingStatus } from './api';
+import { api, nativeAvailable, type Note, type Setup, type RecordingStatus, type Language, type TextExportFormat } from './api';
 import Settings from './Settings';
 import Organization from './Organization';
 import { change, undo, redo, replaceAll, splitParagraph, mergeParagraph, type History } from './editing';
-import { toVtt } from './export/vtt';
+import { exportDocument } from './export/document';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 import { findTranscriptMatches, type TranscriptMatch } from './review';
 
@@ -53,6 +53,8 @@ export default function App() {
   const [loading, setLoading] = useState(nativeAvailable);
   const [dirty, setDirty] = useState(false);
   const [language, setLanguage] = useState('auto');
+  const [languages, setLanguages] = useState<Language[]>([]);
+  const [extraFormat, setExtraFormat] = useState<TextExportFormat>('md');
   const [downloadProgress, setDownloadProgress] = useState<{ received: number; total: number; phase: string } | null>(null);
   const [progress, setProgress] = useState(0);
   const [speakerCount, setSpeakerCount] = useState('auto');
@@ -104,6 +106,7 @@ export default function App() {
   useEffect(() => {
     if (!nativeAvailable) return;
     let disposed = false;
+    void api.languages().then(rows => { if (!disposed) setLanguages(rows); }).catch(e => { if (!disposed) setError(errorText(e)); });
     void api.captureInfo().then(info => { if (!disposed && !Array.isArray(info)) setCaptureSupport(info); }).catch(e => { if (!disposed) setError(errorText(e)); });
     Promise.all([api.setup(), api.list()]).then(async ([status, library]) => {
       if (disposed) return;
@@ -318,9 +321,9 @@ export default function App() {
       if (note) { setNotes(await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter })); select(note); setMessage('Project imported as a new recording.'); }
     });
   }
-  async function exportTranscript(format: 'txt' | 'srt' | 'vtt') {
+  async function exportTranscript(format: TextExportFormat) {
     await perform('Exporting transcript', async () => {
-      const content = format === 'vtt' ? toVtt(draft) : exportWithSpeakers(draft, format);
+      const content = exportDocument(active?.title ?? 'Transcript', draft, format);
       if (await api.export(format, content)) setMessage('Transcript exported.');
     });
   }
@@ -414,7 +417,7 @@ export default function App() {
               {active.error && <p className="error-text">{active.error}</p>}</div>
             {!loading && !setup?.modelReady && <p>Choose a model in <button className="inline-button" onClick={() => setSettingsOpen(true)}>Settings</button> to get started.</p>}
             <div className="actions"><label>Audio language<select value={language} disabled={locked} onChange={e => setLanguage(e.target.value)}>
-              <option value="auto">Detect automatically</option><option value="en">English</option><option value="uk">Ukrainian</option></select></label>
+              <option value="auto">Detect automatically</option>{languages.map(item => <option key={item.code} value={item.code}>{item.name.charAt(0).toUpperCase() + item.name.slice(1)}</option>)}</select></label>
               {setup?.diarizationReady && <label className="auto-speakers"><input type="checkbox" checked={autoSpeakers} disabled={locked} onChange={e => setAutoSpeakers(e.target.checked)}/> Detect speakers after transcription</label>}
               <button className="primary" disabled={locked || !setup?.modelReady} onClick={transcribe}>Transcribe offline</button></div>
           </div>}
@@ -441,6 +444,9 @@ export default function App() {
               <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('srt')}>Export SRT</button>
               <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('vtt')}>Export VTT</button>
               <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportSaved('docx')}>Export DOCX</button>
+              <label>Other formats<select aria-label="Other export format" value={extraFormat} disabled={locked} onChange={event => setExtraFormat(event.target.value as TextExportFormat)}><option value="md">Markdown (.md)</option><option value="html">HTML (print ready)</option><option value="csv">CSV (spreadsheet)</option><option value="json">JSON (structured)</option></select></label>
+              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript(extraFormat)}>Export {extraFormat.toUpperCase()}</button>
+              <button className="secondary" disabled={locked || !draft.length} onClick={() => { void perform('Copying transcript', async () => { await navigator.clipboard.writeText(exportDocument(active.title, draft, 'txt')); setMessage(dirty ? 'Draft copied to clipboard. Your edits are still unsaved.' : 'Transcript copied to clipboard.'); }); }}>Copy transcript</button>
             </div></div>
             {dirty && <p className="unsaved" role="status">Unsaved edits — kept while you browse. Save to include them in library search and exports.</p>}
             {!!draft.length && <div className="transcript-search" role="search" aria-label="Search transcript">

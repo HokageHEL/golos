@@ -36,7 +36,7 @@ pub fn transcribe(
     cancelled: Arc<AtomicBool>,
     progress: impl FnMut(i32) + Send + 'static,
 ) -> Result<Vec<Segment>, String> {
-    model::inspect(model)?;
+    crate::languages::validate(language, &model::inspect(model)?)?;
     let samples = audio::read_audio(audio)?;
     if cancelled.load(Ordering::SeqCst) {
         return Err("Transcription cancelled. You can try again.".into());
