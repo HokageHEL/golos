@@ -131,7 +131,29 @@ pub(crate) async fn ai_retry(app: tauri::AppHandle, id: String) -> Result<ai::Wo
     };
     run(&app, work, port).await
 }
-async fn run(app: &tauri::AppHandle, mut work: ai::Work, port: u16) -> Result<ai::Work, String> {
+async fn run(app: &tauri::AppHandle, work: ai::Work, port: u16) -> Result<ai::Work, String> {
+    run_with(app, work, port, None).await
+}
+/// Shared runner for opt-in automatic rules. The final saved phase makes the
+/// result's provenance visible in the workspace and in portable backups.
+pub(crate) async fn automatic(
+    app: &tauri::AppHandle,
+    work: ai::Work,
+    port: u16,
+    rule: &str,
+) -> Result<ai::Work, String> {
+    run_with(app, work, port, Some(rule)).await
+}
+fn automatic_phase(rule: Option<&str>, phase: &str) -> String {
+    rule.map(|rule| format!("Automatic {rule} · {phase}"))
+        .unwrap_or_else(|| phase.into())
+}
+async fn run_with(
+    app: &tauri::AppHandle,
+    mut work: ai::Work,
+    port: u16,
+    automatic: Option<&str>,
+) -> Result<ai::Work, String> {
     let state = app.state::<AppState>();
     let result=async{
         if work.kind=="speech_english"{
@@ -149,7 +171,7 @@ async fn run(app: &tauri::AppHandle, mut work: ai::Work, port: u16) -> Result<ai
     match result {
         Ok(()) => {
             work.status = "done".into();
-            work.phase = "Complete".into();
+            work.phase = automatic_phase(automatic, "Complete");
         }
         Err(error) => {
             work.status = if state.cancelled.load(Ordering::SeqCst) {
@@ -158,12 +180,14 @@ async fn run(app: &tauri::AppHandle, mut work: ai::Work, port: u16) -> Result<ai
                 "failed"
             }
             .into();
-            work.phase = if work.status == "cancelled" {
-                "Cancelled"
-            } else {
-                "Failed"
-            }
-            .into();
+            work.phase = automatic_phase(
+                automatic,
+                if work.status == "cancelled" {
+                    "Cancelled"
+                } else {
+                    "Failed"
+                },
+            );
             work.error = Some(error);
         }
     }

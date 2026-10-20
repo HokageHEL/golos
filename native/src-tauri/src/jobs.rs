@@ -95,12 +95,15 @@ pub fn next_for(db: &Connection, note: Option<&str>) -> Result<Option<(String, S
     Ok(pending)
 }
 
+/// Commit the transcript and, when automatic rules match, their durable tasks.
+/// Scheduling runs in a savepoint: a rule/config problem never loses the
+/// successful transcript. Returns a non-fatal scheduling warning.
 pub fn finish(
     db: &Connection,
     note: &str,
     result: &Result<Vec<Segment>, String>,
     cancelled: bool,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
     let expected: bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM transcription_jobs j JOIN notes n ON n.id=j.note_id WHERE j.note_id=?1 AND j.status='running' AND n.status='processing' AND n.segments='[]')",[note],|row|row.get(0)).map_err(|e|e.to_string())?;
@@ -119,10 +122,26 @@ pub fn finish(
             .map_err(|e| e.to_string())?;
         crate::library::validate_segments(segments, duration)?;
     }
+    let mut warning = None;
     match result {
         Ok(segments) => {
             tx.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2 AND status='processing' AND segments='[]'", params![serde_json::to_string(segments).map_err(|e| e.to_string())?, note]).map_err(|e| e.to_string())?;
             tx.execute("UPDATE transcription_jobs SET status='done',error=NULL WHERE note_id=?1 AND status='running'", [note]).map_err(|e| e.to_string())?;
+            // Watched imports are the only queue origin that should feed rules
+            // scoped to `watch`; everything else in the shared queue is `batch`.
+            let source: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM watch_imports WHERE note_id=?1)",
+                    [note],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            warning = crate::ai_automation::schedule_atomic(
+                &tx,
+                note,
+                if source { "watch" } else { "batch" },
+            )
+            .err();
         }
         Err(error) => {
             tx.execute(
@@ -133,7 +152,8 @@ pub fn finish(
             tx.execute("UPDATE transcription_jobs SET status=?1,error=?2 WHERE note_id=?3 AND status='running'", params![if cancelled {"cancelled"} else {"failed"},error,note]).map_err(|e| e.to_string())?;
         }
     }
-    tx.commit().map_err(|e| e.to_string())
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(warning)
 }
 
 pub fn recover(db: &Connection) -> Result<(), String> {
@@ -239,6 +259,113 @@ mod tests {
                 .status,
             "queued"
         );
+    }
+
+    #[test]
+    fn successful_queue_transcripts_schedule_scoped_rules_without_risking_the_transcript() {
+        use crate::ai_automation::{self, Rule};
+        let db = database();
+        crate::ai::configure(
+            &db,
+            &crate::ai::Settings {
+                port: 11434,
+                model: "local:latest".into(),
+                context_window: 8192,
+            },
+        )
+        .unwrap();
+        let rule = |id: &str, source: &str| Rule {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: id.into(),
+            enabled: true,
+            kind: "summary".into(),
+            target: String::new(),
+            prompt: String::new(),
+            sources: vec![source.into()],
+        };
+        ai_automation::configure(&db, vec![rule("batch", "batch"), rule("watch", "watch")])
+            .unwrap();
+        let saved = Ok(vec![Segment {
+            start_ms: 0,
+            end_ms: 1000,
+            speaker: None,
+            text: "Batch transcript".into(),
+        }]);
+        enqueue(&db, "one", "en").unwrap();
+        next(&db).unwrap();
+        assert!(finish(&db, "one", &saved, false).unwrap().is_none());
+        assert_eq!(
+            crate::library::get(&db, "one").unwrap().segments[0].text,
+            "Batch transcript"
+        );
+        let tasks = ai_automation::tasks(&db).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].source, "batch");
+        assert_eq!(tasks[0].status, "queued");
+
+        db.execute(
+            "INSERT INTO watch_folders(id,path,enabled,auto_transcribe,language) VALUES('folder','/tmp/golos-watch-test',1,1,'en')",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO watch_imports(folder_id,digest,note_id) VALUES('folder','digest','two')",
+            [],
+        )
+        .unwrap();
+        enqueue(&db, "two", "en").unwrap();
+        next(&db).unwrap();
+        assert!(finish(
+            &db,
+            "two",
+            &Ok(vec![Segment {
+                start_ms: 0,
+                end_ms: 1000,
+                speaker: None,
+                text: "Watched transcript".into(),
+            }]),
+            false
+        )
+        .unwrap()
+        .is_none());
+        assert_eq!(
+            ai_automation::tasks(&db)
+                .unwrap()
+                .iter()
+                .find(|task| task.note_id == "two")
+                .unwrap()
+                .source,
+            "watch"
+        );
+
+        // A later invalid shared model setting must not lose the transcript or
+        // make Whisper fail; scheduling reports a non-fatal warning instead.
+        db.execute("UPDATE ai_settings SET context_window=4096", [])
+            .unwrap();
+        enqueue(&db, "three", "en").unwrap();
+        next(&db).unwrap();
+        let warning = finish(
+            &db,
+            "three",
+            &Ok(vec![Segment {
+                start_ms: 0,
+                end_ms: 1000,
+                speaker: None,
+                text: "Still saved".into(),
+            }]),
+            false,
+        )
+        .unwrap()
+        .expect("scheduling warning");
+        assert!(warning.contains("context"));
+        assert_eq!(
+            crate::library::get(&db, "three").unwrap().segments[0].text,
+            "Still saved"
+        );
+        assert!(!ai_automation::tasks(&db)
+            .unwrap()
+            .iter()
+            .any(|task| task.note_id == "three"));
     }
 
     #[test]

@@ -1,4 +1,6 @@
 mod ai;
+mod ai_automation;
+mod ai_automation_commands;
 mod ai_commands;
 mod ai_generation;
 mod audio;
@@ -536,12 +538,17 @@ fn process_queued_job(
         library::validate_segments(&segments, note.duration_seconds)?;
         Ok(segments)
     });
-    jobs::finish(
+    if let Some(warning) = jobs::finish(
         &*state.db()?,
         id,
         &result,
         state.cancelled.load(Ordering::SeqCst),
-    )?;
+    )? {
+        let _ = app.emit(
+            "automation-error",
+            format!("Transcript saved; automatic local AI was not scheduled: {warning}"),
+        );
+    }
     match &result {
         Ok(_) => automation::schedule_export(&*state.db()?, id)?,
         Err(error) => {
@@ -860,8 +867,13 @@ async fn transcribe(app: tauri::AppHandle, id: String, language: String) -> Resu
             });
         let db = state.db()?;
         match result {
-            Ok(segments) => { db.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
-                params![serde_json::to_string(&segments).map_err(|e| e.to_string())?, id]).map_err(|e| e.to_string())?;
+            Ok(segments) => {
+                let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+                tx.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
+                    params![serde_json::to_string(&segments).map_err(|e| e.to_string())?, id]).map_err(|e| e.to_string())?;
+                let warning = ai_automation::schedule_atomic(&tx, &id, "single").err();
+                tx.commit().map_err(|e| e.to_string())?;
+                if let Some(error)=warning { let _=app.emit("automation-error",format!("Transcript saved; automatic local AI was not scheduled: {error}")); }
                 if let Err(error)=automation::schedule_export(&db,&id) { let _=app.emit("automation-error",error); }
                 Ok(()) }
             Err(error) => { db.execute("UPDATE notes SET status='failed',error=?1 WHERE id=?2", params![error, id]).map_err(|e| e.to_string())?; Err(error) }
@@ -1124,6 +1136,9 @@ pub fn run() {
             ai_commands::ai_segments,
             ai_commands::ai_recording,
             ai_commands::ai_docx,
+            ai_automation_commands::ai_automation_status,
+            ai_automation_commands::ai_automation_configure,
+            ai_automation_commands::ai_automation_action,
             automation_commands::automation_status,
             automation_commands::add_watch_folder,
             automation_commands::watch_folder_action,

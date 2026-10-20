@@ -29,7 +29,7 @@ use std::{
 };
 
 /// Schema version written by this build.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 /// Version reported by preview libraries that predate schema versioning.
 pub const LEGACY_PREVIEW_VERSION: i64 = 0;
 /// Message stored on `processing` rows that a shutdown interrupted.
@@ -186,6 +186,7 @@ pub fn migrate(db: &Connection, db_path: &Path) -> Result<Migration, String> {
     crate::jobs::recover(db)?;
     crate::automation::recover(db)?;
     crate::ai::recover(db)?;
+    crate::ai_automation::recover(db)?;
     Ok(Migration {
         from_version,
         to_version: SCHEMA_VERSION,
@@ -211,6 +212,8 @@ fn classify(db: &Connection, db_path: &Path, version: i64) -> Result<State, Stri
             db.prepare("SELECT w.id,f.name,i.digest,e.formats,o.path FROM watch_folders w,watch_files f,watch_imports i,export_tasks e,export_files o LIMIT 0").map_err(|e|format!("The automation schema is damaged. No changes were made: {e}"))?;
             crate::ai::settings(db).map_err(|e|format!("Local AI settings are damaged. No changes were made: {e}"))?;
             db.prepare("SELECT id,note_id,kind,target,prompt,conversation,source_language,model,context_window,source,source_hash,status,content,segments,created_at,error,phase FROM ai_results LIMIT 0").map_err(|e|format!("Local AI results are damaged. No changes were made: {e}"))?;
+            db.prepare("SELECT id,position,name,enabled,kind,target,prompt,sources FROM ai_automation_rules LIMIT 0").map_err(|e|format!("Automatic local AI rules are damaged. No changes were made: {e}"))?;
+            db.prepare("SELECT id,note_id,rule_id,rule_name,kind,target,prompt,source,source_language,source_hash,segments,model,port,context_window,status,error,result_id,created_at,updated_at FROM ai_automation_tasks LIMIT 0").map_err(|e|format!("Automatic local AI tasks are damaged. No changes were made: {e}"))?;
             Ok(State::Current)
         }
         (SCHEMA_VERSION, _) => Err(format!(
@@ -218,7 +221,7 @@ fn classify(db: &Connection, db_path: &Path, version: i64) -> Result<State, Stri
             db_path.display()
         )),
         (LEGACY_PREVIEW_VERSION, None) => Ok(State::Fresh),
-        (LEGACY_PREVIEW_VERSION | 1 | 2 | 3 | 4, Some("table")) => {
+        (LEGACY_PREVIEW_VERSION | 1 | 2 | 3 | 4 | 5, Some("table")) => {
             validate_notes_schema(db, db_path)?;
             Ok(State::LegacyPreview)
         }
@@ -365,9 +368,16 @@ fn apply_current_schema(db: &Connection) -> Result<(), String> {
             .execute_batch(crate::automation::SCHEMA)
             .map_err(|e| format!("Could not build local automation: {e}"))?;
     }
-    transaction
-        .execute_batch(crate::ai::SCHEMA)
-        .map_err(|e| format!("Could not build local AI storage: {e}"))?;
+    if from_version < 5 {
+        transaction
+            .execute_batch(crate::ai::SCHEMA)
+            .map_err(|e| format!("Could not build local AI storage: {e}"))?;
+    }
+    if from_version < 6 {
+        transaction
+            .execute_batch(crate::ai_automation::SCHEMA)
+            .map_err(|e| format!("Could not build automatic local AI storage: {e}"))?;
+    }
     transaction
         .commit()
         .map_err(|e| format!("Could not commit the library migration: {e}"))?;
@@ -538,7 +548,7 @@ mod tests {
     const NOTES_TABLES: &str =
         "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='notes'";
     const JOURNAL_MODE: &str = "PRAGMA journal_mode";
-    const BACKUP_MARKER: &str = ".pre-v5-";
+    const BACKUP_MARKER: &str = ".pre-v6-";
     /// Mirrors `library::insert`, which leaves `segments` at its `'[]'` default.
     const INSERT_ROW: &str = "INSERT INTO notes
         (id,title,created_at,duration_seconds,status) VALUES(?1,?2,?3,?4,?5)";
@@ -633,11 +643,50 @@ mod tests {
     }
 
     #[test]
+    fn version_five_upgrade_adds_automatic_rules_and_preserves_every_existing_table() {
+        let (db, request) = crate::ai::tests::fixture();
+        let before = crate::library::get(&db, "source").unwrap();
+        let work = crate::ai::create(&db, &request, "local:latest", 8192).unwrap();
+        db.execute("UPDATE automation_settings SET paused=1 WHERE id=1", [])
+            .unwrap();
+        db.execute(
+            "INSERT INTO watch_folders(id,path,enabled,auto_transcribe,language) VALUES('folder','/tmp/golos-v5-watch',1,1,'en')",
+            [],
+        )
+        .unwrap();
+        db.execute_batch("DROP TRIGGER ai_automation_note_cleanup;DROP TABLE ai_automation_tasks;DROP TABLE ai_automation_rules;PRAGMA user_version=5;").unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "golos-v5-automation-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let migration = migrate(&db, &path).unwrap();
+        assert_eq!(migration.from_version, 5);
+        assert_eq!(migration.to_version, 6);
+        let backup = migration.backup.expect("upgrade must take a snapshot");
+        assert!(backup.is_file());
+        assert_eq!(read_version(&db).unwrap(), 6);
+        assert_eq!(
+            crate::library::get(&db, "source").unwrap().segments[0].text,
+            before.segments[0].text
+        );
+        assert_eq!(
+            crate::ai::get(&db, &work.id).unwrap().source_hash,
+            work.source_hash
+        );
+        assert!(crate::automation::settings(&db).unwrap().paused);
+        assert_eq!(crate::automation::folders(&db).unwrap().len(), 1);
+        assert!(crate::ai_automation::rules(&db).unwrap().is_empty());
+        assert!(crate::ai_automation::tasks(&db).unwrap().is_empty());
+        assert!(!crate::ai_automation::has_queued(&db).unwrap());
+        std::fs::remove_file(backup).unwrap();
+    }
+
+    #[test]
     fn version_four_adds_ai_without_changing_automation_or_transcripts() {
         let (db, _) = crate::ai::tests::fixture();
         db.execute("UPDATE automation_settings SET paused=1", [])
             .unwrap();
-        db.execute_batch("DROP TRIGGER ai_note_cleanup;DROP TABLE ai_results;DROP TABLE ai_settings;PRAGMA user_version=4;").unwrap();
+        db.execute_batch("DROP TRIGGER ai_note_cleanup;DROP TABLE ai_results;DROP TABLE ai_settings;DROP TRIGGER ai_automation_note_cleanup;DROP TABLE ai_automation_tasks;DROP TABLE ai_automation_rules;PRAGMA user_version=4;").unwrap();
         let before = crate::library::get(&db, "source").unwrap();
         let path = std::env::temp_dir().join(format!(
             "golos-ai-migration-{}.sqlite3",
@@ -645,7 +694,7 @@ mod tests {
         ));
         let migration = migrate(&db, &path).unwrap();
         std::fs::remove_file(migration.backup.unwrap()).unwrap();
-        assert_eq!(read_version(&db).unwrap(), 5);
+        assert_eq!(read_version(&db).unwrap(), 6);
         assert_eq!(
             db.query_row("SELECT paused FROM automation_settings", [], |row| row
                 .get::<_, i64>(0))
@@ -818,16 +867,16 @@ mod tests {
         );
         // A library written by a future build, deliberately not in WAL mode so
         // the test can prove the journal mode was left alone.
-        db.execute_batch("PRAGMA user_version = 6; PRAGMA journal_mode = DELETE;")
+        db.execute_batch("PRAGMA user_version = 7; PRAGMA journal_mode = DELETE;")
             .unwrap();
 
         let error = migrate(&db, &path).unwrap_err();
-        assert!(error.contains("schema version 6"), "unexpected: {error}");
+        assert!(error.contains("schema version 7"), "unexpected: {error}");
         assert!(
             error.contains("No changes were made"),
             "unexpected: {error}"
         );
-        assert_eq!(read_version(&db).unwrap(), 6);
+        assert_eq!(read_version(&db).unwrap(), 7);
         assert_eq!(journal_mode(&db), "delete");
         assert_eq!(text_of(&db, STATUS_OF, "interrupted"), "processing");
         assert!(fixture.backups().is_empty());
@@ -835,7 +884,7 @@ mod tests {
 
         // The refusal is persistent, not just a view of this connection.
         let reopened = fixture.open();
-        assert_eq!(read_version(&reopened).unwrap(), 6);
+        assert_eq!(read_version(&reopened).unwrap(), 7);
         assert_eq!(journal_mode(&reopened), "delete");
         assert_eq!(row_count(&reopened), 1);
     }
@@ -1002,7 +1051,7 @@ mod tests {
         let fixture = TempLibrary::new("backup-failure");
         let path = fixture.db_path();
         // A snapshot that must survive the failed attempt untouched.
-        let existing = fixture.path("library.pre-v5-1.sqlite3");
+        let existing = fixture.path("library.pre-v6-1.sqlite3");
         fs::write(&existing, b"an existing backup").unwrap();
 
         let db = fixture.open_legacy();
@@ -1056,7 +1105,7 @@ mod tests {
         let first = reserve_backup(&path, millis).unwrap();
         assert_eq!(
             first.file_name().unwrap(),
-            "library.pre-v5-1760000000000.sqlite3"
+            "library.pre-v6-1760000000000.sqlite3"
         );
         assert!(first.is_file(), "the reserved name must be created empty");
         // Stand in for a completed snapshot a later upgrade must not disturb.
@@ -1066,7 +1115,7 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(
             second.file_name().unwrap(),
-            "library.pre-v5-1760000000000-1.sqlite3"
+            "library.pre-v6-1760000000000-1.sqlite3"
         );
         assert_eq!(fs::read(&first).unwrap(), b"an existing backup");
     }
@@ -1075,7 +1124,7 @@ mod tests {
         let fixture = TempLibrary::new("version-two");
         let db = fixture.open();
         migrate(&db, &fixture.db_path()).unwrap();
-        db.execute_batch("DROP TRIGGER transcription_jobs_cleanup; DROP TABLE transcription_jobs; DROP TRIGGER automation_note_cleanup; DROP TRIGGER automation_watch_cleanup; DROP TABLE export_tasks; DROP TABLE export_files; DROP TABLE watch_imports; DROP TABLE watch_files; DROP TABLE watch_folders; DROP TABLE automation_settings; DROP TRIGGER ai_note_cleanup;DROP TABLE ai_results;DROP TABLE ai_settings;PRAGMA user_version=2;").unwrap();
+        db.execute_batch("DROP TRIGGER transcription_jobs_cleanup; DROP TABLE transcription_jobs; DROP TRIGGER automation_note_cleanup; DROP TRIGGER automation_watch_cleanup; DROP TABLE export_tasks; DROP TABLE export_files; DROP TABLE watch_imports; DROP TABLE watch_files; DROP TABLE watch_folders; DROP TABLE automation_settings; DROP TRIGGER ai_note_cleanup;DROP TABLE ai_results;DROP TABLE ai_settings;DROP TRIGGER ai_automation_note_cleanup;DROP TABLE ai_automation_tasks;DROP TABLE ai_automation_rules;PRAGMA user_version=2;").unwrap();
         add_row(&db, "keep", "Interview", 1, 2.0, "done");
         db.execute(SET_SEGMENTS, rusqlite::params![SEGMENTS, "keep"])
             .unwrap();
@@ -1107,7 +1156,7 @@ mod tests {
         let fixture = TempLibrary::new("version-three");
         let db = fixture.open();
         migrate(&db, &fixture.db_path()).unwrap();
-        db.execute_batch("DROP TRIGGER automation_note_cleanup;DROP TRIGGER automation_watch_cleanup;DROP TABLE export_tasks;DROP TABLE export_files;DROP TABLE watch_imports;DROP TABLE watch_files;DROP TABLE watch_folders;DROP TABLE automation_settings;DROP TRIGGER ai_note_cleanup;DROP TABLE ai_results;DROP TABLE ai_settings;PRAGMA user_version=3;").unwrap();
+        db.execute_batch("DROP TRIGGER automation_note_cleanup;DROP TRIGGER automation_watch_cleanup;DROP TABLE export_tasks;DROP TABLE export_files;DROP TABLE watch_imports;DROP TABLE watch_files;DROP TABLE watch_folders;DROP TABLE automation_settings;DROP TRIGGER ai_note_cleanup;DROP TABLE ai_results;DROP TABLE ai_settings;DROP TRIGGER ai_automation_note_cleanup;DROP TABLE ai_automation_tasks;DROP TABLE ai_automation_rules;PRAGMA user_version=3;").unwrap();
         add_row(&db, "one", "Waiting job", 1, 1.0, "ready");
         crate::jobs::enqueue(&db, "one", "uk").unwrap();
         let result = migrate(&db, &fixture.db_path()).unwrap();

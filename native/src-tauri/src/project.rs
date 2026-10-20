@@ -270,6 +270,7 @@ mod tests {
         request.prompt = "When?".into();
         let mut work = crate::ai::create(&db, &request, "local:latest", 8192).unwrap();
         work.status = "done".into();
+        work.phase = "Automatic Meeting summary · Complete".into();
         work.content = "Friday [s1]".into();
         crate::ai::checkpoint(&db, &work).unwrap();
         request.conversation = work.conversation.clone();
@@ -289,6 +290,7 @@ mod tests {
         let imported = crate::ai::get(&db, &ar[1].id).unwrap();
         assert_eq!(imported.content, work.content);
         assert_eq!(imported.source_hash, work.source_hash);
+        assert_eq!(imported.phase, "Automatic Meeting summary · Complete");
         assert_eq!(ar[0].status, "failed");
         assert_eq!(crate::ai::get(&db, &pending.id).unwrap().status, "running");
         db.execute(
