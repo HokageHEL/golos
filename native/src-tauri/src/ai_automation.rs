@@ -790,7 +790,7 @@ fn rebuild_tasks(db: &Connection) -> Result<(), String> {
 fn copy_tasks(db: &Connection) -> Result<(), String> {
     let mut statement = db
         .prepare(&format!(
-            "SELECT {TASK_COLUMNS} FROM ai_automation_tasks_previous"
+            "SELECT {TASK_COLUMNS} FROM ai_automation_tasks_previous ORDER BY rowid"
         ))
         .map_err(|e| e.to_string())?;
     let columns = statement.column_count();

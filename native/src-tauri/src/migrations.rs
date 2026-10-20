@@ -865,10 +865,24 @@ mod tests {
             &queued.id,
         );
 
+        let insertion_order = |db: &Connection| -> Vec<String> {
+            db.prepare("SELECT id FROM ai_automation_tasks ORDER BY rowid")
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        let before_order = insertion_order(&db);
         let path = migration_path("v6-development");
         let migration = migrate(&db, &path).unwrap();
         assert_eq!(migration.from_version, 6);
         assert_eq!(migration.to_version, 7);
+        assert_eq!(
+            insertion_order(&db),
+            before_order,
+            "rebuilding preserves task FIFO order"
+        );
         let backup = migration
             .backup
             .expect("upgrading an existing library must take a snapshot");
