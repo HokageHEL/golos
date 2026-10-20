@@ -29,6 +29,7 @@ export default function App() {
   const [loading, setLoading] = useState(nativeAvailable);
   const [dirty, setDirty] = useState(false);
   const [language, setLanguage] = useState('auto');
+  const [downloadProgress, setDownloadProgress] = useState<{ received: number; total: number; phase: string } | null>(null);
   const [progress, setProgress] = useState(0);
   const [speakerCount, setSpeakerCount] = useState('auto');
   const [cancelRequested, setCancelRequested] = useState(false);
@@ -130,7 +131,7 @@ export default function App() {
   async function startRecording() {
     setBusy('Starting microphone'); setError(null); setMessage(null);
     setCapturePhase('starting'); setDiscardCapture(false);
-    setCapture({ elapsedSeconds: 0, stopped: false, error: null });
+    setCapture({ elapsedSeconds: 0, stopped: false, paused: false, error: null });
     try {
       await api.startRecording(`Recording · ${new Date().toLocaleString()}`);
       setCapturePhase('recording'); setBusy('Recording');
@@ -178,6 +179,17 @@ export default function App() {
       const note = await api.importAudio();
       if (note) { setNotes(await api.list()); select(note); }
     });
+  }
+  async function downloadModels(speakers = false) {
+    setDownloadProgress({ received: 0, total: speakers ? 47215727 : 190085487, phase: 'Connecting to trusted source' });
+    const unlisten = await listen<{ received: number; total: number; phase: string }>('model-download', event => setDownloadProgress(event.payload));
+    try {
+      await perform('Downloading models', async () => {
+        await api.downloadModels(speakers);
+        setSetup(await api.setup());
+        setMessage('Models installed. Recording and transcription are ready offline.');
+      });
+    } finally { unlisten(); setDownloadProgress(null); }
   }
   async function importModel() {
     await perform('Loading model', async () => {
@@ -286,13 +298,13 @@ export default function App() {
         {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
         {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
         {capture && <section className="capture-card" aria-label="Microphone recording">
-          <div className="capture-heading"><span className={`capture-dot ${capture.stopped ? 'stopped' : ''}`} aria-hidden="true"/><h2>{capturePhase === 'starting' ? 'Opening microphone…' : capturePhase === 'saving' ? 'Finishing recording…' : capture.stopped ? 'Recording stopped' : 'Recording from your microphone'}</h2></div>
+          <div className="capture-heading"><span className={`capture-dot ${capture.stopped || capture.paused ? 'stopped' : ''}`} aria-hidden="true"/><h2>{capturePhase === 'starting' ? 'Opening microphone…' : capturePhase === 'saving' ? 'Finishing recording…' : capture.stopped ? 'Recording stopped' : capture.paused ? 'Recording paused' : 'Recording from your microphone'}</h2></div>
           <p className="capture-timer" role="timer" aria-label="Recorded duration">{formatClock(capture.elapsedSeconds * 1000)}</p>
           <p className="muted">{capture.error ?? (capture.stopped ? 'Save the captured audio to your library, then transcribe it.' : 'Audio stays on this device. Recording stops at 30 minutes.')}</p>
           {discardCapture ? <div role="group" aria-label="Discard this recording?">
             <p>Discard this recording? The captured audio will be deleted.</p>
             <div className="actions"><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(false)}>Keep recording</button><button className="danger-button" disabled={capturePhase !== 'recording'} onClick={() => stopRecording(true)}>Discard recording</button></div>
-          </div> : <div className="actions"><button className="primary" disabled={capturePhase !== 'recording'} onClick={() => stopRecording()}>Stop and save</button><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(true)}>Discard…</button></div>}
+          </div> : <div className="actions"><button className="secondary" disabled={capturePhase !== 'recording' || capture.stopped} onClick={async () => { try { await api.pauseRecording(!capture.paused); setCapture(await api.recordingStatus()); } catch (e) { setError(errorText(e)); } }}>{capture.paused ? 'Resume' : 'Pause'}</button><button className="primary" disabled={capturePhase !== 'recording'} onClick={() => stopRecording()}>Stop and save</button><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(true)}>Discard…</button></div>}
         </section>}
         {busy && !active && !capture && <div className="processing" role="status">{busy}…</div>}
 
@@ -302,6 +314,7 @@ export default function App() {
           <h1>From spoken words<br/>to something you can keep.</h1>
           <p>Record or import audio, turn it into text, and make it your own.<br/>Your audio stays with you.</p>
           <div className="actions welcome-actions"><button className="primary" disabled={locked} onClick={startRecording}>Record your first conversation</button><button className="secondary" disabled={locked} onClick={importAudio}>Import recording</button></div>
+          <button className="secondary" disabled={locked} onClick={() => { setSettingsOpen(true); void downloadModels(); }}>Download recommended model</button>
           <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis/Opus), AIFF · Up to 30 minutes / 512 MiB</p>
         </section> : <section className="document">
           <div className="document-heading"><div><div className="eyebrow">RECORDING</div><h1>{active.title}</h1>
@@ -384,6 +397,7 @@ export default function App() {
       </div>
     </main>
     {settingsOpen && <Settings theme={theme} onThemeChange={value => { saveTheme(value); setTheme(value); }}
+      onDownloadModels={downloadModels} downloadProgress={downloadProgress} onCancelDownload={() => { void api.cancel(); }}
       setup={setup} modelDisabled={locked || dirty} loadingModel={busy === 'Loading model'} dirty={dirty}
       nativeAvailable={nativeAvailable} error={error} message={message} onImportModel={importModel}
       onImportSpeakerModels={importSpeakerModels} loadingSpeakers={busy === 'Importing speaker models'}

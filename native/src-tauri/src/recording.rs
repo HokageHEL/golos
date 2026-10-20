@@ -21,12 +21,14 @@ use std::{
 pub struct Status {
     pub elapsed_seconds: f64,
     pub stopped: bool,
+    pub paused: bool,
     pub error: Option<String>,
 }
 
 pub struct Session {
     pub source: PathBuf,
     stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     status: Arc<Mutex<Status>>,
     worker: Option<JoinHandle<Result<(), String>>>,
     result: Option<Result<(), String>>,
@@ -38,6 +40,7 @@ impl Session {
         Self {
             source,
             stop: Arc::new(AtomicBool::new(true)),
+            paused: Arc::new(AtomicBool::new(false)),
             status: Arc::new(Mutex::new(Status {
                 stopped: true,
                 ..Status::default()
@@ -51,12 +54,20 @@ impl Session {
         let source = root.join(format!("microphone-{}.pending.wav", uuid::Uuid::new_v4()));
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(Status::default()));
+        let paused = Arc::new(AtomicBool::new(false));
+        let worker_paused = paused.clone();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let worker_path = source.clone();
         let worker_stop = stop.clone();
         let worker_status = status.clone();
         let worker = thread::spawn(move || {
-            let result = capture(&worker_path, &worker_stop, &worker_status, ready_tx);
+            let result = capture(
+                &worker_path,
+                &worker_stop,
+                &worker_paused,
+                &worker_status,
+                ready_tx,
+            );
             if let Ok(mut status) = worker_status.lock() {
                 status.stopped = true;
                 if let Err(error) = &result {
@@ -68,6 +79,7 @@ impl Session {
         let mut session = Self {
             source,
             stop,
+            paused,
             status,
             worker: Some(worker),
             result: None,
@@ -82,6 +94,19 @@ impl Session {
                 Err(format!("{error} Check microphone access for Golos in your system privacy settings and try again."))
             }
         }
+    }
+
+    pub fn set_paused(&self, paused: bool) -> Result<(), String> {
+        let mut status = self
+            .status
+            .lock()
+            .map_err(|_| "Recording status is unavailable.")?;
+        if status.stopped || self.stop.load(Ordering::SeqCst) {
+            return Err("This recording has stopped. Save it or discard it.".into());
+        }
+        self.paused.store(paused, Ordering::SeqCst);
+        status.paused = paused;
+        Ok(())
     }
 
     pub fn status(&self) -> Result<Status, String> {
@@ -133,12 +158,28 @@ where
     }
 }
 
+fn queue_active<T>(
+    data: &[T],
+    channels: usize,
+    sender: &SyncSender<Vec<i16>>,
+    overflow: &AtomicBool,
+    paused: &AtomicBool,
+) where
+    T: cpal::Sample,
+    f32: cpal::FromSample<T>,
+{
+    if !paused.load(Ordering::SeqCst) {
+        queue(data, channels, sender, overflow);
+    }
+}
+
 fn stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     sender: SyncSender<Vec<i16>>,
     overflow: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample,
@@ -148,7 +189,7 @@ where
     device
         .build_input_stream(
             config,
-            move |data: &[T], _| queue(data, channels, &sender, &overflow),
+            move |data: &[T], _| queue_active(data, channels, &sender, &overflow, &paused),
             move |_| {
                 failed.store(true, Ordering::SeqCst);
             },
@@ -160,6 +201,7 @@ where
 fn capture(
     path: &Path,
     stop: &AtomicBool,
+    paused: &Arc<AtomicBool>,
     status: &Mutex<Status>,
     ready: SyncSender<Result<(), String>>,
 ) -> Result<(), String> {
@@ -180,7 +222,14 @@ fn capture(
     let failed = Arc::new(AtomicBool::new(false));
     macro_rules! build {
         ($sample:ty) => {
-            stream::<$sample>(&device, &config, sender, overflow.clone(), failed.clone())?
+            stream::<$sample>(
+                &device,
+                &config,
+                sender,
+                overflow.clone(),
+                failed.clone(),
+                paused.clone(),
+            )?
         };
     }
     let stream = match supported.sample_format() {
@@ -287,6 +336,25 @@ fn drain(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pauses_exclude_samples_and_resume_without_silence() {
+        let (tx, rx) = mpsc::sync_channel(4);
+        let overflow = AtomicBool::new(false);
+        let paused = AtomicBool::new(false);
+        queue_active(&[10i16, 20], 1, &tx, &overflow, &paused);
+        paused.store(true, Ordering::SeqCst);
+        for _ in 0..100 {
+            queue_active(&[0i16; 100], 1, &tx, &overflow, &paused);
+        }
+        assert!(!overflow.load(Ordering::SeqCst));
+        paused.store(false, Ordering::SeqCst);
+        queue_active(&[30i16, 40], 1, &tx, &overflow, &paused);
+        let samples: Vec<i16> = rx.try_iter().flatten().collect();
+        assert_eq!(samples, vec![10, 20, 30, 40]);
+        // Elapsed time and the cap both use this sample count, never wall time.
+        assert_eq!(samples.len(), 4);
+    }
 
     #[test]
     fn discarding_capture_removes_source_and_finish_is_repeatable() {

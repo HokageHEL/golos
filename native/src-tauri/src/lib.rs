@@ -1,5 +1,6 @@
 mod audio;
 mod diarize;
+mod download;
 mod engine;
 mod import;
 mod library;
@@ -173,6 +174,18 @@ fn recording_status(state: State<AppState>) -> Result<recording::Status, String>
         .status()
 }
 
+#[tauri::command]
+fn pause_recording(state: State<AppState>, paused: bool) -> Result<(), String> {
+    state
+        .recording
+        .lock()
+        .map_err(|_| "Recording is unavailable.")?
+        .as_ref()
+        .ok_or("No recording is active.")?
+        .session
+        .set_paused(paused)
+}
+
 #[derive(Serialize)]
 struct SavedRecording {
     note: Note,
@@ -316,6 +329,108 @@ async fn import_model(app: tauri::AppHandle) -> Result<bool, String> {
         if result.is_err() {
             let _ = fs::remove_file(temp);
         }
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadProgress {
+    received: u64,
+    total: u64,
+    phase: String,
+}
+
+#[tauri::command]
+async fn download_models(app: tauri::AppHandle, speakers: bool) -> Result<(), String> {
+    let guard = {
+        let state = app.state::<AppState>();
+        let guard = state.claim()?;
+        state.cancelled.store(false, Ordering::SeqCst);
+        guard
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        let required = if speakers { 120_000_000 } else { 200_000_000 };
+        if fs2::available_space(&state.root).map_err(|e| e.to_string())? < required {
+            return Err(format!(
+                "Free at least {} MB of disk space and retry.",
+                required / 1_000_000
+            ));
+        }
+        let pending = state
+            .root
+            .join(format!("download-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&pending).map_err(|e| e.to_string())?;
+        let result = (|| {
+            let total = if speakers {
+                download::SEGMENTATION.bytes + download::EMBEDDING.bytes
+            } else {
+                download::WHISPER.bytes
+            };
+            let notify = |received, phase: &str| {
+                let _ = app.emit(
+                    "model-download",
+                    DownloadProgress {
+                        received,
+                        total,
+                        phase: phase.into(),
+                    },
+                );
+            };
+            if speakers {
+                download::fetch(
+                    &download::SEGMENTATION,
+                    &pending.join("seg.tar.bz2"),
+                    &state.cancelled,
+                    |n| notify(n, "Downloading segmentation model"),
+                )?;
+                download::extract_segmentation(
+                    &pending.join("seg.tar.bz2"),
+                    &pending.join("seg.onnx"),
+                )?;
+                download::fetch(
+                    &download::EMBEDDING,
+                    &pending.join("emb.onnx"),
+                    &state.cancelled,
+                    |n| {
+                        notify(
+                            n + download::SEGMENTATION.bytes,
+                            "Downloading embedding model",
+                        )
+                    },
+                )?;
+                notify(total, "Validating speaker models");
+                diarize::validate_models(&pending.join("seg.onnx"), &pending.join("emb.onnx"))?;
+                download::check_cancel(&state.cancelled)?;
+                speaker_models::install(
+                    &state.root,
+                    &pending.join("seg.onnx"),
+                    &pending.join("emb.onnx"),
+                )?;
+            } else {
+                let file = pending.join("model.bin");
+                download::fetch(&download::WHISPER, &file, &state.cancelled, |n| {
+                    notify(n, "Downloading Whisper Small")
+                })?;
+                notify(total, "Validating Whisper model");
+                model::inspect(&file)?;
+                let mut options = WhisperContextParameters::default();
+                options.use_gpu(false);
+                WhisperContext::new_with_params(
+                    file.to_str().ok_or("Unsupported model path")?,
+                    options,
+                )
+                .map_err(|e| format!("Cannot load the recommended model: {e}"))?;
+                download::check_cancel(&state.cancelled)?;
+                fs::rename(file, state.root.join("model.bin")).map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        })();
+        let _ = fs::remove_dir_all(pending);
         result
     })
     .await
@@ -590,8 +705,10 @@ pub fn run() {
             import_audio,
             start_recording,
             recording_status,
+            pause_recording,
             stop_recording,
             import_model,
+            download_models,
             import_diarization_models,
             detect_speakers,
             transcribe,

@@ -3,6 +3,9 @@ import type { Setup } from './api';
 import type { Theme } from './theme';
 
 type Props = {
+  onDownloadModels: (speakers: boolean) => void;
+  downloadProgress: { received: number; total: number; phase: string } | null;
+  onCancelDownload: () => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   setup: Setup | null;
@@ -24,7 +27,7 @@ const themes = [
   { value: 'system', label: 'System', description: 'Follow your device' },
 ] as const;
 
-export default function Settings({ theme, onThemeChange, setup, modelDisabled, loadingModel, dirty,
+export default function Settings({ onDownloadModels, downloadProgress, onCancelDownload, theme, onThemeChange, setup, modelDisabled, loadingModel, dirty,
   nativeAvailable, error, message, onImportModel, onImportSpeakerModels, loadingSpeakers, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
 
@@ -61,7 +64,11 @@ export default function Settings({ theme, onThemeChange, setup, modelDisabled, l
 
       <section className="settings-section" aria-labelledby="model-title">
         <h2 id="model-title">Transcription model</h2>
-        <p>Import a model once to transcribe offline. Audio stays on your device.</p>
+        <p>Download a model once, then transcribe offline. Audio stays on your device.</p>
+        <p>Multilingual Whisper Small · 190 MB download · 200 MB free disk space required. Source: whisper.cpp on Hugging Face. Verified with a pinned SHA-256.</p>
+        <button className="primary" disabled={modelDisabled} onClick={() => onDownloadModels(false)}>Download recommended model</button>
+        {downloadProgress && <div role="status"><p>{downloadProgress.phase} · {(downloadProgress.received / 1_000_000).toFixed(1)} / {(downloadProgress.total / 1_000_000).toFixed(1)} MB</p><progress value={downloadProgress.received} max={downloadProgress.total}/><button className="secondary" onClick={onCancelDownload}>Cancel download</button></div>}
+        {error && !downloadProgress && <button className="secondary" disabled={modelDisabled} onClick={() => onDownloadModels(false)}>Retry recommended model</button>}
         <div className="model-card">
           <div><div className="eyebrow">OFFLINE ENGINE</div>
             <h3>{setup?.modelReady ? setup.modelName : 'No model selected'}</h3>
@@ -81,6 +88,8 @@ export default function Settings({ theme, onThemeChange, setup, modelDisabled, l
       <section className="settings-section" aria-labelledby="speakers-title">
         <h2 id="speakers-title">Offline speaker detection</h2>
         <p>{setup?.diarizationReady ? 'Ready. Detection runs after transcription; existing transcripts can use Detect speakers.' : 'Import a pyannote segmentation model and a speaker embedding model to label recurring voices. Models and audio stay on this device.'}</p>
+        <p>Guided setup downloads both models from sherpa-onnx on GitHub and verifies pinned SHA-256 checksums. 47.3 MB download · 120 MB free disk space required. Optional; transcription works without these models.</p>
+        <button className="primary" disabled={modelDisabled} onClick={() => onDownloadModels(true)}>Download speaker models / Retry</button>
         <p>Choose pyannote <code>model.int8.onnx</code> first, then <code>nemo_en_titanet_small.onnx</code>. These are two different models.</p>
         <button className="secondary" disabled={modelDisabled} onClick={onImportSpeakerModels}>
           {loadingSpeakers ? 'Loading speaker models…' : setup?.diarizationReady ? 'Replace speaker models' : 'Import speaker models'}
