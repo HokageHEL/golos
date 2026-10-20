@@ -349,6 +349,7 @@ if (platform === 'linux') {
     );
   } else {
     const modules = [
+      ['alsa', 'ALSA microphone capture', 'fail', 'sudo apt-get install libasound2-dev'],
       ['webkit2gtk-4.1', 'WebKitGTK 4.1', 'fail', 'sudo apt-get install libwebkit2gtk-4.1-dev'],
       ['ayatana-appindicator3-0.1', 'Ayatana AppIndicator3', 'fail', 'sudo apt-get install libayatana-appindicator3-dev'],
       ['librsvg-2.0', 'librsvg', 'fail', 'sudo apt-get install librsvg2-dev'],

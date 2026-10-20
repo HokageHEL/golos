@@ -1101,3 +1101,13 @@ input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focu
 .player-skip { padding: 7px 10px; font-size: 11px; background: var(--surface); color: var(--text); border: 1px solid var(--border); }
 .audio-retry { margin-top: 10px; }
 .delete-dialog { background: var(--background); }
+
+.record-trigger { margin-top: 26px; width: 100%; }
+.record-trigger + .import { margin-top: 8px; }
+.capture-card { padding: 24px; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.capture-heading { display: flex; align-items: center; gap: 10px; }
+.capture-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger-action); }
+.capture-dot.stopped { background: var(--muted); }
+.capture-timer { font-size: 36px; font-variant-numeric: tabular-nums; margin: 12px 0; }
+.capture-card .actions { margin-top: 16px; }
+.welcome-actions { justify-content: center; }

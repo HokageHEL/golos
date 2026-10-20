@@ -5,11 +5,15 @@ export type Note = {
   id: string; title: string; createdAt: number; durationSeconds: number;
   status: 'ready' | 'processing' | 'done' | 'failed'; segments: Segment[]; error: string | null;
 };
+export type RecordingStatus = { elapsedSeconds: number; stopped: boolean; error: string | null };
 export type Setup = { modelReady: boolean; modelName: string | null; dataDirectory: string; diarizationReady: boolean };
 export const nativeAvailable = isTauri();
 export const api = {
   setup: () => invoke<Setup>('setup_status'),
   list: () => invoke<Note[]>('list_notes'),
+  startRecording: (title: string) => invoke<void>('start_recording', { title }),
+  recordingStatus: () => invoke<RecordingStatus>('recording_status'),
+  stopRecording: (discard: boolean) => invoke<{ note: Note; warning: string | null } | null>('stop_recording', { discard }),
   importAudio: () => invoke<Note | null>('import_audio'),
   importModel: () => invoke<boolean>('import_model'),
   importSpeakerModels: () => invoke<boolean>('import_diarization_models'),

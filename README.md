@@ -6,6 +6,7 @@ app is a **macOS developer preview**; multiplatform support is planned.
 
 ## What works today
 
+- Record from your microphone directly into the local library, then play back and transcribe the saved audio.
 - Import WAV, MP3, M4A/MP4 audio (AAC-LC or ALAC), raw AAC-LC, FLAC,
   Ogg/Vorbis or Opus, and AIFF, up to 30 minutes / 512 MiB per file.
 - Transcribe locally on the CPU with an imported Whisper GGML model,
@@ -70,8 +71,8 @@ device sync before store monetization. The core transcription workflow must rema
 usable offline without an account.
 
 Next work includes bounded-memory inference beyond the 30-minute cap, verified
-model downloads, device benchmarks and acceleration evaluation, microphone
-recording, search, DOCX export, Ukrainian UI, and accessibility. Playback and
+model downloads, device benchmarks and acceleration evaluation, library search,
+DOCX export, Ukrainian UI, and accessibility. Playback and
 optional offline speaker detection are already implemented; see the
 [speaker guide](native/SPEAKER_DIARIZATION.md) for setup and validation limits.
 
