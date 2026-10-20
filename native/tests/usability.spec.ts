@@ -176,6 +176,12 @@ test('automatic local AI rules are opt-in, saved explicitly and pause queued wor
   await expect(automation.getByText(/Automatic AI paused\. Running work is cancelling/)).toBeVisible();
   await expect(automation.getByText(/resume automation above/).first()).toBeVisible();
   await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('queued');
+  await automation.getByLabel('Rule name', { exact: true }).fill('Unsaved browser rule draft');
+  await automation.getByRole('button', { name: 'Skip all queued automatic tasks', exact: true }).click();
+  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('skipped');
+  await expect(automation.getByText(/1 queued automatic task skipped, including tasks outside this list/)).toBeVisible();
+  await expect(automation.getByLabel('Rule name', { exact: true })).toHaveValue('Unsaved browser rule draft');
+  await expect(automation.getByRole('button', { name: 'Skip all queued automatic tasks', exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 760, height: 560 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await automation.getByRole('heading', { name: 'Automatic AI rules', exact: true }).scrollIntoViewIfNeeded();
