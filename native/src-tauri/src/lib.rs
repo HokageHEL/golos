@@ -1,4 +1,5 @@
 mod audio;
+mod batch;
 #[cfg(any(target_os = "macos", test))]
 mod capture;
 mod diarize;
@@ -6,6 +7,7 @@ mod docx;
 mod download;
 mod engine;
 mod import;
+mod jobs;
 mod languages;
 mod library;
 mod migrations;
@@ -345,35 +347,176 @@ async fn import_audio(app: tauri::AppHandle) -> Result<Option<Note>, String> {
         };
         let source = file.into_path().map_err(|e| e.to_string())?;
         let state = app.state::<AppState>();
-        let id = uuid::Uuid::new_v4().to_string();
-        let target = state.audio_path(&id)?;
-        let result = (|| {
-            let duration_seconds = import::normalize(&source, &target)?;
-            let note = Note {
-                id,
-                title: source
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
+        let prepared = batch::prepare(&state.root, &source, &AtomicBool::new(false))?;
+        let db = state.db()?;
+        prepared.commit(&db, None).map(Some)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchImport {
+    notes: Vec<Note>,
+    failures: Vec<String>,
+    cancelled: bool,
+}
+
+#[tauri::command]
+async fn import_batch(app: tauri::AppHandle, language: String) -> Result<BatchImport, String> {
+    if language != "auto"
+        && !languages::available()
+            .iter()
+            .any(|item| item.code == language)
+    {
+        return Err("Choose a supported language.".into());
+    }
+    let guard = app.state::<AppState>().claim()?;
+    app.state::<AppState>()
+        .cancelled
+        .store(false, Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let mut report = BatchImport {
+            notes: vec![],
+            failures: vec![],
+            cancelled: false,
+        };
+        let Some(files) = app
+            .dialog()
+            .file()
+            .add_filter("Audio recordings (30 minutes each)", import::EXTENSIONS)
+            .blocking_pick_files()
+        else {
+            return Ok(report);
+        };
+        if files.len() > 100 {
+            return Err(
+                "Select up to 100 files per import. The queue can hold 1,000 pending recordings."
                     .into(),
-                created_at: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| e.to_string())?
-                    .as_secs() as i64,
-                duration_seconds,
-                status: "ready".into(),
-                segments: vec![],
-                error: None,
-                folder: String::new(),
-                tags: vec![],
-            };
-            library::insert(&*state.db()?, &note)?;
-            Ok(Some(note))
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(target);
+            );
         }
-        result
+        let state = app.state::<AppState>();
+        for file in files {
+            if state.cancelled.load(Ordering::SeqCst) {
+                report.cancelled = true;
+                break;
+            }
+            let source = file.into_path().map_err(|e| e.to_string())?;
+            let result = {
+                batch::prepare(&state.root, &source, &state.cancelled)
+                    .and_then(|prepared| prepared.commit(&*state.db()?, Some(&language)))
+            };
+            match result {
+                Ok(note) => report.notes.push(note),
+                Err(_error) if state.cancelled.load(Ordering::SeqCst) => {
+                    report.cancelled = true;
+                    break;
+                }
+                Err(error) => report.failures.push(format!(
+                    "{}: {error}",
+                    source.file_name().unwrap_or_default().to_string_lossy()
+                )),
+            }
+            let _ = app.emit("queue-changed", ());
+        }
+        Ok(report)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn list_jobs(app: tauri::AppHandle) -> Result<Vec<jobs::Job>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db = state.db()?;
+        jobs::list(&db)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn queue_note(state: State<AppState>, id: String, language: String) -> Result<(), String> {
+    let _guard = state.claim()?;
+    if language != "auto"
+        && !languages::available()
+            .iter()
+            .any(|item| item.code == language)
+    {
+        return Err("Choose a supported language.".into());
+    }
+    jobs::enqueue(&*state.db()?, &id, &language)
+}
+
+#[tauri::command]
+fn job_action(state: State<AppState>, id: i64, action: String) -> Result<(), String> {
+    let _guard = state.claim()?;
+    jobs::action(&*state.db()?, id, &action)
+}
+
+#[tauri::command]
+async fn run_queue(app: tauri::AppHandle) -> Result<(), String> {
+    let guard = app.state::<AppState>().claim()?;
+    app.state::<AppState>()
+        .cancelled
+        .store(false, Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        model::inspect(&state.root.join("model.bin"))?;
+        loop {
+            if state.cancelled.load(Ordering::SeqCst) {
+                break;
+            }
+            let next = jobs::next(&*state.db()?)?;
+            let Some((id, language)) = next else {
+                break;
+            };
+            let _ = app.emit("queue-changed", ());
+            let _ = app.emit(
+                "transcription-progress",
+                Progress {
+                    note_id: id.clone(),
+                    percent: 0,
+                },
+            );
+            let event_app = app.clone();
+            let note_id = id.clone();
+            let result = state.audio_path(&id).and_then(|path| {
+                engine::transcribe(
+                    &state.root.join("model.bin"),
+                    &path,
+                    &language,
+                    state.cancelled.clone(),
+                    move |percent| {
+                        let _ = event_app.emit(
+                            "transcription-progress",
+                            Progress {
+                                note_id: note_id.clone(),
+                                percent,
+                            },
+                        );
+                    },
+                )
+            });
+            let result = result.and_then(|segments| {
+                let db = state.db()?;
+                let note = library::get(&db, &id)?;
+                library::validate_segments(&segments, note.duration_seconds)?;
+                Ok(segments)
+            });
+            jobs::finish(
+                &*state.db()?,
+                &id,
+                &result,
+                state.cancelled.load(Ordering::SeqCst),
+            )?;
+            let _ = app.emit("queue-changed", ());
+        }
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -888,6 +1031,11 @@ pub fn run() {
             get_note,
             organize_note,
             import_audio,
+            import_batch,
+            list_jobs,
+            queue_note,
+            job_action,
+            run_queue,
             start_recording,
             capture_info,
             recording_status,

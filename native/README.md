@@ -392,3 +392,5 @@ CSV protects spreadsheet formulas; HTML escapes content and loads no remote asse
 **Copy transcript** can copy unsaved edits and does not save them. Word-level times
 are not invented. Native PDF and advanced layout options remain open.
 See the [complete parity audit](../docs/MACWHISPER_PARITY.md) for implementation gaps.
+
+**Batch transcription** imports several local files and processes a durable serial queue. See [batch use and recovery](../docs/BATCH_TRANSCRIPTION.md) for cancellation, retry, migration and validation limits.

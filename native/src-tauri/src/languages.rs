@@ -2,8 +2,8 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 pub struct Language {
-    code: &'static str,
-    name: &'static str,
+    pub code: &'static str,
+    pub name: &'static str,
 }
 
 /// The bundled engine is the authority, so UI options never drift from its table.

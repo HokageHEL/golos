@@ -1127,3 +1127,11 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 .library-filters { grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .library-filters > label { display: grid; gap: 6px; min-width: 0; }
 .library-filters button { white-space: normal; overflow-wrap: anywhere; }
+
+.batch-dialog { width: min(900px, calc(100vw - 32px)); }
+.batch-jobs { list-style: none; padding: 0; display: grid; gap: 12px; }
+.batch-jobs li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.batch-jobs li > div { min-width: 0; max-width: 100%; }
+.batch-jobs strong, .batch-jobs span { display: block; overflow-wrap: anywhere; }
+.batch-jobs span { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.batch-jobs p { overflow-wrap: anywhere; }
