@@ -13,6 +13,7 @@ mockIPC((command, payload = {}) => {
   if (Array.isArray(payload) || payload instanceof ArrayBuffer || payload instanceof Uint8Array) return;
   const args = payload;
   switch (command) {
+    case 'transcription_languages': return [{ code: 'en', name: 'english' }, { code: 'uk', name: 'ukrainian' }, { code: 'ja', name: 'japanese' }];
     case 'setup_status': return { modelReady: false, modelName: null, dataDirectory: '/mock/local', diarizationReady: false };
     case 'capture_info': return args.applications ? [{ pid: 123, name: 'Browser (mock)' }] : { system: true, mixed: true };
     case 'list_notes': return notes.filter(n => n.title.toLowerCase().includes(String(args.search ?? '').toLowerCase()));

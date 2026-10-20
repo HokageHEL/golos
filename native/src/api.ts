@@ -8,9 +8,12 @@ export type Note = {
 };
 export type RecordingStatus = { elapsedSeconds: number; stopped: boolean; paused: boolean; error: string | null };
 export type Setup = { modelReady: boolean; modelName: string | null; dataDirectory: string; diarizationReady: boolean };
+export type TextExportFormat = 'txt' | 'srt' | 'vtt' | 'md' | 'html' | 'csv' | 'json';
+export type Language = { code: string; name: string };
 export const nativeAvailable = isTauri();
 export const api = {
   setup: () => invoke<Setup>('setup_status'),
+  languages: () => invoke<Language[]>('transcription_languages'),
   list: (filters: { search?: string; status?: string; folder?: string; tag?: string; offset?: number } = {}) => invoke<Note[]>('list_notes', filters),
   get: (id: string) => invoke<Note>('get_note', { id }),
   organize: (id: string, title: string, folder: string, tags: string[]) => invoke<void>('organize_note', { id, title, folder, tags }),
@@ -28,7 +31,7 @@ export const api = {
   cancel: () => invoke<void>('cancel_transcription'),
   save: (id: string, segments: Segment[]) => invoke<void>('save_note', { id, segments }),
   delete: (id: string) => invoke<void>('delete_note', { id }),
-  export: (format: 'txt' | 'srt' | 'vtt', content: string) => invoke<boolean>('export_transcript', { format, content }),
+  export: (format: TextExportFormat, content: string) => invoke<boolean>('export_transcript', { format, content }),
   exportSaved: (id: string, format: 'docx' | 'wav' | 'golos') => invoke<boolean>('export_saved', { id, format }),
   importProject: () => invoke<Note | null>('import_project'),
   // Returns the local path of the recording's normalized audio after Rust has

@@ -6,6 +6,7 @@ mod docx;
 mod download;
 mod engine;
 mod import;
+mod languages;
 mod library;
 mod migrations;
 mod model;
@@ -617,10 +618,16 @@ struct Progress {
 }
 
 #[tauri::command]
+fn transcription_languages() -> Vec<languages::Language> {
+    languages::available()
+}
+
+#[tauri::command]
 async fn transcribe(app: tauri::AppHandle, id: String, language: String) -> Result<(), String> {
-    if !["auto", "en", "uk"].contains(&language.as_str()) {
-        return Err("Unsupported language.".into());
-    }
+    languages::validate(
+        &language,
+        &model::inspect(&app.state::<AppState>().root.join("model.bin"))?,
+    )?;
     let guard = {
         let state = app.state::<AppState>();
         let guard = state.claim()?;
@@ -722,7 +729,9 @@ async fn export_transcript(
     format: String,
     content: String,
 ) -> Result<bool, String> {
-    if !["txt", "srt", "vtt"].contains(&format.as_str()) || content.len() > 10_000_000 {
+    if !["txt", "srt", "vtt", "md", "html", "csv", "json"].contains(&format.as_str())
+        || content.len() > 10_000_000
+    {
         return Err("Invalid export.".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -735,8 +744,11 @@ async fn export_transcript(
         else {
             return Ok(false);
         };
-        fs::write(file.into_path().map_err(|e| e.to_string())?, content)
-            .map_err(|e| e.to_string())?;
+        let target = file.into_path().map_err(|e| e.to_string())?;
+        let pending = target.with_file_name(format!(".golos-export-{}", uuid::Uuid::new_v4()));
+        let result = fs::write(&pending, content).and_then(|()| fs::rename(&pending, &target));
+        let _ = fs::remove_file(pending);
+        result.map_err(|e| e.to_string())?;
         Ok(true)
     })
     .await
@@ -871,6 +883,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             setup_status,
+            transcription_languages,
             list_notes,
             get_note,
             organize_note,

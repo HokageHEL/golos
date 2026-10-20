@@ -112,3 +112,5 @@ The repository contains only the native app. The former cloud-backed web app and
 its service configuration have been removed; earlier versions remain in Git history.
 
 See [usability features, setup and validation limits](docs/USABILITY_IMPROVEMENTS.md) for downloads, pause/resume, organization, editing, backups and macOS audio sources. Pricing remains undecided.
+
+See the [MacWhisper offline parity matrix](docs/MACWHISPER_PARITY.md) for the current comparison, implementation gaps and validation gates. Full parity is not yet implemented.

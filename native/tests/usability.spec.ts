@@ -90,3 +90,16 @@ test('mixed-source capture exposes pause/resume, confirmed discard and stop/save
   await expect(page.getByText('Recording saved on this device. Ready to transcribe.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Transcribe offline', exact: true })).toBeVisible();
 });
+
+test('structured export selection and copying an unsaved draft work in the browser', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('combobox', { name: 'Other export format', exact: true }).selectOption('json');
+  await page.getByRole('button', { name: 'Export JSON', exact: true }).click();
+  await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Transcript at 0:00', exact: true }).fill('Unstored clipboard draft');
+  await expect(page.getByRole('button', { name: 'Export JSON', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Copy transcript', exact: true }).click();
+  await expect(page.getByText('Draft copied to clipboard. Your edits are still unsaved.', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('Alice: Unstored clipboard draft');
+  await expect(page.getByRole('button', { name: 'Save edits', exact: true })).toBeEnabled();
+});
