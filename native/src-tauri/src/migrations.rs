@@ -1,6 +1,8 @@
 //! Versioned, recoverable SQLite migrations for the local recording library.
 //!
-//! Version 3 adds durable transcription jobs. Version 2 adds organization metadata and a trigger-maintained FTS5 index.
+//! Version 7 rebuilds automatic local AI tasks around the semantic rule hash and
+//! clears task links whose result was deleted. Version 3 adds durable
+//! transcription jobs. Version 2 adds organization metadata and a trigger-maintained FTS5 index.
 //! Version 1 is the preview `notes` table. Preview builds created that table
 //! without ever setting `user_version`, so an on-disk database whose
 //! `user_version` is 0 and whose `notes` table matches the preview schema
@@ -29,7 +31,7 @@ use std::{
 };
 
 /// Schema version written by this build.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 /// Version reported by preview libraries that predate schema versioning.
 pub const LEGACY_PREVIEW_VERSION: i64 = 0;
 /// Message stored on `processing` rows that a shutdown interrupted.
@@ -221,7 +223,7 @@ fn classify(db: &Connection, db_path: &Path, version: i64) -> Result<State, Stri
             db_path.display()
         )),
         (LEGACY_PREVIEW_VERSION, None) => Ok(State::Fresh),
-        (LEGACY_PREVIEW_VERSION | 1 | 2 | 3 | 4 | 5, Some("table")) => {
+        (LEGACY_PREVIEW_VERSION | 1 | 2 | 3 | 4 | 5 | 6, Some("table")) => {
             validate_notes_schema(db, db_path)?;
             Ok(State::LegacyPreview)
         }
@@ -377,6 +379,13 @@ fn apply_current_schema(db: &Connection) -> Result<(), String> {
         transaction
             .execute_batch(crate::ai_automation::SCHEMA)
             .map_err(|e| format!("Could not build automatic local AI storage: {e}"))?;
+    }
+    if from_version < 7 {
+        // Development builds stamped two different automatic-task tables as
+        // version 6, so the table is rebuilt from its actual shape rather than
+        // from the recorded version alone.
+        crate::ai_automation::upgrade(&transaction)
+            .map_err(|e| format!("Could not upgrade automatic local AI storage: {e}"))?;
     }
     transaction
         .commit()
@@ -548,7 +557,7 @@ mod tests {
     const NOTES_TABLES: &str =
         "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='notes'";
     const JOURNAL_MODE: &str = "PRAGMA journal_mode";
-    const BACKUP_MARKER: &str = ".pre-v6-";
+    const BACKUP_MARKER: &str = ".pre-v7-";
     /// Mirrors `library::insert`, which leaves `segments` at its `'[]'` default.
     const INSERT_ROW: &str = "INSERT INTO notes
         (id,title,created_at,duration_seconds,status) VALUES(?1,?2,?3,?4,?5)";
@@ -614,6 +623,143 @@ mod tests {
             .is_some_and(|name| name.to_string_lossy().contains(BACKUP_MARKER))
     }
 
+    /// A library file name in the temporary directory for one upgrade test.
+    fn migration_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("golos-{label}-{}.sqlite3", uuid::Uuid::new_v4()))
+    }
+
+    /// Valid saved local AI settings for automatic rules.
+    fn local_ai_settings() -> crate::ai::Settings {
+        crate::ai::Settings {
+            port: 11434,
+            model: "local:latest".into(),
+            context_window: 8192,
+        }
+    }
+
+    /// An enabled summary rule, scoped to one recording.
+    fn summary_rule() -> crate::ai_automation::Rule {
+        crate::ai_automation::Rule {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Summary".into(),
+            enabled: true,
+            kind: "summary".into(),
+            target: String::new(),
+            prompt: String::new(),
+            sources: vec!["single".into()],
+        }
+    }
+
+    /// An enabled custom rule, whose prompt is its semantic identity.
+    fn custom_rule() -> crate::ai_automation::Rule {
+        crate::ai_automation::Rule {
+            kind: "custom".into(),
+            prompt: "List decisions".into(),
+            ..summary_rule()
+        }
+    }
+
+    fn result_cleanup_triggers(db: &Connection) -> i64 {
+        db.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name='ai_automation_result_cleanup'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    /// Recorded rule hashes, in a stable order.
+    fn rule_hashes(db: &Connection) -> Vec<String> {
+        db.prepare("SELECT rule_hash FROM ai_automation_tasks ORDER BY rule_id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    /// The development version-6 automatic-task table: no `rule_hash`, and a
+    /// unique key that ignored rule semantics, so a changed rule could never
+    /// schedule a second task for the same transcript.
+    const DEVELOPMENT_V6_TASKS: &str = "CREATE TABLE ai_automation_tasks(
+          id TEXT PRIMARY KEY,
+          note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+          rule_id TEXT NOT NULL,
+          rule_name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          target TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          source TEXT NOT NULL,
+          source_language TEXT NOT NULL,
+          source_hash TEXT NOT NULL,
+          segments TEXT NOT NULL,
+          model TEXT NOT NULL,
+          port INTEGER NOT NULL,
+          context_window INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('queued','running','done','failed','cancelled','skipped')),
+          error TEXT,
+          result_id TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(note_id,source_hash,rule_id,model,port,context_window))";
+
+    /// The task columns both version-6 shapes declare, without `rule_hash`.
+    const DEVELOPMENT_V6_COLUMNS: &str = "id,note_id,rule_id,rule_name,kind,target,prompt,source,source_language,source_hash,segments,model,port,context_window,status,error,result_id,created_at,updated_at";
+
+    /// Rewrite a migrated fixture as the development version-6 library: the task
+    /// table without `rule_hash`, and no result-link cleanup trigger.
+    fn downgrade_tasks_to_development_v6(db: &Connection) {
+        db.execute_batch(&format!(
+            "DROP TRIGGER IF EXISTS ai_automation_note_cleanup;
+             DROP TRIGGER IF EXISTS ai_automation_result_cleanup;
+             DROP INDEX IF EXISTS ai_automation_tasks_pending;
+             DROP INDEX IF EXISTS ai_automation_tasks_note;
+             ALTER TABLE ai_automation_tasks RENAME TO ai_automation_tasks_scratch;
+             {DEVELOPMENT_V6_TASKS};
+             INSERT INTO ai_automation_tasks({DEVELOPMENT_V6_COLUMNS})
+               SELECT {DEVELOPMENT_V6_COLUMNS} FROM ai_automation_tasks_scratch;
+             DROP TABLE ai_automation_tasks_scratch;
+             CREATE INDEX ai_automation_tasks_pending ON ai_automation_tasks(status,created_at,id);
+             CREATE INDEX ai_automation_tasks_note ON ai_automation_tasks(note_id,created_at DESC);
+             CREATE TRIGGER ai_automation_note_cleanup AFTER DELETE ON notes BEGIN DELETE FROM ai_automation_tasks WHERE note_id=old.id; END;
+             PRAGMA user_version=6;"
+        ))
+        .unwrap();
+    }
+
+    /// Rewrite a migrated fixture as the later development version-6 library: the
+    /// task table already carries `rule_hash` and the semantic unique key, but
+    /// the result-link cleanup trigger does not exist yet.
+    fn downgrade_tasks_to_current_v6(db: &Connection) {
+        db.execute_batch(
+            "DROP TRIGGER IF EXISTS ai_automation_result_cleanup; PRAGMA user_version=6;",
+        )
+        .unwrap();
+    }
+
+    /// One finished development version-6 task row, built from a real migrated
+    /// row so its captured source snapshot and model settings stay genuine. The
+    /// rule name mirrors the rule id: only the id and the rule fields decide
+    /// scheduling.
+    fn insert_v6_row(
+        db: &Connection,
+        id: &str,
+        rule_id: &str,
+        result_id: Option<&str>,
+        from: &str,
+    ) {
+        db.execute(
+            &format!(
+                "INSERT INTO ai_automation_tasks({DEVELOPMENT_V6_COLUMNS})
+                 SELECT ?1,'source',?2,?2,kind,target,prompt,'watch',source_language,source_hash,
+                        segments,model,port,context_window,'done',NULL,?3,created_at,updated_at
+                 FROM ai_automation_tasks WHERE id=?4"
+            ),
+            rusqlite::params![id, rule_id, result_id, from],
+        )
+        .unwrap();
+    }
+
     fn add_row(db: &Connection, id: &str, title: &str, created: i64, duration: f64, status: &str) {
         db.execute(
             INSERT_ROW,
@@ -661,10 +807,10 @@ mod tests {
         ));
         let migration = migrate(&db, &path).unwrap();
         assert_eq!(migration.from_version, 5);
-        assert_eq!(migration.to_version, 6);
+        assert_eq!(migration.to_version, 7);
         let backup = migration.backup.expect("upgrade must take a snapshot");
         assert!(backup.is_file());
-        assert_eq!(read_version(&db).unwrap(), 6);
+        assert_eq!(read_version(&db).unwrap(), 7);
         assert_eq!(
             crate::library::get(&db, "source").unwrap().segments[0].text,
             before.segments[0].text
@@ -678,6 +824,204 @@ mod tests {
         assert!(crate::ai_automation::rules(&db).unwrap().is_empty());
         assert!(crate::ai_automation::tasks(&db).unwrap().is_empty());
         assert!(!crate::ai_automation::has_queued(&db).unwrap());
+        // The fresh storage is usable and carries the result-link cleanup.
+        assert_eq!(result_cleanup_triggers(&db), 1);
+        crate::ai::configure(&db, &local_ai_settings()).unwrap();
+        crate::ai_automation::configure(&db, vec![summary_rule()]).unwrap();
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            1
+        );
+        std::fs::remove_file(backup).unwrap();
+    }
+
+    #[test]
+    fn development_version_six_without_rule_hash_is_rebuilt_with_semantic_hashes() {
+        let (db, request) = crate::ai::tests::fixture();
+        crate::ai::configure(&db, &local_ai_settings()).unwrap();
+        let summary = summary_rule();
+        crate::ai_automation::configure(&db, vec![summary.clone()]).unwrap();
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            1
+        );
+        let queued = crate::ai_automation::tasks(&db).unwrap().remove(0);
+        assert_eq!(queued.status, "queued");
+        // A finished task linked to a saved result, and one whose result was
+        // deleted before the cleanup trigger existed.
+        let live = crate::ai::create(&db, &request, "local:latest", 8192).unwrap();
+        db.execute(
+            "UPDATE ai_results SET status='done' WHERE id=?1",
+            [&live.id],
+        )
+        .unwrap();
+        downgrade_tasks_to_development_v6(&db);
+        insert_v6_row(&db, "linked", "retired", Some(&live.id), &queued.id);
+        insert_v6_row(
+            &db,
+            "dangling",
+            "gone-rule",
+            Some("deleted-result"),
+            &queued.id,
+        );
+
+        let path = migration_path("v6-development");
+        let migration = migrate(&db, &path).unwrap();
+        assert_eq!(migration.from_version, 6);
+        assert_eq!(migration.to_version, 7);
+        let backup = migration
+            .backup
+            .expect("upgrading an existing library must take a snapshot");
+        assert!(backup.is_file());
+        assert_eq!(read_version(&db).unwrap(), 7);
+        // The snapshot holds the pre-upgrade shape, hashless column and all.
+        {
+            let snapshot =
+                Connection::open_with_flags(&backup, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+            assert_eq!(read_version(&snapshot).unwrap(), 6);
+            let hashless: i64 = snapshot
+                .query_row(
+                    "SELECT count(*) FROM pragma_table_info('ai_automation_tasks') WHERE name='rule_hash'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(hashless, 0);
+            assert_eq!(row_count(&snapshot), 1);
+        }
+
+        let tasks = crate::ai_automation::tasks(&db).unwrap();
+        assert_eq!(tasks.len(), 3, "every captured task survives the rebuild");
+        let kept = tasks.iter().find(|task| task.id == queued.id).unwrap();
+        assert_eq!(kept.status, "queued");
+        assert!(kept.result_id.is_none());
+        let linked = tasks.iter().find(|task| task.id == "linked").unwrap();
+        assert_eq!(linked.status, "done");
+        assert_eq!(linked.result_id.as_deref(), Some(live.id.as_str()));
+        let dangling = tasks.iter().find(|task| task.id == "dangling").unwrap();
+        assert_eq!(dangling.status, "done");
+        assert!(
+            dangling.result_id.is_none(),
+            "a link to a deleted result is cleared during the upgrade"
+        );
+        assert!(rule_hashes(&db).iter().all(|hash| !hash.is_empty()));
+        // The rebuilt hash is exactly the one the scheduler computes, so the
+        // unchanged rule is still recognised as already scheduled.
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            0
+        );
+        // Changing the rule's task now schedules new work: rule semantics are part
+        // of the schedule identity, which the old unique key could not express.
+        let mut changed = summary;
+        changed.kind = "custom".into();
+        changed.prompt = "List decisions".into();
+        crate::ai_automation::configure(&db, vec![changed]).unwrap();
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            1
+        );
+        // The rest of the library is untouched.
+        assert_eq!(crate::ai_automation::rules(&db).unwrap().len(), 1);
+        assert_eq!(crate::ai::settings(&db).unwrap().model, "local:latest");
+        assert!(crate::ai::get(&db, &live.id).is_ok());
+        assert_eq!(
+            crate::library::get(&db, "source").unwrap().segments[0].text,
+            "We agreed to ship on Friday."
+        );
+        std::fs::remove_file(backup).unwrap();
+    }
+
+    #[test]
+    fn current_version_six_tasks_keep_their_rows_and_gain_the_result_cleanup() {
+        let (db, request) = crate::ai::tests::fixture();
+        crate::ai::configure(&db, &local_ai_settings()).unwrap();
+        crate::ai_automation::configure(&db, vec![summary_rule(), custom_rule()]).unwrap();
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            2
+        );
+        let live = crate::ai::create(&db, &request, "local:latest", 8192).unwrap();
+        db.execute(
+            "UPDATE ai_results SET status='done' WHERE id=?1",
+            [&live.id],
+        )
+        .unwrap();
+        let finished = crate::ai_automation::tasks(&db).unwrap().remove(0).id;
+        db.execute(
+            "UPDATE ai_automation_tasks SET status='done',result_id=?2 WHERE id=?1",
+            rusqlite::params![&finished, &live.id],
+        )
+        .unwrap();
+        let before = rule_hashes(&db);
+        downgrade_tasks_to_current_v6(&db);
+        assert_eq!(result_cleanup_triggers(&db), 0);
+
+        let path = migration_path("v6-current");
+        let migration = migrate(&db, &path).unwrap();
+        let backup = migration
+            .backup
+            .expect("upgrading an existing library must take a snapshot");
+        assert_eq!(read_version(&db).unwrap(), 7);
+        assert_eq!(result_cleanup_triggers(&db), 1);
+        assert_eq!(rule_hashes(&db), before, "recorded hashes are kept");
+        assert_eq!(crate::ai_automation::tasks(&db).unwrap().len(), 2);
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            0
+        );
+        // The finished task keeps its link while the result exists, and loses it
+        // when the result is deleted, without losing the task itself.
+        let linked = |db: &Connection| {
+            crate::ai_automation::tasks(db)
+                .unwrap()
+                .into_iter()
+                .find(|task| task.id == finished)
+                .unwrap()
+        };
+        assert_eq!(linked(&db).result_id.as_deref(), Some(live.id.as_str()));
+        db.execute("DELETE FROM ai_results WHERE id=?1", [&live.id])
+            .unwrap();
+        let after = linked(&db);
+        assert_eq!(after.status, "done");
+        assert!(
+            after.result_id.is_none(),
+            "the deleted result releases the link"
+        );
+        std::fs::remove_file(backup).unwrap();
+    }
+
+    #[test]
+    fn version_six_task_without_a_recorded_hash_is_normalised() {
+        let (db, _) = crate::ai::tests::fixture();
+        crate::ai::configure(&db, &local_ai_settings()).unwrap();
+        crate::ai_automation::configure(&db, vec![summary_rule()]).unwrap();
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            1
+        );
+        // A task whose hash was never recorded: the current column with its
+        // empty default, which cannot match any rule.
+        db.execute("UPDATE ai_automation_tasks SET rule_hash=''", [])
+            .unwrap();
+        downgrade_tasks_to_current_v6(&db);
+
+        let path = migration_path("v6-hashless");
+        let migration = migrate(&db, &path).unwrap();
+        assert_eq!(migration.from_version, 6);
+        assert_eq!(migration.to_version, 7);
+        let backup = migration
+            .backup
+            .expect("upgrading an existing library must take a snapshot");
+        assert_eq!(crate::ai_automation::tasks(&db).unwrap().len(), 1);
+        let hashes = rule_hashes(&db);
+        assert_eq!(hashes.len(), 1);
+        assert!(!hashes[0].is_empty());
+        // The recorded hash is the scheduler's own, so the task still deduplicates.
+        assert_eq!(
+            crate::ai_automation::schedule_atomic(&db, "source", "single").unwrap(),
+            0
+        );
         std::fs::remove_file(backup).unwrap();
     }
 
@@ -694,7 +1038,7 @@ mod tests {
         ));
         let migration = migrate(&db, &path).unwrap();
         std::fs::remove_file(migration.backup.unwrap()).unwrap();
-        assert_eq!(read_version(&db).unwrap(), 6);
+        assert_eq!(read_version(&db).unwrap(), 7);
         assert_eq!(
             db.query_row("SELECT paused FROM automation_settings", [], |row| row
                 .get::<_, i64>(0))
@@ -867,16 +1211,16 @@ mod tests {
         );
         // A library written by a future build, deliberately not in WAL mode so
         // the test can prove the journal mode was left alone.
-        db.execute_batch("PRAGMA user_version = 7; PRAGMA journal_mode = DELETE;")
+        db.execute_batch("PRAGMA user_version = 8; PRAGMA journal_mode = DELETE;")
             .unwrap();
 
         let error = migrate(&db, &path).unwrap_err();
-        assert!(error.contains("schema version 7"), "unexpected: {error}");
+        assert!(error.contains("schema version 8"), "unexpected: {error}");
         assert!(
             error.contains("No changes were made"),
             "unexpected: {error}"
         );
-        assert_eq!(read_version(&db).unwrap(), 7);
+        assert_eq!(read_version(&db).unwrap(), 8);
         assert_eq!(journal_mode(&db), "delete");
         assert_eq!(text_of(&db, STATUS_OF, "interrupted"), "processing");
         assert!(fixture.backups().is_empty());
@@ -884,7 +1228,7 @@ mod tests {
 
         // The refusal is persistent, not just a view of this connection.
         let reopened = fixture.open();
-        assert_eq!(read_version(&reopened).unwrap(), 7);
+        assert_eq!(read_version(&reopened).unwrap(), 8);
         assert_eq!(journal_mode(&reopened), "delete");
         assert_eq!(row_count(&reopened), 1);
     }
@@ -1051,7 +1395,7 @@ mod tests {
         let fixture = TempLibrary::new("backup-failure");
         let path = fixture.db_path();
         // A snapshot that must survive the failed attempt untouched.
-        let existing = fixture.path("library.pre-v6-1.sqlite3");
+        let existing = fixture.path("library.pre-v7-1.sqlite3");
         fs::write(&existing, b"an existing backup").unwrap();
 
         let db = fixture.open_legacy();
@@ -1105,7 +1449,7 @@ mod tests {
         let first = reserve_backup(&path, millis).unwrap();
         assert_eq!(
             first.file_name().unwrap(),
-            "library.pre-v6-1760000000000.sqlite3"
+            "library.pre-v7-1760000000000.sqlite3"
         );
         assert!(first.is_file(), "the reserved name must be created empty");
         // Stand in for a completed snapshot a later upgrade must not disturb.
@@ -1115,7 +1459,7 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(
             second.file_name().unwrap(),
-            "library.pre-v6-1760000000000-1.sqlite3"
+            "library.pre-v7-1760000000000-1.sqlite3"
         );
         assert_eq!(fs::read(&first).unwrap(), b"an existing backup");
     }
