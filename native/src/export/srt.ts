@@ -14,7 +14,7 @@ export function toSrt(turns: Turn[]): string {
   return turns
     .map(
       (t, i) =>
-        `${i + 1}\n${formatSrtTime(t.startMs)} --> ${formatSrtTime(t.endMs)}\n${t.text}\n`,
+        `${i + 1}\n${formatSrtTime(t.startMs)} --> ${formatSrtTime(t.endMs)}\n${t.text.replace(/\r\n?/g, '\n').split('\n').filter(line => line.trim()).join('\n')}\n`,
     )
     .join('\n');
 }

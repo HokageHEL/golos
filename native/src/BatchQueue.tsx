@@ -7,6 +7,7 @@ type Props = {
   languages: Language[];
   modelReady: boolean;
   busy: string | null;
+  backgroundBusy?: boolean;
   progress: number;
   error: string | null;
   onOperation: (label: string, task: () => Promise<void>) => Promise<void>;
@@ -14,7 +15,7 @@ type Props = {
   onClose: () => void;
 };
 
-export default function BatchQueue({ languages, modelReady, busy, progress, error, onOperation, onChanged, onClose }: Props) {
+export default function BatchQueue({ languages, modelReady, busy, backgroundBusy = false, progress, error, onOperation, onChanged, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [language, setLanguage] = useState('auto');
@@ -50,8 +51,8 @@ export default function BatchQueue({ languages, modelReady, busy, progress, erro
       </div>
       {!modelReady && <p className="muted">Install a transcription model in Settings before starting. You can import and queue files now.</p>}
       <p role="status">{pending.length} queued · {formatClock(pending.reduce((sum, job) => sum + job.durationSeconds * 1000, 0))} audio{running ? ` · Processing ${running.title} (${progress}%)` : ''}</p>
-      {busy && <div className="processing" role="status"><span>{busy}{cancelled ? ' · Cancellation requested…' : ''}</span>{running && <progress max={100} value={progress}/>}<button className="secondary" disabled={cancelled} onClick={() => { setCancelled(true); void api.cancel().catch(e => { setLocalError(String(e)); setCancelled(false); }); }}>Cancel current operation</button></div>}
-      <p className="muted">Cancelling stops the current file and leaves later jobs queued. Retry the cancelled file to include it again. Interrupted work is marked for retry after restart; queued work waits for Start / resume.</p>
+      {busy && <div className="processing" role="status"><span>{busy}{cancelled ? ' · Cancellation requested…' : ''}</span>{running && <progress max={100} value={progress}/>}<button className="secondary" disabled={cancelled} onClick={() => { setCancelled(true); void (backgroundBusy ? api.pauseAutomation(true) : api.cancel()).catch(e => { setLocalError(String(e)); setCancelled(false); }); }}>Cancel current operation</button></div>}
+      <p className="muted">Cancelling stops the current file and leaves later jobs queued. Retry the cancelled file to include it again. Interrupted work is marked for retry after restart. Manual jobs wait for Start / resume; opted-in watched-folder jobs can run automatically. Cancelling background work also pauses automation.</p>
       <ul className="batch-jobs" aria-label="Transcription jobs">{jobs.map(job => <li key={job.id}><div><strong>{job.title}</strong><span>{formatClock(job.durationSeconds * 1000)} · {job.language} · {job.status}</span>{job.error && <p className="error-text">{job.error}</p>}</div><div className="actions">{['failed', 'cancelled'].includes(job.status) && <button className="secondary" disabled={!!busy} onClick={() => { void operation('Retrying job', () => api.jobAction(job.id, 'retry')); }}>Retry {job.title}</button>}<button className="text-button" disabled={!!busy || job.status === 'running'} onClick={() => { void operation('Removing queue job', () => api.jobAction(job.id, 'remove')); }}>Remove {job.title} from queue</button></div></li>)}</ul>
       {!jobs.length && <p className="muted">No jobs yet. Add files here or queue a ready recording from the library.</p>}
       <p className="muted">Removing a job keeps its library recording and source file. Results appear in the library. Speaker detection can be run after transcription.</p>

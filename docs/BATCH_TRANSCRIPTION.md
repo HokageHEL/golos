@@ -28,8 +28,9 @@ Automatic speaker detection in batch jobs is not implemented in this milestone.
 
 The application guards normal closing while import/inference is active. After a
 forced termination, previously running jobs are marked failed with a retry
-instruction, while pending jobs stay queued. Processing does not restart silently;
-open the queue and choose Start / resume. Partial decoding is repeated from the
+instruction, while pending jobs stay queued. Manual batch processing does not restart silently;
+open the queue and choose Start / resume. Explicitly opted-in automatic watched-folder
+jobs can run after restart; see [folder automation](FOLDER_AUTOMATION.md). Partial decoding is repeated from the
 beginning; there are no partial-inference checkpoints. Forced termination during
 file publication can still leave an orphaned audio file; do not delete unknown
 files automatically. Portable project backups remain the recommended backup route.
@@ -66,8 +67,9 @@ establish real native file-dialog or full end-to-end batch inference behavior.
 The real-model offline inference/cancellation check ran in the preceding language
 milestone. Native picker permission errors, signed builds, disk-full/force-termination
 recovery, large queues and long-run resource behavior still need packaged macOS QA.
-Drag/drop, automatic multi-format batch export, watch folders and batch speaker
-options remain subsequent parity work; see [the full matrix](MACWHISPER_PARITY.md).
+Watched folders and automatic multi-format local exports are implemented in the
+[automation milestone](FOLDER_AUTOMATION.md). Drag/drop and batch speaker options
+remain subsequent parity work; see [the full matrix](MACWHISPER_PARITY.md).
 
 Validation in this checkout on October 20, 2026: 80 Rust tests passed (four opt-in
 checks skipped), 38 frontend unit/DOM tests passed, and six Chromium flows passed.

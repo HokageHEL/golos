@@ -1,4 +1,8 @@
 mod audio;
+mod auto_export;
+mod automation;
+mod automation_commands;
+mod automation_runtime;
 mod batch;
 #[cfg(any(target_os = "macos", test))]
 mod capture;
@@ -16,6 +20,7 @@ mod onnx_metadata;
 mod project;
 mod recording;
 mod speaker_models;
+mod watch;
 
 use library::{Note, Segment};
 use rusqlite::{params, Connection};
@@ -81,6 +86,8 @@ struct AppState {
     busy: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
     recording: Mutex<Option<ActiveRecording>>,
+    automation_label: Mutex<Option<String>>,
+    automation_paused: AtomicBool,
 }
 
 struct ActiveRecording {
@@ -102,6 +109,35 @@ impl AppState {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .map_err(|_| "Wait for the current operation to finish.".to_string())?;
         Ok(BusyGuard(self.busy.clone()))
+    }
+    fn claim_automation(&self, label: &str) -> Result<BusyGuard, String> {
+        let guard = self.claim()?;
+        let mut current = self.automation_label.lock().map_err(|e| e.to_string())?;
+        if self.automation_paused.load(Ordering::SeqCst) {
+            return Err("Automation is paused.".into());
+        }
+        self.cancelled.store(false, Ordering::SeqCst);
+        *current = Some(label.into());
+        Ok(guard)
+    }
+    fn set_automation_paused(&self, paused: bool) -> Result<(), String> {
+        self.automation_paused.store(paused, Ordering::SeqCst);
+        if paused
+            && self
+                .automation_label
+                .lock()
+                .map_err(|e| e.to_string())?
+                .is_some()
+        {
+            self.cancelled.store(true, Ordering::SeqCst);
+        }
+        self.db()?
+            .execute(
+                "UPDATE automation_settings SET paused=?1 WHERE id=1",
+                [paused],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
     fn audio_path(&self, id: &str) -> Result<PathBuf, String> {
         audio_path(&self.root, id)
@@ -457,6 +493,71 @@ fn job_action(state: State<AppState>, id: i64, action: String) -> Result<(), Str
     jobs::action(&*state.db()?, id, &action)
 }
 
+fn process_queued_job(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    language: &str,
+) -> Result<(), String> {
+    let _ = app.emit("queue-changed", ());
+    let _ = app.emit(
+        "transcription-progress",
+        Progress {
+            note_id: id.to_string(),
+            percent: 0,
+        },
+    );
+    let event_app = app.clone();
+    let note_id = id.to_string();
+    let result = state.audio_path(id).and_then(|path| {
+        engine::transcribe(
+            &state.root.join("model.bin"),
+            &path,
+            language,
+            state.cancelled.clone(),
+            move |percent| {
+                let _ = event_app.emit(
+                    "transcription-progress",
+                    Progress {
+                        note_id: note_id.clone(),
+                        percent,
+                    },
+                );
+            },
+        )
+    });
+    let result = result.and_then(|segments| {
+        let db = state.db()?;
+        let note = library::get(&db, id)?;
+        library::validate_segments(&segments, note.duration_seconds)?;
+        Ok(segments)
+    });
+    jobs::finish(
+        &*state.db()?,
+        id,
+        &result,
+        state.cancelled.load(Ordering::SeqCst),
+    )?;
+    match &result {
+        Ok(_) => automation::schedule_export(&*state.db()?, id)?,
+        Err(error) => {
+            if state
+                .automation_label
+                .lock()
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                let _ = app.emit(
+                    "automation-error",
+                    format!("Automatic transcription needs retry in the batch queue: {error}"),
+                );
+            }
+        }
+    }
+    let _ = app.emit("queue-changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 async fn run_queue(app: tauri::AppHandle) -> Result<(), String> {
     let guard = app.state::<AppState>().claim()?;
@@ -475,46 +576,7 @@ async fn run_queue(app: tauri::AppHandle) -> Result<(), String> {
             let Some((id, language)) = next else {
                 break;
             };
-            let _ = app.emit("queue-changed", ());
-            let _ = app.emit(
-                "transcription-progress",
-                Progress {
-                    note_id: id.clone(),
-                    percent: 0,
-                },
-            );
-            let event_app = app.clone();
-            let note_id = id.clone();
-            let result = state.audio_path(&id).and_then(|path| {
-                engine::transcribe(
-                    &state.root.join("model.bin"),
-                    &path,
-                    &language,
-                    state.cancelled.clone(),
-                    move |percent| {
-                        let _ = event_app.emit(
-                            "transcription-progress",
-                            Progress {
-                                note_id: note_id.clone(),
-                                percent,
-                            },
-                        );
-                    },
-                )
-            });
-            let result = result.and_then(|segments| {
-                let db = state.db()?;
-                let note = library::get(&db, &id)?;
-                library::validate_segments(&segments, note.duration_seconds)?;
-                Ok(segments)
-            });
-            jobs::finish(
-                &*state.db()?,
-                &id,
-                &result,
-                state.cancelled.load(Ordering::SeqCst),
-            )?;
-            let _ = app.emit("queue-changed", ());
+            process_queued_job(&app, &state, &id, &language)?;
         }
         Ok(())
     })
@@ -795,7 +857,9 @@ async fn transcribe(app: tauri::AppHandle, id: String, language: String) -> Resu
         let db = state.db()?;
         match result {
             Ok(segments) => { db.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
-                params![serde_json::to_string(&segments).map_err(|e| e.to_string())?, id]).map_err(|e| e.to_string())?; Ok(()) }
+                params![serde_json::to_string(&segments).map_err(|e| e.to_string())?, id]).map_err(|e| e.to_string())?;
+                if let Err(error)=automation::schedule_export(&db,&id) { let _=app.emit("automation-error",error); }
+                Ok(()) }
             Err(error) => { db.execute("UPDATE notes SET status='failed',error=?1 WHERE id=?2", params![error, id]).map_err(|e| e.to_string())?; Err(error) }
         }
     }).await.map_err(|e| e.to_string())?
@@ -1014,19 +1078,45 @@ pub fn run() {
                 );
             }
             db.execute_batch("PRAGMA foreign_keys=ON;")?;
+            automation::recover_files(&root).map_err(std::io::Error::other)?;
             let _ = fs::remove_file(root.join("model.pending"));
+            let automation_paused = AtomicBool::new(
+                automation::settings(&db)
+                    .map_err(std::io::Error::other)?
+                    .paused,
+            );
             app.manage(AppState {
                 root,
                 db: Mutex::new(db),
                 busy: Arc::new(AtomicBool::new(false)),
                 cancelled: Arc::new(AtomicBool::new(false)),
                 recording: Mutex::new(None),
+                automation_label: Mutex::new(None),
+                automation_paused,
             });
+            automation_runtime::start(app.handle().clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    if state.busy.load(Ordering::SeqCst) {
+                        api.prevent_close();
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             setup_status,
             transcription_languages,
+            automation_commands::automation_status,
+            automation_commands::add_watch_folder,
+            automation_commands::watch_folder_action,
+            automation_commands::pause_automation,
+            automation_commands::choose_export_folder,
+            automation_commands::configure_exports,
+            automation_commands::export_queue_results,
+            automation_commands::retry_exports,
             list_notes,
             get_note,
             organize_note,
@@ -1090,6 +1180,8 @@ mod tests {
             busy: Arc::new(AtomicBool::new(false)),
             cancelled: Arc::new(AtomicBool::new(false)),
             recording: Mutex::new(None),
+            automation_label: Mutex::new(None),
+            automation_paused: AtomicBool::new(false),
         };
         let mut recording = ActiveRecording {
             session: recording::Session::from_saved_fixture(source.clone()),
@@ -1203,5 +1295,36 @@ mod tests {
         assert!(authorize_audio(&root, &db, "../stored.wav").is_err());
 
         fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn pausing_automation_cancels_background_work_and_blocks_restarts_without_blocking_manual_work()
+    {
+        let db = Connection::open_in_memory().unwrap();
+        library::init(&db, Path::new(":memory:")).unwrap();
+        let state = AppState {
+            root: PathBuf::new(),
+            db: Mutex::new(db),
+            busy: Arc::new(AtomicBool::new(false)),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            recording: Mutex::new(None),
+            automation_label: Mutex::new(None),
+            automation_paused: AtomicBool::new(false),
+        };
+        let guard = state.claim_automation("Importing watched audio").unwrap();
+        assert!(state.busy.load(Ordering::SeqCst));
+        assert!(state.claim().is_err());
+        state.set_automation_paused(true).unwrap();
+        assert!(state.cancelled.load(Ordering::SeqCst));
+        drop(guard);
+        *state.automation_label.lock().unwrap() = None;
+        assert!(state.claim_automation("Should not restart").is_err());
+        assert!(!state.busy.load(Ordering::SeqCst));
+        let manual = state.claim().unwrap();
+        drop(manual);
+        assert!(automation::settings(&state.db().unwrap()).unwrap().paused);
+        state.set_automation_paused(false).unwrap();
+        let guard = state.claim_automation("Resumed").unwrap();
+        assert!(!state.cancelled.load(Ordering::SeqCst));
+        drop(guard);
     }
 }

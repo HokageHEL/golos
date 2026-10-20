@@ -1135,3 +1135,8 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 .batch-jobs strong, .batch-jobs span { display: block; overflow-wrap: anywhere; }
 .batch-jobs span { font-size: 12px; color: var(--muted); margin-top: 5px; }
 .batch-jobs p { overflow-wrap: anywhere; }
+
+.automation-dialog { width: min(960px, calc(100vw - 32px)); }
+.automation-path { overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+.export-formats { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; border: 1px solid var(--border); padding: 12px; }
+.export-formats label { display: flex; align-items: center; gap: 6px; }

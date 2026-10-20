@@ -23,3 +23,8 @@ test('numbers cues from 1 and separates them with a blank line', () => {
 test('empty input yields an empty string', () => {
   expect(toSrt([])).toBe('');
 });
+
+
+test('keeps paragraph line breaks inside one cue without blank cue terminators', () => {
+  expect(toSrt([{ startMs: 0, endMs: 1000, speaker: null, text: 'First\r\n\r\nLast' }])).toBe('1\n00:00:00,000 --> 00:00:01,000\nFirst\nLast\n');
+});

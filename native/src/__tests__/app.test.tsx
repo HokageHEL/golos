@@ -6,11 +6,12 @@ import App from '../App';
 const fixture = vi.hoisted(() => {
   const segment = { startMs: 0, endMs: 1000, speaker: 'Alice', text: 'Original saved text' };
   const notes = ['One', 'Two'].map((title, index) => ({ id: String(index), title, createdAt: 1, durationSeconds: 1, status: 'done', segments: [segment], error: null, folder: '', tags: [] }));
-  return { notes, capture: { elapsedSeconds: 1, stopped: false, paused: false, error: null }, saves: vi.fn(), transcribes: vi.fn(), exports: vi.fn(), source: vi.fn(), download: vi.fn(), cancel: vi.fn(), progressListener: null as null | ((event: { payload: { received: number; total: number; phase: string } }) => void) };
+  return { notes, capture: { elapsedSeconds: 1, stopped: false, paused: false, error: null }, saves: vi.fn(), transcribes: vi.fn(), exports: vi.fn(), source: vi.fn(), download: vi.fn(), cancel: vi.fn(), automationListener: null as null | ((event: { payload: string | null }) => void), progressListener: null as null | ((event: { payload: { received: number; total: number; phase: string } }) => void) };
 });
 vi.mock('../api', () => ({
   nativeAvailable: true,
   api: {
+    automation: async () => ({ label: null, settings: { paused: false, exportEnabled: false, exportDirectory: null, exportFormats: ['txt'] }, folders: [], files: [], exports: [] }),
     languages: async () => [{ code: 'en', name: 'english' }, { code: 'uk', name: 'ukrainian' }, { code: 'ja', name: 'japanese' }],
     setup: async () => ({ modelReady: true, modelName: 'Small', diarizationReady: false }),
     list: async ({ search = '' } = {}) => fixture.notes.filter(n => n.title.toLowerCase().includes(search.toLowerCase())),
@@ -28,7 +29,7 @@ vi.mock('../api', () => ({
     downloadModels: fixture.download, cancel: fixture.cancel,
   },
 }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: async (name: string, callback: typeof fixture.progressListener) => { if (name === 'model-download') fixture.progressListener = callback; return () => {}; } }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: async (name: string, callback: typeof fixture.progressListener) => { if (name === 'model-download') fixture.progressListener = callback; if (name === 'automation-state') fixture.automationListener = callback as unknown as typeof fixture.automationListener; return () => {}; } }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => path }));
 beforeEach(() => {
@@ -40,7 +41,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) { this.open = true; });
   HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) { this.open = false; });
   fixture.capture.paused = false;
-  fixture.saves.mockClear(); fixture.source.mockClear(); fixture.download.mockReset(); fixture.cancel.mockReset(); fixture.progressListener = null;
+  fixture.saves.mockClear(); fixture.source.mockClear(); fixture.download.mockReset(); fixture.cancel.mockReset(); fixture.progressListener = null; fixture.automationListener = null;
 });
 afterEach(cleanup);
 
@@ -142,4 +143,16 @@ it('offers engine languages beyond English and Ukrainian and forwards the select
   } finally {
     fixture.notes[0].status = previousStatus;
   }
+});
+
+
+it('keeps draft editing usable while native automation runs and restores saving afterward',async()=>{
+  render(<App/>);const editor=await screen.findByRole('textbox',{name:'Transcript at 0:00'});
+  await act(async()=>fixture.automationListener?.({payload:'Transcribing watched audio'}));
+  expect((editor as HTMLTextAreaElement).disabled).toBe(false);
+  fireEvent.change(editor,{target:{value:'A draft edited during background transcription'}});
+  expect((screen.getByRole('button',{name:'Save edits'}) as HTMLButtonElement).disabled).toBe(true);
+  await act(async()=>fixture.automationListener?.({payload:null}));
+  expect((screen.getByRole('button',{name:'Save edits'}) as HTMLButtonElement).disabled).toBe(false);
+  expect((editor as HTMLTextAreaElement).value).toBe('A draft edited during background transcription');
 });

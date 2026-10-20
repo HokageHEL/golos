@@ -1,11 +1,13 @@
 // Development-only fixture; Vite's production entry does not import this module.
 // No file access, recording hardware or inference is exercised by this fixture.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import type { AutomationView } from '../src/api';
 const notes = ['Research interview', 'Weekly planning'].map((title, i) => ({
   id: String(i), title, createdAt: 1792400000, durationSeconds: 60, status: 'done',
   segments: [{ startMs: 0, endMs: 10000, speaker: 'Alice', text: 'A saved transcript for library search and editing.' }, { startMs: 10000, endMs: 20000, speaker: 'Alice', text: 'The next paragraph keeps its timestamp.' }],
   error: null, folder: 'Work', tags: ['research'],
 }));
+const automation: AutomationView = { settings: { paused: false, exportEnabled: false, exportDirectory: null, exportFormats: ['txt'] }, folders: [], files: [], exports: [], label: null };
 let queueJobs: { id: number; noteId: string; title: string; durationSeconds: number; language: string; status: string; error: string | null }[] = [];
 let paused = false;
 let recordingTitle = 'Mock recording';
@@ -14,6 +16,20 @@ mockIPC((command, payload = {}) => {
   if (Array.isArray(payload) || payload instanceof ArrayBuffer || payload instanceof Uint8Array) return;
   const args = payload;
   switch (command) {
+    case 'automation_status': return structuredClone(automation);
+    case 'add_watch_folder': automation.folders.push({ id: 'watch-1', path: '/mock/interviews', enabled: true, autoTranscribe: Boolean(args.autoTranscribe), language: String(args.language), error: null }); return true;
+    case 'watch_folder_action': {
+      const folder = automation.folders.find(item => item.id === args.id);
+      if (args.action === 'remove') automation.folders = automation.folders.filter(item => item.id !== args.id);
+      else if (folder && (args.action === 'pause' || args.action === 'resume')) folder.enabled = args.action === 'resume';
+      else if (folder) folder.autoTranscribe = args.action === 'auto';
+      return;
+    }
+    case 'pause_automation': automation.settings.paused = Boolean(args.paused); return;
+    case 'choose_export_folder': automation.settings.exportDirectory = '/mock/exports'; return true;
+    case 'configure_exports': automation.settings.exportEnabled = Boolean(args.enabled); automation.settings.exportFormats = args.formats as string[]; return;
+    case 'export_queue_results': automation.exports = [{ noteId: '0', title: 'Research interview', status: 'failed', error: 'Mocked export permission error. Restore access and retry.' }]; return 1;
+    case 'retry_exports': automation.exports = automation.exports.map(task => ({ ...task, status: 'pending', error: null })); return;
     case 'list_jobs': return queueJobs;
     case 'import_batch': {
       const created = ['Mock interview A', 'Mock interview B'].map((title, index) => ({ ...notes[0], id: `batch-${index}`, title, status: 'ready', segments: [] }));

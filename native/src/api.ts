@@ -11,8 +11,23 @@ export type Setup = { modelReady: boolean; modelName: string | null; dataDirecto
 export type TextExportFormat = 'txt' | 'srt' | 'vtt' | 'md' | 'html' | 'csv' | 'json';
 export type Language = { code: string; name: string };
 export type Job = { id: number; noteId: string; title: string; durationSeconds: number; language: string; status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; error: string | null };
+export type AutomationView = {
+  settings: { paused: boolean; exportEnabled: boolean; exportDirectory: string | null; exportFormats: string[] };
+  folders: { id: string; path: string; enabled: boolean; autoTranscribe: boolean; language: string; error: string | null }[];
+  files: { folderId: string; name: string; status: string; error: string | null }[];
+  exports: { noteId: string; title: string; status: string; error: string | null }[];
+  label: string | null;
+};
 export const nativeAvailable = isTauri();
 export const api = {
+  automation: () => invoke<AutomationView>('automation_status'),
+  addWatch: (language: string, autoTranscribe: boolean, includeExisting: boolean) => invoke<boolean>('add_watch_folder', { language, autoTranscribe, includeExisting }),
+  watchAction: (id: string, action: 'pause' | 'resume' | 'auto' | 'manual' | 'remove' | 'retry') => invoke<void>('watch_folder_action', { id, action }),
+  pauseAutomation: (paused: boolean) => invoke<void>('pause_automation', { paused }),
+  chooseExportFolder: () => invoke<boolean>('choose_export_folder'),
+  configureExports: (enabled: boolean, formats: string[]) => invoke<void>('configure_exports', { enabled, formats }),
+  exportQueue: () => invoke<number>('export_queue_results'),
+  retryExports: () => invoke<void>('retry_exports'),
   setup: () => invoke<Setup>('setup_status'),
   languages: () => invoke<Language[]>('transcription_languages'),
   list: (filters: { search?: string; status?: string; folder?: string; tag?: string; offset?: number } = {}) => invoke<Note[]>('list_notes', filters),
