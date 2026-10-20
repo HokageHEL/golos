@@ -6,6 +6,7 @@ const notes = ['Research interview', 'Weekly planning'].map((title, i) => ({
   segments: [{ startMs: 0, endMs: 10000, speaker: 'Alice', text: 'A saved transcript for library search and editing.' }, { startMs: 10000, endMs: 20000, speaker: 'Alice', text: 'The next paragraph keeps its timestamp.' }],
   error: null, folder: 'Work', tags: ['research'],
 }));
+let queueJobs: { id: number; noteId: string; title: string; durationSeconds: number; language: string; status: string; error: string | null }[] = [];
 let paused = false;
 let recordingTitle = 'Mock recording';
 mockWindows('main');
@@ -13,6 +14,20 @@ mockIPC((command, payload = {}) => {
   if (Array.isArray(payload) || payload instanceof ArrayBuffer || payload instanceof Uint8Array) return;
   const args = payload;
   switch (command) {
+    case 'list_jobs': return queueJobs;
+    case 'import_batch': {
+      const created = ['Mock interview A', 'Mock interview B'].map((title, index) => ({ ...notes[0], id: `batch-${index}`, title, status: 'ready', segments: [] }));
+      notes.push(...created);
+      queueJobs.push(...created.map((note, index) => ({ id: index + 1, noteId: note.id, title: note.title, durationSeconds: note.durationSeconds, language: String(args.language), status: 'queued', error: null })));
+      return { notes: created, failures: ['broken.mp3: Mocked decode failure'], cancelled: false };
+    }
+    case 'job_action': {
+      if (args.action === 'remove') queueJobs = queueJobs.filter(job => job.id !== args.id);
+      else queueJobs = queueJobs.map(job => job.id === args.id ? { ...job, status: 'queued', error: null } : job);
+      return;
+    }
+    case 'run_queue': for (const job of queueJobs) job.status = 'done'; return;
+    case 'cancel_transcription': return;
     case 'transcription_languages': return [{ code: 'en', name: 'english' }, { code: 'uk', name: 'ukrainian' }, { code: 'ja', name: 'japanese' }];
     case 'setup_status': return { modelReady: false, modelName: null, dataDirectory: '/mock/local', diarizationReady: false };
     case 'capture_info': return args.applications ? [{ pid: 123, name: 'Browser (mock)' }] : { system: true, mixed: true };

@@ -29,7 +29,7 @@ accuracy, accessibility, signing and release validation are separate gates.
 | System-wide hotkey / floating Global recording | Gap | Registered configurable shortcut, overlay, always-on-top preference and focus/permission tests. |
 | Dictation into another app | Gap | Offline post-record transcription and explicit insertion with Accessibility permission; preserve previous clipboard/focus, no unintended insertion. |
 | Dictation prompts, app-specific modes, grammar improvement | Gap | Local processing, configurable prompts and app mapping; preview/cancel and accuracy checks. |
-| Batch files and serial transcription queue | Gap | Native multi-select/drag-drop, per-file outcomes, cancellation, retry and restart recovery, no edited transcript overwrite; individual cap retained. |
+| Batch files and serial transcription queue | Implemented core workflow; partial parity | Native multi-select, per-file outcomes, cancellation, retry and restart recovery exist with stale-job protection. Drag/drop, multi-format auto-export and batch speaker options remain. See [batch workflow](BATCH_TRANSCRIPTION.md). |
 | Watch folders | Gap | Explicit folder grants; stable-file detection, durable deduplication, pause/remove, per-file failures, safe output naming; never delete input. |
 | Multi-track podcast transcription | Gap | Named per-speaker inputs, common offsets, overlapping speech preserved, source playback; validate different lengths/sample rates. |
 | Local speaker detection / rename / paragraph assignments | Implemented | Real multi-language diarization accuracy remains unmeasured. |
@@ -100,3 +100,5 @@ choice and a similar UI alone do not establish equivalent functionality or quali
   and all-target Clippy with warnings denied passed.
 - Unsigned arm64 macOS debug app built, approximately 78.5 MiB. No new microphone,
   system-audio, OS-permission or native WebKit clipboard validation is claimed.
+
+Milestone 1 merged in [PR #5](https://github.com/HokageHEL/golos/pull/5), with all four GitHub checks passing.

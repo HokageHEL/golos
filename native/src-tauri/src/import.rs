@@ -376,14 +376,34 @@ fn codec_registry() -> &'static CodecRegistry {
 /// Only a complete, validated WAV is retained. Partial output is removed on every
 /// error; the original user-selected recording is never modified or copied whole.
 pub fn normalize(source: &Path, target: &Path) -> Result<f64, String> {
-    let result = normalize_inner(source, target);
+    normalize_cancellable(source, target, &std::sync::atomic::AtomicBool::new(false))
+}
+
+pub fn normalize_cancellable(
+    source: &Path,
+    target: &Path,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<f64, String> {
+    let result = normalize_inner(source, target, cancelled);
     if result.is_err() {
         let _ = fs::remove_file(target);
     }
     result
 }
 
-fn normalize_inner(source: &Path, target: &Path) -> Result<f64, String> {
+fn normalize_inner(
+    source: &Path,
+    target: &Path,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<f64, String> {
+    let check_cancelled = || {
+        if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+            Err("Import cancelled. Your source file was not changed.".to_string())
+        } else {
+            Ok(())
+        }
+    };
+    check_cancelled()?;
     let file = File::open(source).map_err(|e| format!("Cannot open recording: {e}"))?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_BYTES {
@@ -408,6 +428,7 @@ fn normalize_inner(source: &Path, target: &Path) -> Result<f64, String> {
         })?;
     let mut normalizer: Option<Normalizer> = None;
     loop {
+        check_cancelled()?;
         let packet =
             match format.next_packet() {
                 Ok(packet) => packet,
@@ -462,6 +483,7 @@ fn normalize_inner(source: &Path, target: &Path) -> Result<f64, String> {
     if decoder.finalize().verify_ok == Some(false) {
         return Err("Audio integrity check failed.".into());
     }
+    check_cancelled()?;
     normalizer
         .ok_or("No audio was found in this file.")?
         .finish()

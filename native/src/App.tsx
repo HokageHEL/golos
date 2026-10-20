@@ -12,6 +12,7 @@ import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
 import { api, nativeAvailable, type Note, type Setup, type RecordingStatus, type Language, type TextExportFormat } from './api';
 import Settings from './Settings';
 import Organization from './Organization';
+import BatchQueue from './BatchQueue';
 import { change, undo, redo, replaceAll, splitParagraph, mergeParagraph, type History } from './editing';
 import { exportDocument } from './export/document';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
@@ -71,6 +72,7 @@ export default function App() {
   const [playheadMs, setPlayheadMs] = useState(0);
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(-1);
@@ -328,7 +330,16 @@ export default function App() {
     });
   }
 
+  async function refreshAfterBatch() {
+    setNotes(await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter }));
+    if (active && active.status !== 'done') {
+      const note = await api.get(active.id);
+      setActiveNote(note); setDraft(note.segments);
+    }
+  }
+
   return <div className="app">
+    {batchOpen && <BatchQueue languages={languages} modelReady={!!setup?.modelReady} busy={busy} progress={progress} error={error} onOperation={perform} onChanged={refreshAfterBatch} onClose={() => setBatchOpen(false)}/>}
     <aside className="sidebar">
       <a className="brand" href="#">golos<span className="brand-dot">●</span></a>
       <p className="tagline">Your words. Your device.</p>
@@ -341,6 +352,7 @@ export default function App() {
       </div>
       <button className="primary record-trigger"  disabled={locked || dirty} onClick={startRecording}>● Record audio</button>
       <button className="secondary import" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
+      <button className="secondary import" disabled={locked} onClick={() => setBatchOpen(true)}>Batch transcription</button>
       <button className="secondary import" disabled={locked} onClick={importProject}>Import project backup</button>
       <div className="library-heading"><h2>Library</h2><span title="Loaded matching recordings">{notes.length}{notes.length >= 100 ? '＋' : ''}</span></div>
       <div className="library-filters">
@@ -419,7 +431,8 @@ export default function App() {
             <div className="actions"><label>Audio language<select value={language} disabled={locked} onChange={e => setLanguage(e.target.value)}>
               <option value="auto">Detect automatically</option>{languages.map(item => <option key={item.code} value={item.code}>{item.name.charAt(0).toUpperCase() + item.name.slice(1)}</option>)}</select></label>
               {setup?.diarizationReady && <label className="auto-speakers"><input type="checkbox" checked={autoSpeakers} disabled={locked} onChange={e => setAutoSpeakers(e.target.checked)}/> Detect speakers after transcription</label>}
-              <button className="primary" disabled={locked || !setup?.modelReady} onClick={transcribe}>Transcribe offline</button></div>
+              <button className="primary" disabled={locked || !setup?.modelReady} onClick={transcribe}>Transcribe offline</button>
+              <button className="secondary" disabled={locked} onClick={() => { void perform('Queueing recording', async () => { await api.queue(active.id, language); setBatchOpen(true); }); }}>Add to batch queue</button></div>
           </div>}
 
           {busy && <div className="processing" role="status"><span>{busy}{busy === 'Transcribing on your device' ? ` · ${progress}%` : '…'}</span>

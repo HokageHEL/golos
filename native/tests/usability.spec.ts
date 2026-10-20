@@ -103,3 +103,23 @@ test('structured export selection and copying an unsaved draft work in the brows
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('Alice: Unstored clipboard draft');
   await expect(page.getByRole('button', { name: 'Save edits', exact: true })).toBeEnabled();
 });
+
+
+test('batch import reports each failure, retains pending jobs and removes jobs without deleting recordings', async ({ page }, info) => {
+  await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();
+  const queue = page.getByRole('dialog', { name: 'Batch transcription', exact: true });
+  await queue.getByRole('combobox', { name: 'Batch audio language', exact: true }).selectOption('uk');
+  await queue.getByRole('button', { name: 'Add files to queue', exact: true }).click();
+  await expect(queue.getByText('2 recordings imported and queued.', { exact: true })).toBeVisible();
+  await expect(queue.getByText('broken.mp3: Mocked decode failure', { exact: true })).toBeVisible();
+  await expect(queue.getByRole('button', { name: 'Start / resume queue', exact: true })).toBeDisabled();
+  await queue.getByRole('button', { name: 'Remove Mock interview A from queue', exact: true }).click();
+  await expect(queue.getByText('Mock interview A', { exact: true })).toHaveCount(0);
+  await queue.getByRole('button', { name: 'Close batch queue', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Mock interview A.*Ready/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();
+  await expect(queue.getByText('Mock interview B', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 760, height: 560 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('batch-queue.png'), fullPage: true });
+});
