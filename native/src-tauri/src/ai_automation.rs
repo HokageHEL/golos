@@ -2,7 +2,7 @@
 //! after they are saved; every task captures its rule, source snapshot and local
 //! model configuration so later settings changes cannot alter queued work.
 use crate::{
-    ai, ai_commands,
+    ai, ai_commands, automation,
     library::{self, Segment},
     local_ai, AppState,
 };
@@ -668,6 +668,10 @@ pub async fn process_next(app: &tauri::AppHandle) -> Result<bool, String> {
     let result_id = work.id.clone();
     let result = ai_commands::automatic(app, work, port, &rule_name).await;
     let state = app.state::<AppState>();
+    let cancelled = match &result {
+        Ok(work) => work.status == "cancelled",
+        Err(_) => state.cancelled.load(Ordering::SeqCst),
+    };
     let db = state.db()?;
     match result {
         Ok(work) => finish(&db, &task_id, &work)?,
@@ -681,6 +685,15 @@ pub async fn process_next(app: &tauri::AppHandle) -> Result<bool, String> {
         )?,
     }
     drop(db);
+    if cancelled {
+        // A generic cancel (rather than the user's explicit global pause) stops
+        // the current task; pause automation as well so queued automatic work
+        // cannot silently start on the next scheduler turn.
+        let paused = automation::settings(&*state.db()?)?.paused;
+        if !paused {
+            state.set_automation_paused(true)?;
+        }
+    }
     let _ = app.emit("automation-changed", ());
     Ok(true)
 }
