@@ -193,6 +193,137 @@ pub fn validate_segments(segments: &[Segment], duration: f64) -> Result<(), Stri
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "Synthetic 10,000-recording warm-cache database benchmark; not native UI/device validation"]
+    fn large_library_query_benchmark() {
+        use std::time::Instant;
+        let root =
+            std::env::temp_dir().join(format!("golos-library-scale-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("library.sqlite3");
+        let db = Connection::open(&path).unwrap();
+        init(&db, &path).unwrap();
+        let started = Instant::now();
+        let tx = db.unchecked_transaction().unwrap();
+        for index in 0..10000 {
+            let id = format!("recording-{index:05}");
+            insert(
+                &tx,
+                &Note {
+                    id: id.clone(),
+                    title: format!("Recording {index:05}"),
+                    created_at: index,
+                    duration_seconds: 60.,
+                    status: "done".into(),
+                    segments: vec![],
+                    error: None,
+                    folder: String::new(),
+                    tags: vec![],
+                },
+            )
+            .unwrap();
+            let paragraphs: Vec<Segment> = (0..8)
+                .map(|part| Segment {
+                    start_ms: part * 7000,
+                    end_ms: part * 7000 + 6500,
+                    speaker: Some(if part % 2 == 0 { "Alice" } else { "Bob" }.into()),
+                    text: format!(
+                        "Discussion marker{index:05} Київ. {}",
+                        "A synthetic transcript paragraph for testing local history search. "
+                            .repeat(4)
+                    ),
+                })
+                .collect();
+            tx.execute(
+                "UPDATE notes SET segments=?1 WHERE id=?2",
+                params![serde_json::to_string(&paragraphs).unwrap(), id],
+            )
+            .unwrap();
+            tx.execute(
+                "INSERT INTO organization(note_id,folder,tags) VALUES(?1,?2,?3)",
+                params![
+                    id,
+                    if index % 2 == 0 { "Work" } else { "Personal" },
+                    if index % 5 == 0 {
+                        "[\"research\"]"
+                    } else {
+                        "[]"
+                    }
+                ],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+        db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+        println!("Fixture: 10,000 recordings / 80,000 paragraphs / {:.2} MiB SQLite, {:.2}s population; synthetic text only, no audio",std::fs::metadata(&path).unwrap().len() as f64/1048576.,started.elapsed().as_secs_f64());
+        let scenarios = [
+            ("first page", "", "", "", "", 0, 100),
+            ("late page", "", "", "", "", 9900, 100),
+            (
+                "broad saved-text search",
+                "discussion",
+                "done",
+                "",
+                "",
+                0,
+                100,
+            ),
+            (
+                "selective saved-text search",
+                "marker09999",
+                "done",
+                "",
+                "",
+                0,
+                1,
+            ),
+            (
+                "Unicode saved-text + organization filters",
+                "Київ",
+                "done",
+                "Work",
+                "research",
+                0,
+                100,
+            ),
+        ];
+        for (name, search, status, folder, tag, offset, expected) in scenarios {
+            let mut elapsed = vec![];
+            for _ in 0..50 {
+                let started = Instant::now();
+                let rows = query(&db, search, status, folder, tag, 100, offset, None).unwrap();
+                elapsed.push(started.elapsed().as_secs_f64() * 1000.);
+                assert_eq!(rows.len(), expected);
+                assert!(rows.iter().all(|note| note.segments.is_empty()));
+            }
+            elapsed.sort_by(f64::total_cmp);
+            println!(
+                "{name}: p50={:.3}ms p95={:.3}ms max={:.3}ms (50 warm queries)",
+                elapsed[25], elapsed[47], elapsed[49]
+            );
+        }
+        let selected = get(&db, "recording-09999").unwrap();
+        assert_eq!(selected.segments.len(), 8);
+        assert!(selected.segments[0].text.contains("marker09999"));
+        assert_eq!(selected.segments[1].speaker.as_deref(), Some("Bob"));
+        let pages: Vec<_> = (0..100)
+            .flat_map(|page| {
+                query(&db, "", "", "", "", 100, page * 100, None)
+                    .unwrap()
+                    .into_iter()
+                    .map(|note| note.id)
+            })
+            .collect();
+        assert_eq!(pages.len(), 10000);
+        assert_eq!(
+            pages.iter().collect::<std::collections::HashSet<_>>().len(),
+            10000
+        );
+        assert_eq!(pages[0], "recording-09999");
+        assert_eq!(pages[9999], "recording-00000");
+        drop(db);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn search_organization_and_pagination_preserve_saved_text() {
         let db = Connection::open_in_memory().unwrap();
         init(&db, Path::new("in-memory")).unwrap();
