@@ -81,6 +81,13 @@ jobs:
           workspaces: native/src-tauri -> target
           key: ${{ matrix.bundles }}
 
+      - name: Refresh sherpa-onnx native link metadata
+        # sherpa-onnx-sys extracts libraries under target/sherpa-onnx-prebuilt,
+        # outside Cargo's tracked build outputs. rust-cache can restore its
+        # fingerprint/link-search metadata without that directory. Force only
+        # this package's build script to rerun and restore its native archives.
+        run: cargo clean --manifest-path native/src-tauri/Cargo.toml -p sherpa-onnx-sys
+
       - name: Locate libclang for bindgen (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
