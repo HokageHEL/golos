@@ -136,9 +136,9 @@ it('offers engine languages beyond English and Ukrainian and forwards the select
     const language = await screen.findByRole('combobox', { name: 'Audio language' });
     await screen.findByRole('option', { name: 'Japanese' });
     fireEvent.change(language, { target: { value: 'ja' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Transcribe offline', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Transcribe offline' }));
     await waitFor(() => expect(fixture.transcribes).toHaveBeenCalledWith('0', 'ja'));
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Transcribe offline', exact: true }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Transcribe offline' }) as HTMLButtonElement).disabled).toBe(false));
   } finally {
     fixture.notes[0].status = previousStatus;
   }
