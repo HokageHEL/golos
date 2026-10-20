@@ -54,6 +54,18 @@ pub fn install(root: &Path, segmentation: &Path, embedding: &Path) -> Result<(),
     )
 }
 
+pub fn install_cancellable(
+    root: &Path,
+    segmentation: &Path,
+    embedding: &Path,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    install_validated(root, segmentation, embedding, |seg, emb| {
+        crate::diarize::validate_models(seg, emb)?;
+        crate::download::check_cancel(cancelled)
+    })
+}
+
 fn install_validated(
     root: &Path,
     segmentation: &Path,

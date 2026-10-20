@@ -1117,3 +1117,9 @@ input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focu
 .organization { display: grid; gap: 10px; padding: 16px 0; }
 .organization label { display: grid; gap: 4px; }
 .editor-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.sidebar { overflow-y: auto; }
+.sidebar > * { flex-shrink: 0; }
+.recordings { min-height: 120px; flex-shrink: 1; }
+.editor-toolbar { flex-wrap: wrap; gap: 12px; }
+.editor-toolbar .actions { flex-wrap: wrap; }
+input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }

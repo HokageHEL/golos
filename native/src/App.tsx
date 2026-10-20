@@ -20,6 +20,10 @@ import { findTranscriptMatches, type TranscriptMatch } from './review';
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export default function App() {
+  const [source, setSource] = useState('microphone');
+  const [application, setApplication] = useState(0);
+  const [applications, setApplications] = useState<{ pid: number; name: string }[]>([]);
+  const [captureSupport, setCaptureSupport] = useState({ system: false, mixed: false });
   const [capture, setCapture] = useState<RecordingStatus | null>(null);
   const [capturePhase, setCapturePhase] = useState<'starting' | 'recording' | 'saving' | null>(null);
   const [discardCapture, setDiscardCapture] = useState(false);
@@ -100,10 +104,11 @@ export default function App() {
   useEffect(() => {
     if (!nativeAvailable) return;
     let disposed = false;
-    Promise.all([api.setup(), api.list()]).then(([status, library]) => {
+    void api.captureInfo().then(info => { if (!disposed && !Array.isArray(info)) setCaptureSupport(info); }).catch(e => { if (!disposed) setError(errorText(e)); });
+    Promise.all([api.setup(), api.list()]).then(async ([status, library]) => {
       if (disposed) return;
       setSetup(status); setNotes(library);
-      if (library[0]) { void api.get(library[0].id).then(note => { setActiveNote(note); setSelected(note.id); setDraft(note.segments); }); }
+      if (library[0]) { const note = await api.get(library[0].id); if (!disposed) { setActiveNote(note); setSelected(note.id); setDraft(note.segments); } }
     }).catch(e => { if (!disposed) setError(errorText(e)); })
       .finally(() => { if (!disposed) setLoading(false); });
     const subscription = listen<{ noteId: string; percent: number }>('transcription-progress', event => {
@@ -160,11 +165,11 @@ export default function App() {
   }, [capturePhase]);
 
   async function startRecording() {
-    setBusy('Starting microphone'); setError(null); setMessage(null);
+    setBusy('Opening recording source'); setError(null); setMessage(null);
     setCapturePhase('starting'); setDiscardCapture(false);
     setCapture({ elapsedSeconds: 0, stopped: false, paused: false, error: null });
     try {
-      await api.startRecording(`Recording · ${new Date().toLocaleString()}`);
+      await api.startRecording(`Recording · ${new Date().toLocaleString()}`, source, application);
       setCapturePhase('recording'); setBusy('Recording');
     } catch (e) {
       setError(errorText(e)); setCapturePhase(null); setCapture(null); setBusy(null);
@@ -209,7 +214,7 @@ export default function App() {
     setConfirmDelete(null); setMessage(null); setError(null);
   }
   async function openNote(note: Note) {
-    try { select(await api.get(note.id)); } catch (e) { setError(errorText(e)); }
+    await perform('Opening recording', async () => { select(await api.get(note.id)); });
   }
   function seekTo(ms: number) {
     setSeekRequest(current => ({ ms, nonce: (current?.nonce ?? 0) + 1, play: true }));
@@ -217,7 +222,7 @@ export default function App() {
   async function importAudio() {
     await perform('Importing recording', async () => {
       const note = await api.importAudio();
-      if (note) { setNotes(await api.list()); select(note); }
+      if (note) { setNotes(await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter })); select(note); }
     });
   }
   async function downloadModels(speakers = false) {
@@ -309,7 +314,7 @@ export default function App() {
   async function importProject() {
     await perform('Importing project', async () => {
       const note = await api.importProject();
-      if (note) { setNotes(await api.list()); select(note); setMessage('Project imported as a new recording.'); }
+      if (note) { setNotes(await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter })); select(note); setMessage('Project imported as a new recording.'); }
     });
   }
   async function exportTranscript(format: 'txt' | 'srt' | 'vtt') {
@@ -323,12 +328,19 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="#">golos<span className="brand-dot">●</span></a>
       <p className="tagline">Your words. Your device.</p>
-      <button className="primary record-trigger" disabled={locked || dirty} onClick={startRecording}>● Record audio</button>
+      <div className="library-filters"><label>Recording source<select aria-label="Recording source" value={source} disabled={locked} onChange={e => setSource(e.target.value)}>
+        <option value="microphone">Microphone</option><option value="system" disabled={!captureSupport.system}>Application / system audio (macOS 13+)</option><option value="mixed" disabled={!captureSupport.mixed}>Microphone + application audio (macOS 15+)</option>
+      </select></label>
+      {source !== 'microphone' && <><select aria-label="Application to capture" value={application} disabled={locked} onChange={e => setApplication(Number(e.target.value))}><option value={0}>All system audio (excluding Golos)</option>{applications.map(app => <option key={app.pid} value={app.pid}>{app.name}</option>)}</select>
+      <button className="secondary" disabled={locked} onClick={() => { void perform('Loading applications', async () => { const info = await api.captureInfo(true); if (Array.isArray(info)) setApplications(info); }); }}>Refresh applications / grant access</button>
+      <p className="muted">Allow Golos Audio Capture in System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording. Mixed mode also needs Microphone access. Restart Golos after changing permission. Use headphones to avoid microphone echo.</p></>}
+      </div>
+      <button className="primary record-trigger"  disabled={locked || dirty} onClick={startRecording}>● Record audio</button>
       <button className="secondary import" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
       <button className="secondary import" disabled={locked} onClick={importProject}>Import project backup</button>
-      <div className="library-heading"><h2>Library</h2><span>{notes.length}</span></div>
+      <div className="library-heading"><h2>Library</h2><span title="Loaded matching recordings">{notes.length}{notes.length >= 100 ? '＋' : ''}</span></div>
       <div className="library-filters">
-        <input aria-label="Search library" type="search" placeholder="Search titles & saved transcripts" value={librarySearch} onChange={e => setLibrarySearch(e.target.value)}/>
+        <input aria-label="Search library" type="search" placeholder="Search titles & saved transcripts" title="Search word prefixes across saved titles and transcripts" value={librarySearch} onChange={e => setLibrarySearch(e.target.value)}/>
         <select aria-label="Recording status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="">All statuses</option><option value="ready">Ready to transcribe</option><option value="done">Transcribed</option><option value="failed">Needs retry</option><option value="processing">Processing</option></select>
         <input aria-label="Filter folder" placeholder="Filter by folder" value={folderFilter} onChange={e => setFolderFilter(e.target.value)}/>
         <input aria-label="Filter tag" placeholder="Filter by tag" value={tagFilter} onChange={e => setTagFilter(e.target.value)}/>
@@ -355,13 +367,13 @@ export default function App() {
         {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to record audio, import files, transcribe, and save to your local library.</div>}
         {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
         {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
-        {capture && <section className="capture-card" aria-label="Microphone recording">
-          <div className="capture-heading"><span className={`capture-dot ${capture.stopped || capture.paused ? 'stopped' : ''}`} aria-hidden="true"/><h2>{capturePhase === 'starting' ? 'Opening microphone…' : capturePhase === 'saving' ? 'Finishing recording…' : capture.stopped ? 'Recording stopped' : capture.paused ? 'Recording paused' : 'Recording from your microphone'}</h2></div>
+        {capture && <section className="capture-card" aria-label="Audio recording">
+          <div className="capture-heading"><span className={`capture-dot ${capture.stopped || capture.paused ? 'stopped' : ''}`} aria-hidden="true"/><h2>{capturePhase === 'starting' ? 'Opening recording source…' : capturePhase === 'saving' ? 'Saving recording…' : capture.stopped ? 'Recording stopped' : capture.paused ? 'Recording paused' : source === 'microphone' ? 'Recording from your microphone' : source === 'mixed' ? 'Recording microphone + application audio' : 'Recording application audio'}</h2></div>
           <p className="capture-timer" role="timer" aria-label="Recorded duration">{formatClock(capture.elapsedSeconds * 1000)}</p>
           <p className="muted">{capture.error ?? (capture.stopped ? 'Save the captured audio to your library, then transcribe it.' : 'Audio stays on this device. Recording stops at 30 minutes.')}</p>
           {discardCapture ? <div role="group" aria-label="Discard this recording?">
             <p>Discard this recording? The captured audio will be deleted.</p>
-            <div className="actions"><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(false)}>Keep recording</button><button className="danger-button" disabled={capturePhase !== 'recording'} onClick={() => stopRecording(true)}>Discard recording</button></div>
+            <div className="actions"><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(false)}>{capture.stopped || capture.paused ? 'Keep captured audio' : 'Keep recording'}</button><button className="danger-button" disabled={capturePhase !== 'recording'} onClick={() => stopRecording(true)}>Discard recording</button></div>
           </div> : <div className="actions"><button className="secondary" disabled={capturePhase !== 'recording' || capture.stopped} onClick={async () => { try { await api.pauseRecording(!capture.paused); setCapture(await api.recordingStatus()); } catch (e) { setError(errorText(e)); } }}>{capture.paused ? 'Resume' : 'Pause'}</button><button className="primary" disabled={capturePhase !== 'recording'} onClick={() => stopRecording()}>Stop and save</button><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(true)}>Discard…</button></div>}
         </section>}
         {busy && !active && !capture && <div className="processing" role="status">{busy}…</div>}
@@ -376,7 +388,7 @@ export default function App() {
           <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis/Opus), AIFF · Up to 30 minutes / 512 MiB</p>
         </section> : <section className="document">
           <div className="document-heading"><div><div className="eyebrow">RECORDING</div><h1>{active.title}</h1>
-            <Organization key={active.id} note={active} disabled={locked} onSave={async (title, folder, tags) => { await perform('Saving organization', async () => { await api.organize(active.id, title, folder, tags); setActiveNote({ ...active, title, folder, tags }); setNotes(await api.list()); setMessage('Organization saved.'); }); }}/>
+            <Organization key={active.id} note={active} disabled={locked} onSave={async (title, folder, tags) => { await perform('Saving organization', async () => { await api.organize(active.id, title, folder, tags); setActiveNote({ ...active, title, folder, tags }); setNotes(await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter })); setMessage('Organization saved.'); }); }}/>
             <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {formatClock(active.durationSeconds * 1000)} · Stored locally</p></div>
             <button className="text-button danger" disabled={locked || dirty} onClick={() => { setError(null); setConfirmDelete(active); }}>Delete</button></div>
 

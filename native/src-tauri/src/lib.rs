@@ -1,4 +1,6 @@
 mod audio;
+#[cfg(any(target_os = "macos", test))]
+mod capture;
 mod diarize;
 mod docx;
 mod download;
@@ -131,28 +133,40 @@ fn setup_status(state: State<AppState>) -> Setup {
     }
 }
 #[tauri::command]
-fn list_notes(
-    state: State<AppState>,
+async fn list_notes(
+    app: tauri::AppHandle,
     search: Option<String>,
     status: Option<String>,
     folder: Option<String>,
     tag: Option<String>,
     offset: Option<i64>,
 ) -> Result<Vec<Note>, String> {
-    library::query(
-        &*state.db()?,
-        &search.unwrap_or_default(),
-        &status.unwrap_or_default(),
-        &folder.unwrap_or_default(),
-        &tag.unwrap_or_default(),
-        100,
-        offset.unwrap_or(0),
-        None,
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db = state.db()?;
+        library::query(
+            &db,
+            &search.unwrap_or_default(),
+            &status.unwrap_or_default(),
+            &folder.unwrap_or_default(),
+            &tag.unwrap_or_default(),
+            100,
+            offset.unwrap_or(0),
+            None,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn get_note(state: State<AppState>, id: String) -> Result<Note, String> {
-    library::get(&*state.db()?, &id)
+async fn get_note(app: tauri::AppHandle, id: String) -> Result<Note, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db = state.db()?;
+        library::get(&db, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 fn organize_note(
@@ -167,7 +181,35 @@ fn organize_note(
 }
 
 #[tauri::command]
-async fn start_recording(app: tauri::AppHandle, title: String) -> Result<(), String> {
+async fn capture_info(
+    app: tauri::AppHandle,
+    applications: bool,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            crate::capture::macos::info(
+                &app.state::<AppState>().root,
+                if applications { "list" } else { "capabilities" },
+            )
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (app, applications);
+            Ok(serde_json::json!({"system":false,"mixed":false}))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn start_recording(
+    app: tauri::AppHandle,
+    title: String,
+    source: Option<String>,
+    application: Option<u32>,
+) -> Result<(), String> {
     if title.trim().is_empty() || title.len() > 200 {
         return Err("Choose a recording title of up to 200 bytes.".into());
     }
@@ -178,7 +220,11 @@ async fn start_recording(app: tauri::AppHandle, title: String) -> Result<(), Str
             .recording
             .lock()
             .map_err(|_| "Recording is unavailable. Restart Golos.")?;
-        let session = recording::Session::start(&state.root)?;
+        let session = recording::Session::start(
+            &state.root,
+            source.as_deref().unwrap_or("microphone"),
+            application.unwrap_or(0),
+        )?;
         *recording = Some(ActiveRecording {
             session,
             title,
@@ -441,12 +487,11 @@ async fn download_models(app: tauri::AppHandle, speakers: bool) -> Result<(), St
                     },
                 )?;
                 notify(total, "Validating speaker models");
-                diarize::validate_models(&pending.join("seg.onnx"), &pending.join("emb.onnx"))?;
-                download::check_cancel(&state.cancelled)?;
-                speaker_models::install(
+                speaker_models::install_cancellable(
                     &state.root,
                     &pending.join("seg.onnx"),
                     &pending.join("emb.onnx"),
+                    &state.cancelled,
                 )?;
             } else {
                 let file = pending.join("model.bin");
@@ -454,16 +499,22 @@ async fn download_models(app: tauri::AppHandle, speakers: bool) -> Result<(), St
                     notify(n, "Downloading Whisper Small")
                 })?;
                 notify(total, "Validating Whisper model");
-                model::inspect(&file)?;
-                let mut options = WhisperContextParameters::default();
-                options.use_gpu(false);
-                WhisperContext::new_with_params(
-                    file.to_str().ok_or("Unsupported model path")?,
-                    options,
-                )
-                .map_err(|e| format!("Cannot load the recommended model: {e}"))?;
-                download::check_cancel(&state.cancelled)?;
-                fs::rename(file, state.root.join("model.bin")).map_err(|e| e.to_string())?;
+                download::publish(
+                    &file,
+                    &state.root.join("model.bin"),
+                    &state.cancelled,
+                    |path| {
+                        model::inspect(path)?;
+                        let mut options = WhisperContextParameters::default();
+                        options.use_gpu(false);
+                        WhisperContext::new_with_params(
+                            path.to_str().ok_or("Unsupported model path")?,
+                            options,
+                        )
+                        .map_err(|e| format!("Cannot load the recommended model: {e}"))?;
+                        Ok(())
+                    },
+                )?;
             }
             Ok(())
         })();
@@ -705,7 +756,11 @@ async fn export_saved(app: tauri::AppHandle, id: String, format: String) -> Resu
             let db = state.db()?;
             (
                 library::get(&db, &id)?,
-                authorize_audio(&state.root, &db, &id)?,
+                if format == "docx" {
+                    None
+                } else {
+                    Some(authorize_audio(&state.root, &db, &id)?)
+                },
             )
         };
         let Some(file) = app
@@ -723,9 +778,14 @@ async fn export_saved(app: tauri::AppHandle, id: String, format: String) -> Resu
         let result = (|| {
             match format.as_str() {
                 "docx" => docx::export(&pending, &note)?,
-                "golos" => project::export(&pending, &audio, &note)?,
+                "golos" => project::export(
+                    &pending,
+                    audio.as_ref().ok_or("Audio is unavailable.")?,
+                    &note,
+                )?,
                 _ => {
-                    fs::copy(&audio, &pending).map_err(|e| e.to_string())?;
+                    fs::copy(audio.as_ref().ok_or("Audio is unavailable.")?, &pending)
+                        .map_err(|e| e.to_string())?;
                 }
             }
             fs::rename(&pending, &target).map_err(|e| e.to_string())?;
@@ -816,6 +876,7 @@ pub fn run() {
             organize_note,
             import_audio,
             start_recording,
+            capture_info,
             recording_status,
             pause_recording,
             stop_recording,

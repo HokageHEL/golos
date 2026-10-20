@@ -65,12 +65,19 @@ pub fn query(
     offset: i64,
     id: Option<&str>,
 ) -> Result<Vec<Note>, String> {
+    let search = search
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .take(30)
+        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" AND ");
     let mut statement = db
         .prepare(
             "SELECT n.id,title,created_at,duration_seconds,status,CASE WHEN ?7 IS NULL THEN '[]' ELSE segments END,error,COALESCE(o.folder,''),COALESCE(o.tags,'[]')
              FROM notes n LEFT JOIN organization o ON o.note_id=n.id
              WHERE (?7 IS NULL OR n.id=?7)
-             AND (?1='' OR instr(lower(title),lower(?1))>0 OR EXISTS(SELECT 1 FROM json_each(segments) s WHERE instr(lower(json_extract(s.value,'$.text')),lower(?1))>0))
+             AND (?1='' OR n.id IN (SELECT note_id FROM notes_search WHERE notes_search MATCH ?1))
              AND (?2='' OR status=?2) AND (?3='' OR o.folder=?3)
              AND (?4='' OR EXISTS(SELECT 1 FROM json_each(o.tags) WHERE value=?4))
              ORDER BY created_at DESC,n.id DESC LIMIT ?5 OFFSET ?6",
@@ -208,7 +215,7 @@ mod tests {
         }
         db.execute(
             "UPDATE notes SET segments=?1 WHERE id='001'",
-            [r#"[{"startMs":0,"endMs":2000,"text":"needle in saved text","speaker":"Alice"}]"#],
+            [r#"[{"startMs":0,"endMs":2000,"text":"needle in saved text Привіт Київ","speaker":"Alice"}]"#],
         )
         .unwrap();
         organize(&db, "001", "Renamed", "Interviews", &["research".into()]).unwrap();
@@ -224,6 +231,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(found.len(), 1);
+        assert_eq!(
+            query(&db, "ПРИВ", "", "", "", 100, 0, None).unwrap().len(),
+            1
+        );
+        assert!(
+            query(&db, "NEEDLE", "", "", "", 100, 0, None)
+                .unwrap()
+                .len()
+                == 1
+        );
+        assert!(query(&db, "\" OR ( )", "", "", "", 100, 0, None).is_ok());
+
         assert!(found[0].segments.is_empty());
         assert_eq!(
             get(&db, "001").unwrap().segments[0].speaker.as_deref(),

@@ -1,5 +1,6 @@
 //! Versioned, recoverable SQLite migrations for the local recording library.
 //!
+//! Version 2 adds organization metadata and a trigger-maintained FTS5 index.
 //! Version 1 is the preview `notes` table. Preview builds created that table
 //! without ever setting `user_version`, so an on-disk database whose
 //! `user_version` is 0 and whose `notes` table matches the preview schema
@@ -108,6 +109,22 @@ const CREATE_NOTES: &str = "CREATE TABLE IF NOT EXISTS notes (
           id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL,
           duration_seconds REAL NOT NULL, status TEXT NOT NULL,
           segments TEXT NOT NULL DEFAULT '[]', error TEXT)";
+
+const SEARCH_SCHEMA: &str = "
+CREATE VIRTUAL TABLE notes_search USING fts5(note_id UNINDEXED,title,body,tokenize='unicode61');
+INSERT INTO notes_search(note_id,title,body) SELECT id,title,COALESCE((SELECT group_concat(json_extract(value,'$.text'),' ') FROM json_each(segments)),'') FROM notes;
+CREATE TRIGGER notes_search_insert AFTER INSERT ON notes BEGIN
+ INSERT INTO notes_search(note_id,title,body) VALUES(new.id,new.title,COALESCE((SELECT group_concat(json_extract(value,'$.text'),' ') FROM json_each(new.segments)),''));
+END;
+CREATE TRIGGER notes_search_update AFTER UPDATE OF title,segments ON notes BEGIN
+ DELETE FROM notes_search WHERE note_id=old.id;
+ INSERT INTO notes_search(note_id,title,body) VALUES(new.id,new.title,COALESCE((SELECT group_concat(json_extract(value,'$.text'),' ') FROM json_each(new.segments)),''));
+END;
+CREATE TRIGGER notes_search_delete AFTER DELETE ON notes BEGIN
+ DELETE FROM notes_search WHERE note_id=old.id;
+ DELETE FROM organization WHERE note_id=old.id;
+END;
+";
 
 const NOTES_OBJECT: &str = "SELECT type FROM sqlite_master WHERE name='notes'";
 /// `table_xinfo` reports the same rows as `table_info` plus a `hidden` flag, so a
@@ -324,6 +341,9 @@ fn apply_current_schema(db: &Connection) -> Result<(), String> {
     transaction
         .execute_batch(&format!("{CREATE_NOTES}; CREATE TABLE IF NOT EXISTS organization (note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE, folder TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '[]'); CREATE INDEX IF NOT EXISTS notes_created ON notes(created_at DESC,id DESC);"))
         .map_err(|e| format!("Could not apply the library schema: {e}"))?;
+    transaction
+        .execute_batch(SEARCH_SCHEMA)
+        .map_err(|e| format!("Could not build the library search index: {e}"))?;
     transaction
         .commit()
         .map_err(|e| format!("Could not commit the library migration: {e}"))?;

@@ -50,7 +50,12 @@ impl Session {
         }
     }
 
-    pub fn start(root: &Path) -> Result<Self, String> {
+    pub fn start(root: &Path, source_kind: &str, application: u32) -> Result<Self, String> {
+        if !["microphone", "system", "mixed"].contains(&source_kind) {
+            return Err("Unsupported recording source.".into());
+        }
+        let source_kind = source_kind.to_string();
+        let root = root.to_path_buf();
         let source = root.join(format!("microphone-{}.pending.wav", uuid::Uuid::new_v4()));
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(Status::default()));
@@ -61,13 +66,26 @@ impl Session {
         let worker_stop = stop.clone();
         let worker_status = status.clone();
         let worker = thread::spawn(move || {
-            let result = capture(
-                &worker_path,
-                &worker_stop,
-                &worker_paused,
-                &worker_status,
-                ready_tx,
-            );
+            let result = if source_kind == "microphone" {
+                capture(
+                    &worker_path,
+                    &worker_stop,
+                    &worker_paused,
+                    &worker_status,
+                    ready_tx,
+                )
+            } else {
+                capture_system(
+                    &root,
+                    &worker_path,
+                    &source_kind,
+                    application,
+                    &worker_stop,
+                    &worker_paused,
+                    &worker_status,
+                    ready_tx,
+                )
+            };
             if let Ok(mut status) = worker_status.lock() {
                 status.stopped = true;
                 if let Err(error) = &result {
@@ -91,7 +109,7 @@ impl Session {
                     .finish()
                     .err()
                     .unwrap_or_else(|| "Could not start the microphone.".into());
-                Err(format!("{error} Check microphone access for Golos in your system privacy settings and try again."))
+                Err(format!("{error} Check the recording source and audio access for Golos in your system privacy settings and try again."))
             }
         }
     }
@@ -302,6 +320,163 @@ fn capture(
     }
     if written == 0 {
         return Err("No audio was captured. Check microphone access and try again.".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[allow(clippy::too_many_arguments)]
+fn capture_system(
+    _: &Path,
+    _: &Path,
+    _: &str,
+    _: u32,
+    _: &AtomicBool,
+    _: &Arc<AtomicBool>,
+    _: &Mutex<Status>,
+    _: SyncSender<Result<(), String>>,
+) -> Result<(), String> {
+    Err("Application audio capture is implemented only for macOS.".into())
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::too_many_arguments)]
+fn capture_system(
+    root: &Path,
+    path: &Path,
+    source: &str,
+    application: u32,
+    stop: &AtomicBool,
+    paused: &Arc<AtomicBool>,
+    status: &Mutex<Status>,
+    ready: SyncSender<Result<(), String>>,
+) -> Result<(), String> {
+    use std::{
+        io::{Read, Write},
+        process::{Command, Stdio},
+        time::Instant,
+    };
+    let mut writer = hound::WavWriter::create(
+        path,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let mut child = Command::new(crate::capture::macos::helper(root)?)
+        .args([
+            application.to_string(),
+            std::process::id().to_string(),
+            source.to_string(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let mut input = child.stdin.take().ok_or("Missing audio control pipe.")?;
+    let mut output = child.stdout.take().ok_or("Missing audio data pipe.")?;
+    let mut stderr = child.stderr.take().ok_or("Missing audio error pipe.")?;
+    let errors = thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stderr.read_to_string(&mut text);
+        text
+    });
+    let (tx, rx) = mpsc::sync_channel(64);
+    let reader = thread::spawn(move || loop {
+        let packet = crate::capture::macos::packet(&mut output);
+        let failed = packet.is_err();
+        if tx.send(packet).is_err() || failed {
+            break;
+        }
+    });
+    let mut timeline = crate::capture::Timeline::new(source == "mixed");
+    let mut was_paused = false;
+    let mut stopping = None;
+    let mut latest = 0u64;
+    let result: Result<(), String> = (|| {
+        loop {
+            let pause = paused.load(Ordering::SeqCst);
+            if pause != was_paused && stopping.is_none() {
+                input
+                    .write_all(if pause { b"pause\n" } else { b"resume\n" })
+                    .map_err(|e| e.to_string())?;
+                was_paused = pause;
+            }
+            if (stop.load(Ordering::SeqCst) || latest >= 1800 * 16000) && stopping.is_none() {
+                let _ = input.write_all(b"stop\n");
+                stopping = Some(Instant::now());
+            }
+            if stopping.is_some_and(|time: Instant| time.elapsed() > Duration::from_secs(5)) {
+                return Err(
+                    "Audio capture did not stop in time. The captured audio was kept.".into(),
+                );
+            }
+            let packet = match rx.recv_timeout(Duration::from_millis(20)) {
+                Ok(Ok(packet)) => packet,
+                Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("Application audio capture ended unexpectedly.".into())
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            };
+            if packet.time < -1. || packet.time > 1801. {
+                return Err("Audio capture returned an invalid timestamp.".into());
+            }
+            let end = (packet.time.max(0.) * 16000.).round() as u64;
+            match packet.kind {
+                0 | 1 => {
+                    timeline.push(packet.kind as usize, packet.time, &packet.samples)?;
+                    latest = latest.max(end + packet.samples.len() as u64);
+                }
+                2 => {
+                    latest = latest.max(end);
+                    timeline.render(end.saturating_sub(8000), |s| {
+                        writer.write_sample(s).map_err(|e| e.to_string())
+                    })?;
+                }
+                3 => {
+                    let _ = ready.send(Ok(()));
+                }
+                4 => {
+                    timeline.render(end, |s| writer.write_sample(s).map_err(|e| e.to_string()))?;
+                    break;
+                }
+                _ => return Err("Invalid audio packet.".into()),
+            }
+            if let Ok(mut state) = status.lock() {
+                state.elapsed_seconds = latest.min(1800 * 16000) as f64 / 16000.;
+            }
+        }
+        Ok(())
+    })();
+    // A closed receiver releases a blocked producer before joining.
+    drop(rx);
+    drop(input);
+    if result.is_err() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    let _ = reader.join();
+    let error = errors.join().unwrap_or_default();
+    // Keep the buffered tail if capture was interrupted.
+    let tail = timeline.render(latest, |s| {
+        writer.write_sample(s).map_err(|e| e.to_string())
+    });
+    let finalized = writer.finalize().map_err(|e| e.to_string());
+    if let Ok(mut state) = status.lock() {
+        state.elapsed_seconds = timeline.written() as f64 / 16000.;
+    }
+    finalized?;
+    tail?;
+    if result.is_err() && !error.is_empty() {
+        return Err(error);
+    }
+    result?;
+    if timeline.written() == 0 {
+        return Err("No audio was captured.".into());
     }
     Ok(())
 }

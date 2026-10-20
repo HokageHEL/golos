@@ -59,12 +59,14 @@ fn verified_copy(
     cancel: &AtomicBool,
     progress: impl Fn(u64),
 ) -> Result<(), String> {
+    let mut created = false;
     let result = (|| {
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(path)
             .map_err(|e| e.to_string())?;
+        created = true;
         let mut hash = Sha256::new();
         let mut total = 0;
         let mut buffer = [0; 65536];
@@ -92,11 +94,25 @@ fn verified_copy(
         check_cancel(cancel)?;
         file.sync_all().map_err(|e| e.to_string())
     })();
-    if result.is_err() {
+    if result.is_err() && created {
         let _ = fs::remove_file(path);
     }
     result
 }
+pub fn publish(
+    pending: &Path,
+    target: &Path,
+    cancel: &AtomicBool,
+    validate: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    validate(pending)?;
+    check_cancel(cancel)?;
+    fs::File::open(pending)
+        .and_then(|file| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    fs::rename(pending, target).map_err(|e| e.to_string())
+}
+
 pub fn extract_segmentation(archive: &Path, target: &Path) -> Result<(), String> {
     let decoder = bzip2::read::BzDecoder::new(fs::File::open(archive).map_err(|e| e.to_string())?);
     let mut archive = tar::Archive::new(decoder);
@@ -120,6 +136,54 @@ pub fn extract_segmentation(archive: &Path, target: &Path) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_validation_and_cancellation_preserve_working_model() {
+        let root = std::env::temp_dir().join(format!("golos-publish-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let target = root.join("model.bin");
+        let pending = root.join("pending");
+        fs::write(&target, b"working").unwrap();
+        fs::write(&pending, b"new").unwrap();
+        let cancel = AtomicBool::new(false);
+        assert!(publish(&pending, &target, &cancel, |_| Err("invalid model".into())).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"working");
+        assert!(publish(&pending, &target, &cancel, |_| {
+            cancel.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+        .is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"working");
+        cancel.store(false, Ordering::SeqCst);
+        publish(&pending, &target, &cancel, |_| Ok(())).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "Downloads public model weights from the pinned upstream sources"]
+    fn downloads_pinned_upstream_artifacts() {
+        let root = std::env::temp_dir().join(format!("golos-upstream-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let cancel = AtomicBool::new(false);
+        for (artifact, name) in [
+            (&WHISPER, "whisper.bin"),
+            (&SEGMENTATION, "seg.tar.bz2"),
+            (&EMBEDDING, "emb.onnx"),
+        ] {
+            let progress = std::cell::Cell::new(0);
+            fetch(artifact, &root.join(name), &cancel, |n| {
+                assert!(n >= progress.get());
+                progress.set(n);
+            })
+            .unwrap();
+            assert_eq!(progress.get(), artifact.bytes);
+        }
+        crate::model::inspect(&root.join("whisper.bin")).unwrap();
+        extract_segmentation(&root.join("seg.tar.bz2"), &root.join("seg.onnx")).unwrap();
+        crate::diarize::validate_models(&root.join("seg.onnx"), &root.join("emb.onnx")).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn verifies_size_hash_cancellation_and_cleans_partial_files() {
         let path = std::env::temp_dir().join(format!("download-{}", uuid::Uuid::new_v4()));

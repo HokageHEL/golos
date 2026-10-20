@@ -1,3 +1,5 @@
+See [the current usability guide](../docs/USABILITY_IMPROVEMENTS.md) for guided setup, pause/resume, library organization, editing, exports/backups and macOS application audio. Historical verification counts below describe their stated dates.
+
 # Golos native preview
 
 An offline desktop transcription app, developed first for macOS. Tauri hosts a
@@ -52,7 +54,7 @@ while recording or saving. If library saving fails, the stopped capture stays
 available for another **Stop and save** attempt; free disk space and retry, or
 explicitly discard it. A disconnected microphone or overloaded capture queue
 stops capture and reports that interruption when the captured audio is saved.
-No system/meeting audio capture, pause/resume, or input-device picker is included.
+Pause/resume and macOS application/system audio are now available; see the [usability guide](../docs/USABILITY_IMPROVEMENTS.md). The microphone-only path still uses the default device.
 
 On macOS, enable Golos under **System Settings → Privacy & Security → Microphone**
 if access was denied, then retry (restart Golos if the system requires it). The
@@ -88,7 +90,7 @@ disconnection, and long-duration recording checks remain release gates.
    quantization, so larger models need more RAM.
 2. Open **Settings → Transcription model** and choose **Import model**. Golos copies and loads the model before activating it.
    Importing/replacing a model can take time; the previous model is retained if
-   validation fails. Automatic downloads and disk-space estimates are follow-up work.
+   validation fails. Guided downloads with pinned checksums, progress and disk requirements are also available in Settings.
 3. Import **WAV, MP3, M4A/MP4 (AAC-LC or ALAC), raw AAC-LC, FLAC, Ogg (Vorbis
    or Opus), or AIFF**, up to **30 minutes / 512 MiB**. Mono/stereo and up to
    8 channels, 8–192 kHz rates, and supported integer/float PCM formats are
@@ -146,20 +148,19 @@ and optimize for size; no FFmpeg executable or model is bundled.
 
 Deleting a library entry removes Golos's normalized audio and transcript; it does not
 delete the original imported file. Recordings are never sent to a transcription
-service. The app has no analytics, ad SDK, or remote model downloader. Development
+service. The app has no analytics or ad SDK. Guided model downloads contact only pinned upstream artifact URLs; audio is never uploaded. Development
 tooling does access npm/crates registries, independently of audio processing.
 
 `library.sqlite3` records its schema version in SQLite's `user_version` field.
-Version 1 is the original preview `notes` table, so an existing library is adopted
-in place instead of being recreated. A database written by a newer build is refused
+Version 2 adds organization metadata and a Unicode full-text search index. Version 1 is the original preview `notes` table, so an existing library is adopted
+in place instead of being recreated, then upgraded with its contents preserved. A database written by a newer build is refused
 rather than altered, and a `notes` table that does not match the supported schema is
 refused instead of being rewritten; in both cases Golos stops at startup without
 changing the file, and the message names the reason.
 
 Only one desktop instance is allowed, and only one import/transcription/deletion
 operation runs at a time. Interrupted transcription becomes retryable on startup.
-Cancellation does not retain partial transcripts. Saving/discarding edits is
-required before switching recordings or closing the window.
+Cancellation does not retain partial transcripts. Unsaved drafts are retained while switching recordings and searching; save/discard them before closing.
 
 ### Library backups and manual restoration
 
@@ -168,9 +169,9 @@ consistent snapshot next to it, named after the schema version it is being taken
 for:
 
 ```text
-~/Library/Application Support/com.golos.transcription/library.pre-v1-<millis>.sqlite3   # macOS
-%APPDATA%\com.golos.transcription\library.pre-v1-<millis>.sqlite3                       # Windows
-~/.local/share/com.golos.transcription/library.pre-v1-<millis>.sqlite3                  # Linux
+~/Library/Application Support/com.golos.transcription/library.pre-v2-<millis>.sqlite3   # macOS
+%APPDATA%\com.golos.transcription\library.pre-v2-<millis>.sqlite3                       # Windows
+~/.local/share/com.golos.transcription/library.pre-v2-<millis>.sqlite3                  # Linux
 ```
 
 The snapshot is a single database that already includes content still sitting in the
@@ -187,7 +188,7 @@ remains — only one instance may run):
 
 1. Optionally copy the current `library.sqlite3`, `library.sqlite3-wal` and
    `library.sqlite3-shm` aside as an extra precaution.
-2. Copy the `library.pre-v1-*.sqlite3` snapshot over `library.sqlite3`, then delete
+2. Copy the `library.pre-v2-*.sqlite3` snapshot over `library.sqlite3`, then delete
    `library.sqlite3-wal` and `library.sqlite3-shm` if they still exist. A stale
    `-wal` beside a replaced database can corrupt it; do not leave one behind.
 3. Reopen Golos. It treats the restored file as an older library, takes a new

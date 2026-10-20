@@ -120,6 +120,12 @@ function meetsMinimum(actual, minimum) {
   return true;
 }
 
+if (platform === 'darwin') {
+  const swift = version('xcrun', ['swiftc', '--version'], false);
+  add(swift ? 'ok' : 'fail', 'Swift / ScreenCaptureKit', swift ?? 'not found',
+    'Install current Xcode Command Line Tools with a macOS 15+ SDK to build the audio capture helper.');
+}
+
 // --- Node.js / npm ---------------------------------------------------------
 
 const nodeVersion = process.versions.node;

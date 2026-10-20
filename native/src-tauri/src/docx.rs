@@ -62,6 +62,45 @@ pub fn export(path: &Path, note: &Note) -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn writes_complete_docx_with_title_timestamps_labels_and_unicode() {
+        use std::io::Read;
+        let path = std::env::temp_dir().join(format!("golos-docx-{}.docx", uuid::Uuid::new_v4()));
+        let note = Note {
+            id: "one".into(),
+            title: "Інтерв’ю & research".into(),
+            created_at: 1,
+            duration_seconds: 1.,
+            status: "done".into(),
+            segments: vec![crate::library::Segment {
+                start_ms: 0,
+                end_ms: 1000,
+                speaker: Some("Alice".into()),
+                text: "Hello <world>\nNext line".into(),
+            }],
+            error: None,
+            folder: String::new(),
+            tags: vec![],
+        };
+        export(&path, &note).unwrap();
+        let mut zip = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        assert_eq!(zip.len(), 3);
+        assert!(zip.by_name("[Content_Types].xml").is_ok());
+        assert!(zip.by_name("_rels/.rels").is_ok());
+        let mut xml = String::new();
+        zip.by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut xml)
+            .unwrap();
+        assert!(xml.contains("Інтерв’ю &amp; research"));
+        assert!(xml.contains("[0.000–1.000] Alice: Hello &lt;world&gt;"));
+        assert!(xml.contains("<w:br/>"));
+        fs_remove(&path);
+    }
+    fn fs_remove(path: &Path) {
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn xml_escapes_text_without_invalid_controls() {
         assert_eq!(escape("<Alice> & \u{0}"), "&lt;Alice&gt; &amp; ");
     }
