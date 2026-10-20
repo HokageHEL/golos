@@ -27,6 +27,7 @@ mockIPC((command, payload = {}) => {
     case 'ai_status': return {settings:{...aiSettings},results:aiResults.filter(result=>result.noteId===args.noteId).map(result=>({...structuredClone(result),stale:false}))};
     case 'ai_automation_status': return {rules:structuredClone(aiAutomationRules),tasks:structuredClone(aiAutomationTasks),model:aiSettings.model,label:aiAutomationTasks.some(task=>task.status==='running')?'Running an automatic AI rule':null};
     case 'ai_automation_configure': aiAutomationRules=structuredClone(args.rules as AiAutomationRule[]); return;
+    case 'ai_automation_skip_queued': { let count=0;aiAutomationTasks.forEach(task=>{if(task.status==='queued'){task.status='skipped';task.error=null;count++;}});return count;}
     case 'ai_automation_action': {
       const task=aiAutomationTasks.find(item=>item.id===args.id);
       if(!task)return;

@@ -1139,6 +1139,7 @@ pub fn run() {
             ai_automation_commands::ai_automation_status,
             ai_automation_commands::ai_automation_configure,
             ai_automation_commands::ai_automation_action,
+            ai_automation_commands::ai_automation_skip_queued,
             automation_commands::automation_status,
             automation_commands::add_watch_folder,
             automation_commands::watch_folder_action,

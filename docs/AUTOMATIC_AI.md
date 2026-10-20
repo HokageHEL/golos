@@ -85,7 +85,11 @@ snapshots plus prompts, whichever comes first. Exceeding it reports a scheduling
 warning and preserves the transcript; it does not omit part of a task.
 
 The task list shows at most 100 rows, prioritizing running work and the oldest
-queued tasks. Pending/running metadata is retained. The newest 100 finished task
+queued tasks. The **Skip all queued automatic tasks** control also skips queued
+work outside this list. Pause automation first if a background task is running;
+the control requires the shared operation guard. It changes only queued task
+metadata and preserves saved results, transcripts, and rules. Enabled rules
+still apply to future transcriptions. Pending/running metadata is retained. The newest 100 finished task
 records are retained; older finished metadata is pruned, while their saved AI
 results remain in the paged recording history. Saved results/snapshots still add
 disk usage and can be explicitly deleted there.

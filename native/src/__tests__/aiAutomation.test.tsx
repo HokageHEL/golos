@@ -7,12 +7,13 @@ import AiAutomation from '../AiAutomation';
 import type { AiAutomationRule, AiAutomationTask, AiAutomationView } from '../api';
 
 const mocks = vi.hoisted(() => ({
-  status: vi.fn(), configureRules: vi.fn(), action: vi.fn(), configuration: vi.fn(),
+  skipQueued: vi.fn(), status: vi.fn(), configureRules: vi.fn(), action: vi.fn(), configuration: vi.fn(),
   configureModel: vi.fn(), models: vi.fn(), pause: vi.fn(),
 }));
 vi.mock('../api', () => ({
   api: {
     aiAutomation: mocks.status,
+    aiAutomationSkipQueued: mocks.skipQueued,
     aiAutomationConfigure: mocks.configureRules,
     aiAutomationAction: mocks.action,
     aiConfiguration: mocks.configuration,
@@ -55,6 +56,7 @@ beforeEach(() => {
   });
   mocks.models.mockResolvedValue([{ name: 'qwen2.5:1.5b', size: 986061892, digest: 'mock', context: 32768 }]);
   mocks.pause.mockResolvedValue(undefined);
+  mocks.skipQueued.mockImplementation(async()=>{let count=0;state.tasks.forEach(item=>{if(item.status==='queued'){item.status='skipped';count++;}});return count;});
 });
 afterEach(cleanup);
 
@@ -243,4 +245,18 @@ it('distinguishes complete, deleted and incomplete automatic results',async()=>{
   expect(screen.getAllByText(/Saved separately\./)).toHaveLength(1);
   expect(screen.getByText(/saved result was deleted/)).toBeTruthy();
   expect(screen.getByText(/A separate attempt was saved/)).toBeTruthy();
+});
+
+it('skips all queued automatic work without losing unsaved rule drafts',async()=>{
+  state.rules=[rule()];state.tasks=[task({status:'queued',error:null})];
+  render(<AiAutomation {...props({paused:true})}/>);
+  await screen.findByDisplayValue('Saved summary');
+  fireEvent.change(screen.getByLabelText('Rule name'),{target:{value:'Unsaved rule draft'}});
+  fireEvent.click(screen.getByRole('button',{name:'Skip all queued automatic tasks'}));
+  await waitFor(()=>expect(mocks.skipQueued).toHaveBeenCalledTimes(1));
+  await screen.findByText(/1 queued automatic task skipped, including tasks outside this list/);
+  expect((screen.getByLabelText('Rule name') as HTMLInputElement).value).toBe('Unsaved rule draft');
+  expect(screen.getByLabelText('Status of Weekly planning').textContent).toBe('skipped');
+  expect((screen.getByRole('button',{name:'Skip all queued automatic tasks'}) as HTMLButtonElement).disabled).toBe(true);
+  expect(mocks.configureRules).not.toHaveBeenCalled();
 });

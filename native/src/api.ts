@@ -34,6 +34,7 @@ export const api = {
   aiRecording: (id: string) => invoke<Note>('ai_recording', { id }),
   aiDocx: (id: string) => invoke<boolean>('ai_docx', { id }),
   aiAutomation: () => invoke<AiAutomationView>('ai_automation_status'),
+  aiAutomationSkipQueued: () => invoke<number>('ai_automation_skip_queued'),
   aiAutomationConfigure: (rules: AiAutomationRule[]) => invoke<void>('ai_automation_configure', { rules }),
   aiAutomationAction: (id: string, action: 'retry' | 'skip' | 'remove') => invoke<void>('ai_automation_action', { id, action }),
   automation: () => invoke<AutomationView>('automation_status'),

@@ -168,6 +168,13 @@ export default function AiAutomation({ busy, background, paused, onOperation,onP
       setMessage('Automatic AI paused. Running work is cancelling; queued rule work waits until you resume automation above.');
     });
   }
+  async function skipQueued() {
+    await run('Skipping queued automatic tasks',async()=>{
+      const count=await api.aiAutomationSkipQueued();
+      await reload();
+      setMessage(`${count} queued automatic ${count===1?'task':'tasks'} skipped, including tasks outside this list. Transcripts and saved results are unchanged. Saved rules still apply to future transcriptions.`);
+    });
+  }
   async function taskAction(task: AiAutomationTask, action: 'retry' | 'skip' | 'remove') {
     const label = action === 'retry' ? 'Retrying automatic task' : action === 'skip' ? 'Skipping automatic task' : 'Removing automatic task';
     await run(label, async () => {
@@ -217,8 +224,8 @@ export default function AiAutomation({ busy, background, paused, onOperation,onP
       <p className="muted">Changing rule prompts, targets or sources affects future jobs; queued jobs keep their captured rule. Disable a saved rule or skip its queued tasks to stop them. Changing model settings never changes queued jobs; each task keeps the model captured when it was queued. Larger contexts use more memory. Restart an existing Ollama service after enabling cloud-disabled mode.</p>
 
       <h3>Recent automatic tasks</h3>
-      <p className="muted">Up to 100 tasks, with running and oldest queued work first. Finished task metadata is pruned; saved results stay available. Queued work waits while automation is paused; retry uses the captured source and model settings.</p>
-      <div className="editor-tools"><button className="secondary" disabled={!!busy||effectivePaused} onClick={()=>{void pauseAutomatic();}}>Cancel automatic AI and pause</button><span role="status">{effectivePaused?'Automatic AI paused':'Automatic AI follows saved rules'}</span></div>
+      <p className="muted">The first 100 tasks, with running and oldest queued work first. The queue can contain up to 1,000 pending tasks. Skip all queued automatic tasks includes tasks outside this list. Finished task metadata is pruned; saved results stay available. Queued work waits while automation is paused; retry uses the captured source and model settings.</p>
+      <div className="editor-tools"><button className="secondary" disabled={!!busy||effectivePaused} onClick={()=>{void pauseAutomatic();}}>Cancel automatic AI and pause</button><button className="secondary" disabled={locked||!tasks.some(task=>task.status==='queued')} onClick={()=>{void skipQueued();}}>Skip all queued automatic tasks</button><span role="status">{effectivePaused?'Automatic AI paused':'Automatic AI follows saved rules'}</span></div>
       {effectivePaused?<p className="unsaved" role="status">Automatic AI is paused. Running work is cancelling or stopped; queued rule work waits. Use Resume automation above to run queued and future work.</p>:<p className="muted">Global pause also pauses watched folders and local exports. It cancels the running background operation and leaves queued rule work waiting until you resume automation above. Running tasks cannot be cancelled individually.</p>}
       {view.label&&<p role="status">{view.label}</p>}
       {tasks.some(task=>task.status==='running')&&<p className="unsaved" role="status">A task is running. Use Cancel automatic AI and pause to stop it; the next queued task will not start until you resume automation above.</p>}
