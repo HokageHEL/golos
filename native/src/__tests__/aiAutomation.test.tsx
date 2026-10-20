@@ -235,3 +235,12 @@ it('requires an explicit target for automatic translation',async()=>{
   fireEvent.click(screen.getByRole('button',{name:'Save automatic AI rules'}));expect((await screen.findByRole('alert')).textContent).toContain('enter a target language');expect(mocks.configureRules).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText('Rule target language'),{target:{value:'Ukrainian'}});fireEvent.click(screen.getByRole('button',{name:'Save automatic AI rules'}));await waitFor(()=>expect(mocks.configureRules).toHaveBeenCalled());expect(mocks.configureRules.mock.calls[0][0][0]).toMatchObject({kind:'translate',target:'Ukrainian',prompt:''});
 });
+
+it('distinguishes complete, deleted and incomplete automatic results',async()=>{
+  state.tasks=[task({id:'complete',title:'Complete',status:'done',resultId:'result-complete',error:null}),task({id:'deleted',title:'Deleted',status:'done',resultId:null,error:null}),task({id:'partial',title:'Partial',status:'failed',resultId:'result-partial'})];
+  render(<AiAutomation {...props()}/>);
+  await screen.findByLabelText('Status of Complete');
+  expect(screen.getAllByText(/Saved separately\./)).toHaveLength(1);
+  expect(screen.getByText(/saved result was deleted/)).toBeTruthy();
+  expect(screen.getByText(/A separate attempt was saved/)).toBeTruthy();
+});
