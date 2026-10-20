@@ -46,6 +46,12 @@ The adapter reports `PasteRequested`, not `Inserted`: a successful public event
 post has no acknowledgement that the target consumed the paste. The UI must say
 “Paste requested; verify the target app.” A dispatched request is single-use and
 must not be automatically retried after a timeout, repeated hotkey or double click.
+A timeout must invalidate a queued main-thread request before it can mutate the
+clipboard or post events. Mark dispatch as consumed before posting; losing the
+response must never make the same request eligible again. Dismissal must cancel
+undispatched work, release its native target lease and prevent a late callback
+from pasting after the review is gone. Never sleep on the AppKit main thread while
+waiting to restore the clipboard.
 
 ## Clipboard contract
 

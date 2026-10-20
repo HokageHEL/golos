@@ -2,6 +2,9 @@
 //! This module alone does not register a shortcut, capture audio or insert text.
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "macos")]
+pub mod shortcut;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Phase {
