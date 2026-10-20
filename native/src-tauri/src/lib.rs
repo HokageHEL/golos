@@ -9,6 +9,7 @@ mod automation;
 mod automation_commands;
 mod automation_runtime;
 mod batch;
+mod batch_drop;
 #[cfg(any(target_os = "macos", test))]
 mod capture;
 mod diarize;
@@ -32,6 +33,7 @@ use library::{Note, Segment};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -94,6 +96,7 @@ struct AppState {
     recording: Mutex<Option<ActiveRecording>>,
     automation_label: Mutex<Option<String>>,
     automation_paused: AtomicBool,
+    batch_drop: batch_drop::DropStore,
 }
 
 struct ActiveRecording {
@@ -153,6 +156,30 @@ impl AppState {
             .lock()
             .map_err(|_| "Library is unavailable. Restart Golos.".into())
     }
+}
+
+/// Native drag/drop callback: reject drops while any operation is running so a
+/// queued preview can never race an import or transcription. The webview sends
+/// no paths; this is the only place a dropped path enters the app.
+fn capture_batch_drop(
+    state: &AppState,
+    paths: Vec<PathBuf>,
+) -> Result<batch_drop::DropPreview, String> {
+    if state.busy.load(Ordering::SeqCst) {
+        return Err("Finish or cancel the current operation before dropping files.".into());
+    }
+    state.batch_drop.replace(paths)
+}
+
+/// Claim the shared operation guard before taking the one-shot drop grant.
+/// If the app is busy, the grant stays intact for a later explicit retry.
+fn claim_dropped_batch(
+    state: &AppState,
+    drop_id: &str,
+) -> Result<(BusyGuard, Vec<PathBuf>), String> {
+    let guard = state.claim()?;
+    let paths = state.batch_drop.take(drop_id)?;
+    Ok((guard, paths))
 }
 
 #[derive(Serialize)]
@@ -397,16 +424,17 @@ async fn import_audio(app: tauri::AppHandle) -> Result<Option<Note>, String> {
     .map_err(|e| e.to_string())?
 }
 
-#[derive(Serialize)]
+#[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BatchImport {
     notes: Vec<Note>,
     failures: Vec<String>,
     cancelled: bool,
+    /// Canonical paths repeated within this one selection; no second note is made.
+    duplicates: usize,
 }
 
-#[tauri::command]
-async fn import_batch(app: tauri::AppHandle, language: String) -> Result<BatchImport, String> {
+fn validate_language(language: &str) -> Result<(), String> {
     if language != "auto"
         && !languages::available()
             .iter()
@@ -414,59 +442,151 @@ async fn import_batch(app: tauri::AppHandle, language: String) -> Result<BatchIm
     {
         return Err("Choose a supported language.".into());
     }
-    let guard = app.state::<AppState>().claim()?;
-    app.state::<AppState>()
-        .cancelled
-        .store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Accept only an existing regular local file with a supported extension.
+/// Directories, missing paths and unsupported files are reported individually.
+fn validate_batch_source(path: &Path) -> Result<PathBuf, String> {
+    let source = fs::canonicalize(path)
+        .map_err(|_| "This file is no longer available. Drop or choose it again.".to_string())?;
+    let metadata = fs::metadata(&source)
+        .map_err(|_| "This file is no longer available. Drop or choose it again.".to_string())?;
+    if !metadata.is_file() {
+        return Err(
+            "Only individual local audio files can be imported; folders are not supported.".into(),
+        );
+    }
+    let extension = source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    if !import::EXTENSIONS
+        .iter()
+        .any(|supported| supported.eq_ignore_ascii_case(extension))
+    {
+        return Err(
+            "Unsupported audio format. Try WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis or Opus) or AIFF."
+                .into(),
+        );
+    }
+    Ok(source)
+}
+
+/// The one import loop shared by the native picker and dropped selections.
+/// Decoding never holds the library mutex; each file is normalized and queued
+/// independently, so one failure does not discard other completed imports.
+fn import_sources(
+    state: &AppState,
+    sources: Vec<PathBuf>,
+    language: &str,
+    mut changed: impl FnMut(),
+) -> Result<BatchImport, String> {
+    if sources.len() > batch_drop::MAX_FILES {
+        return Err(format!(
+            "Select up to {} files per import. The queue can hold 1,000 pending recordings.",
+            batch_drop::MAX_FILES
+        ));
+    }
+    let mut report = BatchImport::default();
+    let mut seen = HashSet::new();
+    for path in sources {
+        if state.cancelled.load(Ordering::SeqCst) {
+            report.cancelled = true;
+            break;
+        }
+        let source = match validate_batch_source(&path) {
+            Ok(source) => source,
+            Err(error) => {
+                report
+                    .failures
+                    .push(format!("{}: {error}", batch_drop::display_name(&path)));
+                continue;
+            }
+        };
+        if !seen.insert(source.clone()) {
+            report.duplicates += 1;
+            continue;
+        }
+        let result = batch::prepare(&state.root, &source, &state.cancelled)
+            .and_then(|prepared| prepared.commit(&*state.db()?, Some(language)));
+        match result {
+            Ok(note) => report.notes.push(note),
+            Err(_error) if state.cancelled.load(Ordering::SeqCst) => {
+                report.cancelled = true;
+                break;
+            }
+            Err(error) => report
+                .failures
+                .push(format!("{}: {error}", batch_drop::display_name(&source))),
+        }
+        changed();
+    }
+    Ok(report)
+}
+
+#[tauri::command]
+async fn import_batch(app: tauri::AppHandle, language: String) -> Result<BatchImport, String> {
+    validate_language(&language)?;
+    let state = app.state::<AppState>();
+    let guard = state.claim()?;
+    state.cancelled.store(false, Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        let mut report = BatchImport {
-            notes: vec![],
-            failures: vec![],
-            cancelled: false,
-        };
         let Some(files) = app
             .dialog()
             .file()
             .add_filter("Audio recordings (30 minutes each)", import::EXTENSIONS)
             .blocking_pick_files()
         else {
-            return Ok(report);
+            return Ok(BatchImport::default());
         };
-        if files.len() > 100 {
-            return Err(
-                "Select up to 100 files per import. The queue can hold 1,000 pending recordings."
-                    .into(),
-            );
-        }
+        let sources = files
+            .into_iter()
+            .map(|file| file.into_path().map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
         let state = app.state::<AppState>();
-        for file in files {
-            if state.cancelled.load(Ordering::SeqCst) {
-                report.cancelled = true;
-                break;
-            }
-            let source = file.into_path().map_err(|e| e.to_string())?;
-            let result = {
-                batch::prepare(&state.root, &source, &state.cancelled)
-                    .and_then(|prepared| prepared.commit(&*state.db()?, Some(&language)))
-            };
-            match result {
-                Ok(note) => report.notes.push(note),
-                Err(_error) if state.cancelled.load(Ordering::SeqCst) => {
-                    report.cancelled = true;
-                    break;
-                }
-                Err(error) => report.failures.push(format!(
-                    "{}: {error}",
-                    source.file_name().unwrap_or_default().to_string_lossy()
-                )),
-            }
+        import_sources(&state, sources, &language, || {
             let _ = app.emit("queue-changed", ());
-        }
-        Ok(report)
+        })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Import the exact native paths captured for one dropped selection. The grant
+/// is consumed before decoding starts and cannot be replayed, even on failure.
+#[tauri::command]
+async fn import_dropped_batch(
+    app: tauri::AppHandle,
+    drop_id: String,
+    language: String,
+) -> Result<BatchImport, String> {
+    validate_language(&language)?;
+    let (guard, sources) = {
+        let state = app.state::<AppState>();
+        claim_dropped_batch(&state, &drop_id)?
+    };
+    app.state::<AppState>()
+        .cancelled
+        .store(false, Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        import_sources(&state, sources, &language, || {
+            let _ = app.emit("queue-changed", ());
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Discard the preview without importing. Only the matching grant is cleared,
+/// so a stale UI event cannot invalidate a newer selection.
+#[tauri::command]
+fn discard_dropped_batch(state: State<AppState>, drop_id: String) -> Result<(), String> {
+    state.batch_drop.discard(&drop_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1110,18 +1230,38 @@ pub fn run() {
                 recording: Mutex::new(None),
                 automation_label: Mutex::new(None),
                 automation_paused,
+                batch_drop: batch_drop::DropStore::new(),
             });
             automation_runtime::start(app.handle().clone());
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 if let Some(state) = window.app_handle().try_state::<AppState>() {
                     if state.busy.load(Ordering::SeqCst) {
                         api.prevent_close();
                     }
                 }
             }
+            // Finder/WebKit deliver dropped files here. Capture them natively as
+            // a one-shot grant and emit only names; the webview never gets paths.
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. })
+                if window.label() == "main" =>
+            {
+                let app = window.app_handle();
+                if let Some(state) = app.try_state::<AppState>() {
+                    match capture_batch_drop(&state, paths.clone()) {
+                        Ok(preview) => {
+                            let _ = app.emit("batch-drop", preview);
+                        }
+                        Err(message) => {
+                            let _ = app
+                                .emit("batch-drop-rejected", batch_drop::DropRejected { message });
+                        }
+                    }
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             setup_status,
@@ -1153,6 +1293,8 @@ pub fn run() {
             organize_note,
             import_audio,
             import_batch,
+            import_dropped_batch,
+            discard_dropped_batch,
             list_jobs,
             queue_note,
             job_action,
@@ -1213,6 +1355,7 @@ mod tests {
             recording: Mutex::new(None),
             automation_label: Mutex::new(None),
             automation_paused: AtomicBool::new(false),
+            batch_drop: batch_drop::DropStore::new(),
         };
         let mut recording = ActiveRecording {
             session: recording::Session::from_saved_fixture(source.clone()),
@@ -1340,6 +1483,7 @@ mod tests {
             recording: Mutex::new(None),
             automation_label: Mutex::new(None),
             automation_paused: AtomicBool::new(false),
+            batch_drop: batch_drop::DropStore::new(),
         };
         let guard = state.claim_automation("Importing watched audio").unwrap();
         assert!(state.busy.load(Ordering::SeqCst));
@@ -1357,5 +1501,154 @@ mod tests {
         let guard = state.claim_automation("Resumed").unwrap();
         assert!(!state.cancelled.load(Ordering::SeqCst));
         drop(guard);
+    }
+
+    fn batch_test_state(root: &Path) -> AppState {
+        let db = Connection::open_in_memory().unwrap();
+        library::init(&db, Path::new("in-memory")).unwrap();
+        AppState {
+            root: root.to_path_buf(),
+            db: Mutex::new(db),
+            busy: Arc::new(AtomicBool::new(false)),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            recording: Mutex::new(None),
+            automation_label: Mutex::new(None),
+            automation_paused: AtomicBool::new(false),
+            batch_drop: batch_drop::DropStore::new(),
+        }
+    }
+
+    fn write_batch_wav(path: &Path) {
+        let mut writer = hound::WavWriter::create(
+            path,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..16_000 {
+            writer.write_sample(250_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    #[test]
+    fn dropped_batch_import_deduplicates_reports_bad_entries_and_preserves_sources() {
+        let root = std::env::temp_dir().join(format!("golos-drop-import-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("audio")).unwrap();
+        let real = root.join("Interview.wav");
+        write_batch_wav(&real);
+        let original = fs::read(&real).unwrap();
+        let corrupt = root.join("broken.wav");
+        fs::write(&corrupt, b"not audio").unwrap();
+        let unsupported = root.join("notes.txt");
+        fs::write(&unsupported, b"text").unwrap();
+        let folder = root.join("Folder");
+        fs::create_dir(&folder).unwrap();
+
+        let state = batch_test_state(&root);
+        let report = import_sources(
+            &state,
+            vec![
+                real.clone(),
+                real.clone(),
+                corrupt.clone(),
+                folder.clone(),
+                unsupported.clone(),
+            ],
+            "uk",
+            || {},
+        )
+        .unwrap();
+        assert_eq!(report.notes.len(), 1);
+        assert_eq!(report.notes[0].title, "Interview");
+        assert_eq!(report.duplicates, 1);
+        assert_eq!(report.failures.len(), 3);
+        for name in ["broken.wav", "Folder", "notes.txt"] {
+            assert!(
+                report
+                    .failures
+                    .iter()
+                    .any(|failure| failure.starts_with(name)),
+                "missing failure for {name}: {:?}",
+                report.failures
+            );
+        }
+        // The webview only ever sees names, never the private absolute path.
+        assert!(report
+            .failures
+            .iter()
+            .all(|failure| !failure.contains(&*root.to_string_lossy())));
+        let jobs = jobs::list(&state.db().unwrap()).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].language, "uk");
+        assert_eq!(jobs[0].status, "queued");
+        assert_eq!(fs::read(&real).unwrap(), original);
+        assert_eq!(fs::read_dir(root.join("audio")).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cancelled_dropped_batch_import_keeps_completed_files_and_sources() {
+        let root = std::env::temp_dir().join(format!("golos-drop-cancel-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("audio")).unwrap();
+        let first = root.join("First.wav");
+        let second = root.join("Second.wav");
+        write_batch_wav(&first);
+        write_batch_wav(&second);
+        let first_original = fs::read(&first).unwrap();
+        let second_original = fs::read(&second).unwrap();
+
+        let state = batch_test_state(&root);
+        let cancelled = state.cancelled.clone();
+        let report = import_sources(&state, vec![first.clone(), second.clone()], "en", || {
+            cancelled.store(true, Ordering::SeqCst);
+        })
+        .unwrap();
+        assert!(report.cancelled);
+        assert_eq!(report.notes.len(), 1);
+        assert_eq!(report.notes[0].title, "First");
+        assert_eq!(jobs::list(&state.db().unwrap()).unwrap().len(), 1);
+        assert_eq!(fs::read(&first).unwrap(), first_original);
+        assert_eq!(fs::read(&second).unwrap(), second_original);
+        assert_eq!(fs::read_dir(root.join("audio")).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dropped_batch_capture_rejects_busy_and_oversized_selections_without_losing_the_grant() {
+        let state = batch_test_state(Path::new("/library"));
+        assert!(validate_language("xx").is_err());
+        assert!(validate_language("auto").is_ok());
+
+        let preview = capture_batch_drop(&state, vec![PathBuf::from("/dropped/One.wav")]).unwrap();
+        assert_eq!(preview.names, ["One.wav"]);
+        let held = state.claim().unwrap();
+        assert!(
+            capture_batch_drop(&state, vec![PathBuf::from("/dropped/Two.wav")])
+                .unwrap_err()
+                .contains("current operation")
+        );
+        // A busy import request must not consume the existing selection.
+        assert!(claim_dropped_batch(&state, &preview.id)
+            .err()
+            .unwrap()
+            .contains("current operation"));
+        drop(held);
+        let (guard, sources) = claim_dropped_batch(&state, &preview.id).unwrap();
+        assert_eq!(sources, [PathBuf::from("/dropped/One.wav")]);
+        drop(guard);
+        assert!(state.batch_drop.take(&preview.id).is_err());
+
+        let too_many = (0..=batch_drop::MAX_FILES)
+            .map(|index| PathBuf::from(format!("/dropped/{index}.wav")))
+            .collect();
+        assert!(capture_batch_drop(&state, too_many)
+            .unwrap_err()
+            .contains("100"));
+        assert!(state.batch_drop.take("missing").is_err());
     }
 }

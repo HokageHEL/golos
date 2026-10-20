@@ -216,6 +216,7 @@ mod tests {
                     recording: Mutex::new(None),
                     automation_label: Mutex::new(None),
                     automation_paused: AtomicBool::new(false),
+                    batch_drop: crate::batch_drop::DropStore::new(),
                 };
                 let _guard = state.claim_automation(label).unwrap();
                 // Invalid actions and missing folders never interrupt valid work.
