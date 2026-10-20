@@ -51,7 +51,12 @@ it('retains edits across search and navigation, and saves the restored draft', a
   fireEvent.click(screen.getByRole('button', { name: /Two.*Transcribed/ }));
   await waitFor(() => expect((screen.getByRole('textbox', { name: 'Transcript at 0:00' }) as HTMLTextAreaElement).value).toBe('Original saved text'));
   fireEvent.change(screen.getByRole('searchbox', { name: 'Search library' }), { target: { value: '' } });
-  fireEvent.click(await screen.findByRole('button', { name: /One.*Transcribed/ }));
+  const cachedRecording = await screen.findByRole('button', { name: /One.*Transcribed/ });
+  fireEvent.contextMenu(cachedRecording);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete recording…' }));
+  expect(screen.getByText('Open this recording and save or discard its draft before deleting it.')).toBeTruthy();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  fireEvent.click(cachedRecording);
   await waitFor(() => expect((screen.getByRole('textbox', { name: 'Transcript at 0:00' }) as HTMLTextAreaElement).value).toBe('My unsaved draft'));
   fireEvent.click(screen.getByRole('button', { name: 'Save edits' }));
   await waitFor(() => expect(fixture.saves).toHaveBeenCalledWith('0', [expect.objectContaining({ text: 'My unsaved draft', speaker: 'Alice' })]));

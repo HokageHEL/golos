@@ -286,6 +286,7 @@ export default function App() {
   }
   async function deleteRecording() {
     if (!confirmDelete || locked || dirty) return;
+    if (draftCache[confirmDelete.id]) { setError('Open this recording and save or discard its draft before deleting it.'); return; }
     const target = confirmDelete;
     await perform('Deleting recording', async () => {
       await api.delete(target.id);
@@ -486,7 +487,7 @@ export default function App() {
       nativeAvailable={nativeAvailable} error={error} message={message} onImportModel={importModel}
       onImportSpeakerModels={importSpeakerModels} loadingSpeakers={busy === 'Importing speaker models'}
       onClose={() => setSettingsOpen(false)}/>}
-    {recordingMenu && <RecordingMenu target={recordingMenu} onClose={closeMenu} onDelete={note => { closeMenu(); if (!locked && !dirty) { setError(null); setConfirmDelete(note); } }}/>}
+    {recordingMenu && <RecordingMenu target={recordingMenu} onClose={closeMenu} onDelete={note => { closeMenu(); if (!locked && !dirty) { if (draftCache[note.id]) { setError('Open this recording and save or discard its draft before deleting it.'); return; } setError(null); setConfirmDelete(note); } }}/>}
     {confirmDelete && <DeleteRecordingDialog title={confirmDelete.title} busy={Boolean(busy)} error={error} onClose={() => setConfirmDelete(null)} onDelete={deleteRecording}/>}
   </div>;
 }
