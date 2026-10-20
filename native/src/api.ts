@@ -21,6 +21,9 @@ export type AutomationView = {
 export const nativeAvailable = isTauri();
 export const api = {
   aiStatus: (noteId: string, offset = 0) => invoke<{ settings: AiSettings; results: AiSummary[] }>('ai_status', { noteId, offset }),
+  // Reads the shared local model settings without opening a recording. This is
+  // needed when the library is empty but automatic rules still need setup.
+  aiConfiguration: () => invoke<{ settings: AiSettings; results: AiSummary[] }>('ai_status', { noteId: null, offset: 0 }),
   aiConfigure: (settings: AiSettings) => invoke<void>('ai_configure', { settings }),
   aiModels: (port: number) => invoke<{ name: string; size: number; digest: string; context: number }[]>('ai_models', { port }),
   aiGet: (id: string) => invoke<AiWork>('ai_get', { id }),
@@ -30,6 +33,9 @@ export const api = {
   aiSegments: (id: string) => invoke<Segment[]>('ai_segments', { id }),
   aiRecording: (id: string) => invoke<Note>('ai_recording', { id }),
   aiDocx: (id: string) => invoke<boolean>('ai_docx', { id }),
+  aiAutomation: () => invoke<AiAutomationView>('ai_automation_status'),
+  aiAutomationConfigure: (rules: AiAutomationRule[]) => invoke<void>('ai_automation_configure', { rules }),
+  aiAutomationAction: (id: string, action: 'retry' | 'skip' | 'remove') => invoke<void>('ai_automation_action', { id, action }),
   automation: () => invoke<AutomationView>('automation_status'),
   addWatch: (language: string, autoTranscribe: boolean, includeExisting: boolean) => invoke<boolean>('add_watch_folder', { language, autoTranscribe, includeExisting }),
   watchAction: (id: string, action: 'pause' | 'resume' | 'auto' | 'manual' | 'remove' | 'retry') => invoke<void>('watch_folder_action', { id, action }),
@@ -71,6 +77,19 @@ export const api = {
 };
 
 export type AiSettings = { port: number; model: string; contextWindow: number };
+export type AiAutomationSource = 'single' | 'batch' | 'watch';
+export type AiAutomationKind = 'cleanup' | 'summary' | 'actions' | 'custom';
+export type AiAutomationRule = {
+  id: string; name: string; enabled: boolean; kind: AiAutomationKind;
+  target: string; prompt: string; sources: AiAutomationSource[];
+};
+export type AiAutomationTaskStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'skipped';
+export type AiAutomationTask = {
+  id: string; noteId: string; title: string; kind: string; ruleName: string;
+  status: AiAutomationTaskStatus; error: string | null; resultId: string | null;
+  model: string; source: string;
+};
+export type AiAutomationView = { rules: AiAutomationRule[]; tasks: AiAutomationTask[]; model: string; label: string | null };
 export type AiSummary = { prompt: string; id: string; kind: string; target: string; model: string; status: string; createdAt: number; phase: string; error: string | null; stale: boolean; conversation: string };
 export type AiWork = Omit<AiSummary, 'stale'> & { noteId: string; prompt: string; sourceLanguage: string; contextWindow: number; source: Segment[]; sourceHash: string; content: string; segments: Segment[] };
 export type AiRequest = { noteId: string; kind: string; target: string; prompt: string; conversation: string; sourceLanguage: string };

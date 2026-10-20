@@ -4,7 +4,7 @@ import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react'
 import AutomationSettings from '../AutomationSettings';
 import type { AutomationView } from '../api';
 const fixture=vi.hoisted(()=>({view:null as AutomationView|null,add:vi.fn(),watch:vi.fn(),pause:vi.fn(),choose:vi.fn(),configure:vi.fn(),export:vi.fn(),retry:vi.fn()}));
-vi.mock('../api',()=>({api:{automation:async()=>structuredClone(fixture.view),addWatch:fixture.add,watchAction:fixture.watch,pauseAutomation:fixture.pause,chooseExportFolder:fixture.choose,configureExports:fixture.configure,exportQueue:fixture.export,retryExports:fixture.retry}}));
+vi.mock('../api',()=>({api:{automation:async()=>structuredClone(fixture.view),addWatch:fixture.add,watchAction:fixture.watch,pauseAutomation:fixture.pause,chooseExportFolder:fixture.choose,configureExports:fixture.configure,exportQueue:fixture.export,retryExports:fixture.retry,aiAutomation:async()=>({rules:[],tasks:[],model:'',label:null}),aiConfiguration:async()=>({settings:{port:11434,model:'',contextWindow:8192},results:[]})}}));
 const props=()=>({languages:[{code:'uk',name:'ukrainian'}],busy:null,background:null,onOperation:async(_label:string,task:()=>Promise<void>)=>task(),onClose:vi.fn()});
 beforeEach(()=>{
   fixture.view={settings:{paused:false,exportEnabled:false,exportDirectory:'/local/exports',exportFormats:['txt']},folders:[{id:'folder',path:'/local/interviews',enabled:true,autoTranscribe:false,language:'uk',error:null}],files:[],exports:[],label:null};

@@ -1141,6 +1141,14 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 .export-formats { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; border: 1px solid var(--border); padding: 12px; }
 .export-formats label { display: flex; align-items: center; gap: 6px; }
 
+.ai-automation { min-width: 0; }
+.ai-automation label { display: grid; gap: 6px; margin: 12px 0; }
+.ai-automation input:not([type=checkbox]), .ai-automation select, .ai-automation textarea { width: 100%; min-width: 0; }
+.ai-automation-rule { min-width: 0; margin: 16px 0; padding: 0 16px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.ai-automation .rule-sources { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.ai-automation .rule-sources label { display: flex; align-items: center; gap: 6px; margin: 0; }
+.ai-automation .editor-tools label { margin: 0; }
+.ai-automation code { overflow-wrap: anywhere; }
 .ai-dialog { width: min(880px, calc(100vw - 32px)); }
 .ai-dialog input:not([type=checkbox]), .ai-dialog select, .ai-dialog textarea { width: 100%; min-width: 0; }
 .ai-dialog label { display: grid; gap: 6px; margin: 12px 0; }
