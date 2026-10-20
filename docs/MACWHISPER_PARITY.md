@@ -29,8 +29,8 @@ accuracy, accessibility, signing and release validation are separate gates.
 | System-wide hotkey / floating Global recording | Gap | Registered configurable shortcut, overlay, always-on-top preference and focus/permission tests. |
 | Dictation into another app | Gap | Offline post-record transcription and explicit insertion with Accessibility permission; preserve previous clipboard/focus, no unintended insertion. |
 | Dictation prompts, app-specific modes, grammar improvement | Gap | Local processing, configurable prompts and app mapping; preview/cancel and accuracy checks. |
-| Batch files and serial transcription queue | Implemented core workflow; partial parity | Native multi-select, per-file outcomes, cancellation, retry and restart recovery exist with stale-job protection. Drag/drop, multi-format auto-export and batch speaker options remain. See [batch workflow](BATCH_TRANSCRIPTION.md). |
-| Watch folders | Gap | Explicit folder grants; stable-file detection, durable deduplication, pause/remove, per-file failures, safe output naming; never delete input. |
+| Batch files and serial transcription queue | Implemented core workflow; partial parity | Native multi-select, per-file outcomes, cancellation, retry and restart recovery exist with stale-job protection. Multi-format local auto-export is implemented in the automation milestone. Drag/drop and batch speaker options remain. See [batch workflow](BATCH_TRANSCRIPTION.md). |
+| Watch folders | Implemented; native permission/device gates open | Explicit picker grants, new-file opt-in, stable metadata checks, hashed snapshots, durable deduplication, pause/remove, per-file retry and automatic/queued modes. Nonrecursive, app-open polling; OS notifications and sandbox relaunch QA remain. See [folder automation](FOLDER_AUTOMATION.md). |
 | Multi-track podcast transcription | Gap | Named per-speaker inputs, common offsets, overlapping speech preserved, source playback; validate different lengths/sample rates. |
 | Local speaker detection / rename / paragraph assignments | Implemented | Real multi-language diarization accuracy remains unmeasured. |
 | Speaker merge, saved names, colors and shortcuts | Partial | Renaming to same label can merge; add explicit merge, reusable name suggestions/colors and keyboard assignment. |
@@ -45,7 +45,7 @@ accuracy, accessibility, signing and release validation are separate gates.
 | Local video import and inline video/subtitles | Partial | MP4 audio decoding exists; MOV format support and retained video playback with synchronized subtitle overlay still needed. |
 | Local summaries / action points / prompts / transcript chat | Gap | Local model only, explicit setup/resource needs, cancellation, separate saved output, long-context errors and groundedness evaluation. |
 | Local CLI / automation | Gap | Stable documented commands, serial access to library, structured output, model/language options, nonzero failures and no overwrite by default. |
-| Local Obsidian / filesystem auto-export | Gap | User-selected local destination, safe filenames, collision protection and multi-format batch export; no webhook uploads. |
+| Local Obsidian / filesystem auto-export | Implemented | User-selected local destination, multi-format automatic/batch exports, safe collision handling, content-revision tracking and independent retry. Markdown can target a local vault; no HTTP/upload integration. Native slow-volume/disk-full/consumer QA remains. |
 | Managed deployment | Gap | Offline model provisioning and documented managed preferences for applicable local features. Licensing/pricing remains undecided. |
 | YouTube / remote media URL import | Excluded | Requires online fetching; import an already-downloaded local file instead. |
 | Cloud transcription, online AI, external webhooks/services | Excluded | User explicitly excluded cloud services and external uploads. No network transcript/audio requests. |
@@ -102,3 +102,5 @@ choice and a similar UI alone do not establish equivalent functionality or quali
   system-audio, OS-permission or native WebKit clipboard validation is claimed.
 
 Milestone 1 merged in [PR #5](https://github.com/HokageHEL/golos/pull/5), with all four GitHub checks passing.
+
+The durable batch milestone merged in [PR #6](https://github.com/HokageHEL/golos/pull/6), with all four GitHub checks passing. Folder automation and durable local multi-format exports are the next submitted milestone; full parity remains open.

@@ -13,6 +13,7 @@ import { api, nativeAvailable, type Note, type Setup, type RecordingStatus, type
 import Settings from './Settings';
 import Organization from './Organization';
 import BatchQueue from './BatchQueue';
+import AutomationSettings from './AutomationSettings';
 import { change, undo, redo, replaceAll, splitParagraph, mergeParagraph, type History } from './editing';
 import { exportDocument } from './export/document';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
@@ -73,6 +74,8 @@ export default function App() {
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [automationOpen, setAutomationOpen] = useState(false);
+  const [automationLabel, setAutomationLabel] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(-1);
@@ -83,7 +86,8 @@ export default function App() {
   const selectedMatch = matchIndex < 0 ? -1 : Math.min(matchIndex, matches.length - 1);
   const active = activeNote;
   const hasUnsaved = dirty || Object.keys(draftCache).length > 0;
-  const locked = Boolean(busy) || loading || !nativeAvailable;
+  const locked = Boolean(busy || automationLabel) || loading || !nativeAvailable;
+  const readLocked = Boolean(busy) || loading || !nativeAvailable;
   const activeIndex = activeSegmentIndex(draft, playheadMs);
   const hasSpeakerLabels = draft.some(segment => segment.speaker !== null);
 
@@ -124,23 +128,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!hasUnsaved && !busy) return;
+    if (!hasUnsaved && !busy && !automationLabel) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [hasUnsaved, busy]);
+  }, [hasUnsaved, busy, automationLabel]);
 
   useEffect(() => {
     if (!nativeAvailable) return;
     const subscription = getCurrentWindow().onCloseRequested(event => {
-      if (hasUnsaved || busy) {
+      if (hasUnsaved || busy || automationLabel) {
         event.preventDefault();
         setError(hasUnsaved ? 'Save or discard your edits before closing Golos.' : 'Finish or cancel the current operation before closing Golos.');
       }
     });
     subscription.catch(e => setError(errorText(e)));
     return () => { void subscription.then(unlisten => unlisten()).catch(() => {}); };
-  }, [hasUnsaved, busy]);
+  }, [hasUnsaved, busy, automationLabel]);
 
   useEffect(() => {
     if (!nativeAvailable || !selected) return;
@@ -196,6 +200,30 @@ export default function App() {
       setError(errorText(e)); setCapturePhase('recording'); setBusy('Recording stopped');
     }
   }
+
+  useEffect(() => {
+    if (!nativeAvailable) return;
+    let disposed = false;
+    let revision = 0;
+    const state = listen<string | null>('automation-state', event => { revision++; if (!disposed) setAutomationLabel(event.payload); });
+    void state.then(async () => { const expected = revision; const view = await api.automation(); if (!disposed && expected === revision) setAutomationLabel(view.label); }).catch(e => { if (!disposed) setError(errorText(e)); });
+    const errors = listen<string>('automation-error', event => { if (!disposed) setError(event.payload); });
+    return () => { disposed = true; for (const subscription of [state, errors]) void subscription.then(unlisten => unlisten()).catch(() => {}); };
+  }, []);
+  useEffect(() => {
+    if (!nativeAvailable) return;
+    let disposed = false;
+    const subscription = listen('queue-changed', () => {
+      void (async () => {
+        try {
+          const rows = await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter });
+          if (!disposed) setNotes(rows);
+          if (active && active.status !== 'done' && !dirty) { const full = await api.get(active.id); if (!disposed) { setActiveNote(full); setDraft(full.segments); } }
+        } catch (e) { if (!disposed) setError(errorText(e)); }
+      })();
+    });
+    return () => { disposed = true; void subscription.then(unlisten => unlisten()).catch(() => {}); };
+  }, [active, dirty, librarySearch, statusFilter, folderFilter, tagFilter]);
 
   async function perform(label: string, task: () => Promise<void>) {
     setBusy(label); setError(null); setMessage(null);
@@ -339,7 +367,8 @@ export default function App() {
   }
 
   return <div className="app">
-    {batchOpen && <BatchQueue languages={languages} modelReady={!!setup?.modelReady} busy={busy} progress={progress} error={error} onOperation={perform} onChanged={refreshAfterBatch} onClose={() => setBatchOpen(false)}/>}
+    {automationOpen && <AutomationSettings languages={languages} busy={busy} background={automationLabel} onOperation={perform} onClose={() => setAutomationOpen(false)}/>}
+    {batchOpen && <BatchQueue languages={languages} modelReady={!!setup?.modelReady} busy={busy || automationLabel} backgroundBusy={!!automationLabel} progress={progress} error={error} onOperation={perform} onChanged={refreshAfterBatch} onClose={() => setBatchOpen(false)}/>}
     <aside className="sidebar">
       <a className="brand" href="#">golos<span className="brand-dot">●</span></a>
       <p className="tagline">Your words. Your device.</p>
@@ -353,6 +382,7 @@ export default function App() {
       <button className="primary record-trigger"  disabled={locked || dirty} onClick={startRecording}>● Record audio</button>
       <button className="secondary import" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
       <button className="secondary import" disabled={locked} onClick={() => setBatchOpen(true)}>Batch transcription</button>
+      <button className="secondary import" disabled={!!busy || loading || !nativeAvailable} onClick={() => setAutomationOpen(true)}>Folders &amp; automation</button>
       <button className="secondary import" disabled={locked} onClick={importProject}>Import project backup</button>
       <div className="library-heading"><h2>Library</h2><span title="Loaded matching recordings">{notes.length}{notes.length >= 100 ? '＋' : ''}</span></div>
       <div className="library-filters">
@@ -365,7 +395,7 @@ export default function App() {
         {loading && <p className="muted">Opening your library…</p>}
         {!loading && !notes.length && <p className="muted empty-library">Your recordings will appear here. Everything stays on this device.</p>}
         {notes.map(note => <button key={note.id} className={`recording ${selected === note.id ? 'selected' : ''}`}
-          disabled={locked} onClick={() => { void openNote(note); }}
+          disabled={readLocked} onClick={() => { void openNote(note); }}
           onContextMenu={event => { event.preventDefault(); if (!locked && !dirty) setRecordingMenu({ note, x: event.clientX, y: event.clientY }); }}
           onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); const bounds = event.currentTarget.getBoundingClientRect(); setRecordingMenu({ note, x: bounds.left + 12, y: bounds.bottom }); } }}>
           <span className="recording-title">{note.title}</span>
@@ -380,6 +410,7 @@ export default function App() {
     <main>
       <header className="topbar"><span>Private transcription</span><span className="pill">No account needed</span></header>
       <div className="workspace">
+        {automationLabel && <div className="notice" role="status"><span>{automationLabel} · Runs on this device.</span><button className="secondary" onClick={() => { void api.pauseAutomation(true).catch(e => setError(errorText(e))); }}>Pause automation and cancel current work</button></div>}
         {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to record audio, import files, transcribe, and save to your local library.</div>}
         {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
         {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
@@ -446,10 +477,10 @@ export default function App() {
               <p>{!setup?.diarizationReady ? 'Install separate speaker models in Settings. A Whisper model transcribes text only.' : !hasSpeakerLabels ? 'Speakers have not been detected for this transcript. Choose Detect speakers.' : 'Labels are per recording. Correct mixed-speaker paragraphs below.'}</p>
             </div>
             <div className="editor-tools" data-history-revision={historyRevision}>
-              <button className="secondary" disabled={locked || !history.past.length} onClick={() => travelHistory('undo')}>Undo</button>
-              <button className="secondary" disabled={locked || !history.future.length} onClick={() => travelHistory('redo')}>Redo</button>
+              <button className="secondary" disabled={readLocked || !history.past.length} onClick={() => travelHistory('undo')}>Undo</button>
+              <button className="secondary" disabled={readLocked || !history.future.length} onClick={() => travelHistory('redo')}>Redo</button>
               <input aria-label="Replacement text" placeholder="Replace with…" value={replacement} onChange={e => setReplacement(e.target.value)}/>
-              <button className="secondary" disabled={locked || !query} onClick={() => editDraft(replaceAll(draft, query, replacement))}>Replace all (case sensitive)</button>
+              <button className="secondary" disabled={readLocked || !query} onClick={() => editDraft(replaceAll(draft, query, replacement))}>Replace all (case sensitive)</button>
             </div>
             <div className="editor-toolbar"><span>{draft.length ? 'Transcript · Click any paragraph to edit' : 'No speech detected in this recording.'}</span><div className="actions">
               {dirty && <><button className="text-button" disabled={locked} onClick={() => { setDraft(active.segments); setHistory({ past: [], present: active.segments, future: [] }); setHistoryRevision(v => v + 1); setDirty(false); }}>Discard edits</button><button className="primary" disabled={locked} onClick={save}>Save edits</button></>}
@@ -483,14 +514,14 @@ export default function App() {
                   aria-label={`Seek to ${formatClock(segment.startMs)}`}
                   onClick={() => seekTo(segment.startMs)}>{formatClock(segment.startMs)}</button>
                 <div className="segment-content"><label className="speaker-label"><span className="sr-only">Speaker</span>
-                  <input type="text" aria-label={`Speaker at ${formatClock(segment.startMs)}`} maxLength={100} placeholder={hasSpeakerLabels ? 'Unassigned' : 'Not detected'} value={displaySpeaker(segment.speaker)} disabled={locked}
+                  <input type="text" aria-label={`Speaker at ${formatClock(segment.startMs)}`} maxLength={100} placeholder={hasSpeakerLabels ? 'Unassigned' : 'Not detected'} value={displaySpeaker(segment.speaker)} disabled={readLocked}
                     title={segment.speaker ? 'Rename this speaker throughout the transcript' : 'Assign a speaker to this entry'}
                     onFocus={() => { speakerEntries.current = speakerEntryIndexes(draft, index); }}
                     onChange={e => { const label = e.target.value; const entries = speakerEntries.current; editDraft(renameSpeakerEntries(draft, entries, label)); }}/>
-                </label><TranscriptText onSplit={offset => editDraft(splitParagraph(draft, index, offset))} selection={selection?.segmentIndex === index ? selection : null} label={`Transcript at ${formatClock(segment.startMs)}`} text={segment.text} disabled={locked}
+                </label><TranscriptText onSplit={offset => editDraft(splitParagraph(draft, index, offset))} selection={selection?.segmentIndex === index ? selection : null} label={`Transcript at ${formatClock(segment.startMs)}`} text={segment.text} disabled={readLocked}
                   onChange={text => { editDraft(draft.map((item, n) => n === index ? { ...item, text } : item)); }}/>
-                  <div className="editor-tools"><button className="text-button" disabled={locked || segment.text.length < 2 || segment.endMs - segment.startMs < 2} onClick={() => editDraft(splitParagraph(draft, index, Math.floor(segment.text.length / 2)))}>Split paragraph in half</button>
-                  <button className="text-button" disabled={locked || !draft[index + 1] || segment.speaker !== draft[index + 1]?.speaker} title="Merge requires matching speaker labels" onClick={() => editDraft(mergeParagraph(draft, index))}>Merge with next</button></div>
+                  <div className="editor-tools"><button className="text-button" disabled={readLocked || segment.text.length < 2 || segment.endMs - segment.startMs < 2} onClick={() => editDraft(splitParagraph(draft, index, Math.floor(segment.text.length / 2)))}>Split paragraph in half</button>
+                  <button className="text-button" disabled={readLocked || !draft[index + 1] || segment.speaker !== draft[index + 1]?.speaker} title="Merge requires matching speaker labels" onClick={() => editDraft(mergeParagraph(draft, index))}>Merge with next</button></div>
                 </div>
               </div>;
             })}</div>

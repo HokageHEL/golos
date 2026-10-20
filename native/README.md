@@ -394,3 +394,5 @@ are not invented. Native PDF and advanced layout options remain open.
 See the [complete parity audit](../docs/MACWHISPER_PARITY.md) for implementation gaps.
 
 **Batch transcription** imports several local files and processes a durable serial queue. See [batch use and recovery](../docs/BATCH_TRANSCRIPTION.md) for cancellation, retry, migration and validation limits.
+
+**Folders & automation** adds explicitly selected watched folders, stable-file imports, optional automatic transcription and collision-safe local multi-format exports. See [setup, recovery and validation](../docs/FOLDER_AUTOMATION.md). Full MacWhisper parity remains unfinished.

@@ -60,6 +60,10 @@ pub fn enqueue(db: &Connection, note: &str, language: &str) -> Result<(), String
 
 /// Called while the application-wide operation guard is held.
 pub fn next(db: &Connection) -> Result<Option<(String, String)>, String> {
+    next_for(db, None)
+}
+
+pub fn next_for(db: &Connection, note: Option<&str>) -> Result<Option<(String, String)>, String> {
     let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
     let running: bool = tx
@@ -74,7 +78,7 @@ pub fn next(db: &Connection) -> Result<Option<(String, String)>, String> {
     }
     // Manual transcription or future imports can make a pending job obsolete.
     tx.execute("UPDATE transcription_jobs SET status='cancelled',error='Recording already has a transcript; it was preserved.' WHERE status='queued' AND note_id IN (SELECT id FROM notes WHERE status='done' OR segments!='[]')", []).map_err(|e| e.to_string())?;
-    let pending: Option<(String,String)> = tx.query_row("SELECT note_id,language FROM transcription_jobs WHERE status='queued' ORDER BY id LIMIT 1", [], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|e| e.to_string())?;
+    let pending: Option<(String,String)> = tx.query_row("SELECT note_id,language FROM transcription_jobs WHERE status='queued' AND (?1 IS NULL OR note_id=?1) ORDER BY id LIMIT 1", [note], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|e| e.to_string())?;
     if let Some((note, _)) = &pending {
         tx.execute(
             "UPDATE notes SET status='processing',error=NULL WHERE id=?1",

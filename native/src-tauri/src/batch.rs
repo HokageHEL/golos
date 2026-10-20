@@ -27,7 +27,23 @@ impl Drop for PreparedImport {
     }
 }
 impl PreparedImport {
-    pub fn commit(mut self, db: &Connection, language: Option<&str>) -> Result<Note, String> {
+    pub fn commit(self, db: &Connection, language: Option<&str>) -> Result<Note, String> {
+        self.commit_with(db, language, |_, _| Ok(()))
+    }
+    pub fn title(mut self, title: &str) -> Self {
+        self.note.title = title
+            .char_indices()
+            .take_while(|(index, ch)| index + ch.len_utf8() <= 200)
+            .map(|(_, ch)| ch)
+            .collect();
+        self
+    }
+    pub fn commit_with(
+        mut self,
+        db: &Connection,
+        language: Option<&str>,
+        extra: impl FnOnce(&Connection, &Note) -> Result<(), String>,
+    ) -> Result<Note, String> {
         fs::hard_link(&self.pending, &self.target)
             .map_err(|e| format!("Cannot publish imported audio: {e}"))?;
         self.published = true;
@@ -37,6 +53,7 @@ impl PreparedImport {
         if let Some(language) = language {
             jobs::enqueue(&tx, &self.note.id, language)?;
         }
+        extra(&tx, &self.note)?;
         tx.commit().map_err(|e| e.to_string())?;
         self.committed = true;
         Ok(self.note.clone())

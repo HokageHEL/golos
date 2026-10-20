@@ -29,7 +29,7 @@ use std::{
 };
 
 /// Schema version written by this build.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 /// Version reported by preview libraries that predate schema versioning.
 pub const LEGACY_PREVIEW_VERSION: i64 = 0;
 /// Message stored on `processing` rows that a shutdown interrupted.
@@ -184,6 +184,7 @@ pub fn migrate(db: &Connection, db_path: &Path) -> Result<Migration, String> {
         return Err(format!("Could not recover interrupted recordings: {error}"));
     }
     crate::jobs::recover(db)?;
+    crate::automation::recover(db)?;
     Ok(Migration {
         from_version,
         to_version: SCHEMA_VERSION,
@@ -205,6 +206,8 @@ fn classify(db: &Connection, db_path: &Path, version: i64) -> Result<State, Stri
         (SCHEMA_VERSION, Some("table")) => {
             validate_notes_schema(db, db_path)?;
             db.prepare("SELECT id,note_id,language,status,error,created_at FROM transcription_jobs LIMIT 0").map_err(|e|format!("The library batch queue is damaged. No changes were made: {e}"))?;
+            crate::automation::settings(db).map_err(|e|format!("The local automation settings are damaged. No changes were made: {e}"))?;
+            db.prepare("SELECT w.id,f.name,i.digest,e.formats,o.path FROM watch_folders w,watch_files f,watch_imports i,export_tasks e,export_files o LIMIT 0").map_err(|e|format!("The automation schema is damaged. No changes were made: {e}"))?;
             Ok(State::Current)
         }
         (SCHEMA_VERSION, _) => Err(format!(
@@ -212,7 +215,7 @@ fn classify(db: &Connection, db_path: &Path, version: i64) -> Result<State, Stri
             db_path.display()
         )),
         (LEGACY_PREVIEW_VERSION, None) => Ok(State::Fresh),
-        (LEGACY_PREVIEW_VERSION | 1 | 2, Some("table")) => {
+        (LEGACY_PREVIEW_VERSION | 1 | 2 | 3, Some("table")) => {
             validate_notes_schema(db, db_path)?;
             Ok(State::LegacyPreview)
         }
@@ -349,9 +352,14 @@ fn apply_current_schema(db: &Connection) -> Result<(), String> {
             .execute_batch(SEARCH_SCHEMA)
             .map_err(|e| format!("Could not build the library search index: {e}"))?;
     }
+    if from_version < 3 {
+        transaction
+            .execute_batch(crate::jobs::SCHEMA)
+            .map_err(|e| format!("Could not build the batch queue: {e}"))?;
+    }
     transaction
-        .execute_batch(crate::jobs::SCHEMA)
-        .map_err(|e| format!("Could not build the batch queue: {e}"))?;
+        .execute_batch(crate::automation::SCHEMA)
+        .map_err(|e| format!("Could not build local automation: {e}"))?;
     transaction
         .commit()
         .map_err(|e| format!("Could not commit the library migration: {e}"))?;
@@ -522,7 +530,7 @@ mod tests {
     const NOTES_TABLES: &str =
         "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='notes'";
     const JOURNAL_MODE: &str = "PRAGMA journal_mode";
-    const BACKUP_MARKER: &str = ".pre-v3-";
+    const BACKUP_MARKER: &str = ".pre-v4-";
     /// Mirrors `library::insert`, which leaves `segments` at its `'[]'` default.
     const INSERT_ROW: &str = "INSERT INTO notes
         (id,title,created_at,duration_seconds,status) VALUES(?1,?2,?3,?4,?5)";
@@ -775,16 +783,16 @@ mod tests {
         );
         // A library written by a future build, deliberately not in WAL mode so
         // the test can prove the journal mode was left alone.
-        db.execute_batch("PRAGMA user_version = 4; PRAGMA journal_mode = DELETE;")
+        db.execute_batch("PRAGMA user_version = 5; PRAGMA journal_mode = DELETE;")
             .unwrap();
 
         let error = migrate(&db, &path).unwrap_err();
-        assert!(error.contains("schema version 4"), "unexpected: {error}");
+        assert!(error.contains("schema version 5"), "unexpected: {error}");
         assert!(
             error.contains("No changes were made"),
             "unexpected: {error}"
         );
-        assert_eq!(read_version(&db).unwrap(), 4);
+        assert_eq!(read_version(&db).unwrap(), 5);
         assert_eq!(journal_mode(&db), "delete");
         assert_eq!(text_of(&db, STATUS_OF, "interrupted"), "processing");
         assert!(fixture.backups().is_empty());
@@ -792,7 +800,7 @@ mod tests {
 
         // The refusal is persistent, not just a view of this connection.
         let reopened = fixture.open();
-        assert_eq!(read_version(&reopened).unwrap(), 4);
+        assert_eq!(read_version(&reopened).unwrap(), 5);
         assert_eq!(journal_mode(&reopened), "delete");
         assert_eq!(row_count(&reopened), 1);
     }
@@ -959,7 +967,7 @@ mod tests {
         let fixture = TempLibrary::new("backup-failure");
         let path = fixture.db_path();
         // A snapshot that must survive the failed attempt untouched.
-        let existing = fixture.path("library.pre-v3-1.sqlite3");
+        let existing = fixture.path("library.pre-v4-1.sqlite3");
         fs::write(&existing, b"an existing backup").unwrap();
 
         let db = fixture.open_legacy();
@@ -1013,7 +1021,7 @@ mod tests {
         let first = reserve_backup(&path, millis).unwrap();
         assert_eq!(
             first.file_name().unwrap(),
-            "library.pre-v3-1760000000000.sqlite3"
+            "library.pre-v4-1760000000000.sqlite3"
         );
         assert!(first.is_file(), "the reserved name must be created empty");
         // Stand in for a completed snapshot a later upgrade must not disturb.
@@ -1023,7 +1031,7 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(
             second.file_name().unwrap(),
-            "library.pre-v3-1760000000000-1.sqlite3"
+            "library.pre-v4-1760000000000-1.sqlite3"
         );
         assert_eq!(fs::read(&first).unwrap(), b"an existing backup");
     }
@@ -1032,7 +1040,7 @@ mod tests {
         let fixture = TempLibrary::new("version-two");
         let db = fixture.open();
         migrate(&db, &fixture.db_path()).unwrap();
-        db.execute_batch("DROP TRIGGER transcription_jobs_cleanup; DROP TABLE transcription_jobs; PRAGMA user_version=2;").unwrap();
+        db.execute_batch("DROP TRIGGER transcription_jobs_cleanup; DROP TABLE transcription_jobs; DROP TRIGGER automation_note_cleanup; DROP TRIGGER automation_watch_cleanup; DROP TABLE export_tasks; DROP TABLE export_files; DROP TABLE watch_imports; DROP TABLE watch_files; DROP TABLE watch_folders; DROP TABLE automation_settings; PRAGMA user_version=2;").unwrap();
         add_row(&db, "keep", "Interview", 1, 2.0, "done");
         db.execute(SET_SEGMENTS, rusqlite::params![SEGMENTS, "keep"])
             .unwrap();
@@ -1058,5 +1066,23 @@ mod tests {
         let snapshot = Connection::open(migration.backup.unwrap()).unwrap();
         assert_eq!(read_version(&snapshot).unwrap(), 2);
         assert_eq!(text_of(&snapshot, TITLE_OF, "keep"), "Interview");
+    }
+    #[test]
+    fn upgrade_from_version_three_preserves_queued_jobs_and_grants_no_automatic_access() {
+        let fixture = TempLibrary::new("version-three");
+        let db = fixture.open();
+        migrate(&db, &fixture.db_path()).unwrap();
+        db.execute_batch("DROP TRIGGER automation_note_cleanup;DROP TRIGGER automation_watch_cleanup;DROP TABLE export_tasks;DROP TABLE export_files;DROP TABLE watch_imports;DROP TABLE watch_files;DROP TABLE watch_folders;DROP TABLE automation_settings;PRAGMA user_version=3;").unwrap();
+        add_row(&db, "one", "Waiting job", 1, 1.0, "ready");
+        crate::jobs::enqueue(&db, "one", "uk").unwrap();
+        let result = migrate(&db, &fixture.db_path()).unwrap();
+        assert_eq!(result.from_version, 3);
+        assert!(result.backup.is_some());
+        assert_eq!(crate::jobs::list(&db).unwrap()[0].status, "queued");
+        assert_eq!(crate::jobs::list(&db).unwrap()[0].language, "uk");
+        let settings = crate::automation::settings(&db).unwrap();
+        assert!(!settings.export_enabled);
+        assert!(settings.export_directory.is_none());
+        assert!(crate::automation::folders(&db).unwrap().is_empty());
     }
 }

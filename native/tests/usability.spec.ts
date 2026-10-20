@@ -123,3 +123,33 @@ test('batch import reports each failure, retains pending jobs and removes jobs w
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('batch-queue.png'), fullPage: true });
 });
+
+
+test('watched-folder and local export controls preserve opt-in choices and retry failed output', async ({ page }, info) => {
+  await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
+  const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
+  await automation.getByRole('combobox', { name: 'New folder language', exact: true }).selectOption('uk');
+  await automation.getByRole('checkbox', { name: 'Transcribe automatically', exact: true }).check();
+  await expect(automation.getByRole('checkbox', { name: 'Include files already in the folder', exact: true })).not.toBeChecked();
+  await automation.getByRole('button', { name: 'Add watched folder', exact: true }).click();
+  await expect(automation.getByText('/mock/interviews', { exact: true })).toBeVisible();
+  await automation.getByRole('button', { name: 'Pause folder', exact: true }).click();
+  await expect(automation.getByRole('button', { name: 'Resume folder', exact: true })).toBeVisible();
+  await automation.getByRole('button', { name: 'Pause automation', exact: true }).click();
+  await expect(automation.getByRole('button', { name: 'Resume automation', exact: true })).toBeVisible();
+  await automation.getByRole('button', { name: 'Choose export folder', exact: true }).click();
+  await automation.getByRole('checkbox', { name: 'VTT', exact: true }).check();
+  await automation.getByRole('checkbox', { name: 'Export automatically after transcription', exact: true }).check();
+  await automation.getByRole('button', { name: 'Save export settings', exact: true }).click();
+  await expect(automation.getByText('Export settings saved on this device.', { exact: true })).toBeVisible();
+  await automation.getByRole('button', { name: 'Export completed queue results', exact: true }).click();
+  await expect(automation.getByText('Mocked export permission error. Restore access and retry.', { exact: true })).toBeVisible();
+  await automation.getByRole('button', { name: 'Retry failed exports', exact: true }).click();
+  await expect(automation.getByText('pending', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 760, height: 560 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await automation.evaluate(element => { element.scrollTop = 0; });
+  await page.screenshot({ path: info.outputPath('automation-controls.png'), fullPage: true });
+  await automation.getByRole('button', { name: 'Save export settings', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('automation-exports.png'), fullPage: true });
+});
