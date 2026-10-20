@@ -13,6 +13,7 @@ mod batch_drop;
 #[cfg(any(target_os = "macos", test))]
 mod capture;
 mod diarize;
+pub mod dictation;
 mod docx;
 mod download;
 mod engine;
