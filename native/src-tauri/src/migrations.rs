@@ -213,7 +213,7 @@ fn classify(db: &Connection, db_path: &Path, version: i64) -> Result<State, Stri
             crate::ai::settings(db).map_err(|e|format!("Local AI settings are damaged. No changes were made: {e}"))?;
             db.prepare("SELECT id,note_id,kind,target,prompt,conversation,source_language,model,context_window,source,source_hash,status,content,segments,created_at,error,phase FROM ai_results LIMIT 0").map_err(|e|format!("Local AI results are damaged. No changes were made: {e}"))?;
             db.prepare("SELECT id,position,name,enabled,kind,target,prompt,sources FROM ai_automation_rules LIMIT 0").map_err(|e|format!("Automatic local AI rules are damaged. No changes were made: {e}"))?;
-            db.prepare("SELECT id,note_id,rule_id,rule_name,kind,target,prompt,source,source_language,source_hash,segments,model,port,context_window,status,error,result_id,created_at,updated_at FROM ai_automation_tasks LIMIT 0").map_err(|e|format!("Automatic local AI tasks are damaged. No changes were made: {e}"))?;
+            db.prepare("SELECT id,note_id,rule_id,rule_name,rule_hash,kind,target,prompt,source,source_language,source_hash,segments,model,port,context_window,status,error,result_id,created_at,updated_at FROM ai_automation_tasks LIMIT 0").map_err(|e|format!("Automatic local AI tasks are damaged. No changes were made: {e}"))?;
             Ok(State::Current)
         }
         (SCHEMA_VERSION, _) => Err(format!(

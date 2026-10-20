@@ -79,6 +79,8 @@ it('defaults to off, validates opt-in choices and saves cleanup/custom rules exp
   expect(savedCleanup[0]).toMatchObject({ name: 'Meeting notes', enabled: false, kind: 'cleanup', target: '', sources: ['single'] });
   expect(savedCleanup[0].id).toMatch(/^[0-9a-f-]{36}$/);
   await screen.findByText(/Automatic AI rules saved/);
+  expect((screen.getByLabelText('Rule name') as HTMLInputElement).value).toBe('Meeting notes');
+  expect(screen.queryByText('Unsaved rule changes')).toBeNull();
 
   fireEvent.change(screen.getByLabelText('Rule task'), { target: { value: 'custom' } });
   expect(screen.getByLabelText('Rule target language')).toBeTruthy();
@@ -160,7 +162,7 @@ it('keeps configuration disabled during background work and pauses cancellation 
   expect(pause.disabled).toBe(false);
   fireEvent.click(pause);
   await waitFor(() => expect(mocks.pause).toHaveBeenCalledWith(true));
-  await screen.findByText(/Automatic AI paused\. Running tasks were cancelled/);
+  await screen.findByText(/Automatic AI paused\. Running work is cancelling/);
   expect(screen.getAllByText(/resume automation above/).length).toBeGreaterThan(0);
   expect(screen.getByText(/Running tasks cannot be cancelled individually/)).toBeTruthy();
 });
@@ -217,4 +219,19 @@ it('configures a loopback local model without connecting on open or save', async
   await screen.findByText('Installed local models loaded.');
   fireEvent.click(screen.getByRole('button', { name: 'Use qwen2.5:1.5b' }));
   expect((screen.getByLabelText('Installed local model') as HTMLInputElement).value).toBe('qwen2.5:1.5b');
+});
+
+it('clears hidden custom instructions when changing to a standard task',async()=>{
+  state.rules=[rule({kind:'custom',prompt:'Translate to French'})];render(<AiAutomation {...props()}/>);
+  await screen.findByDisplayValue('Saved summary');
+  fireEvent.change(screen.getByLabelText('Rule task'),{target:{value:'summary'}});
+  fireEvent.click(screen.getByRole('button',{name:'Save automatic AI rules'}));
+  await waitFor(()=>expect(mocks.configureRules).toHaveBeenCalled());
+  expect(mocks.configureRules.mock.calls[0][0][0].prompt).toBe('');
+});
+
+it('requires an explicit target for automatic translation',async()=>{
+  state.rules=[rule({kind:'translate',target:''})];render(<AiAutomation {...props()}/>);await screen.findByDisplayValue('Saved summary');
+  fireEvent.click(screen.getByRole('button',{name:'Save automatic AI rules'}));expect((await screen.findByRole('alert')).textContent).toContain('enter a target language');expect(mocks.configureRules).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Rule target language'),{target:{value:'Ukrainian'}});fireEvent.click(screen.getByRole('button',{name:'Save automatic AI rules'}));await waitFor(()=>expect(mocks.configureRules).toHaveBeenCalled());expect(mocks.configureRules.mock.calls[0][0][0]).toMatchObject({kind:'translate',target:'Ukrainian',prompt:''});
 });

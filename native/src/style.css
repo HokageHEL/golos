@@ -1156,3 +1156,6 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 .ai-output { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; border: 1px solid var(--border); border-radius: 10px; max-height: 420px; overflow-y: auto; }
 .ai-result { min-width: 0; }
 .ai-result details p { overflow-wrap: anywhere; }
+
+.ai-automation .rule-enabled { display: flex; align-items: center; gap: 8px; }
+.ai-automation input[type=checkbox] { width: auto; justify-self: start; flex-shrink: 0; }

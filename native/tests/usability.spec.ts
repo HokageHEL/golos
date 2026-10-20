@@ -173,9 +173,9 @@ test('automatic local AI rules are opt-in, saved explicitly and pause queued wor
   await automation.getByRole('button', { name: 'Refresh installed models', exact: true }).click();
   await expect(automation.getByText('Installed local models loaded.', { exact: true })).toBeVisible();
   await automation.getByRole('button', { name: 'Cancel automatic AI and pause', exact: true }).click();
-  await expect(automation.getByText(/Automatic AI paused\. Running tasks were cancelled/)).toBeVisible();
+  await expect(automation.getByText(/Automatic AI paused\. Running work is cancelling/)).toBeVisible();
   await expect(automation.getByText(/resume automation above/).first()).toBeVisible();
-  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('skipped');
+  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('queued');
   await page.setViewportSize({ width: 760, height: 560 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await automation.getByRole('heading', { name: 'Automatic AI rules', exact: true }).scrollIntoViewIfNeeded();

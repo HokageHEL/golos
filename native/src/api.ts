@@ -78,7 +78,7 @@ export const api = {
 
 export type AiSettings = { port: number; model: string; contextWindow: number };
 export type AiAutomationSource = 'single' | 'batch' | 'watch';
-export type AiAutomationKind = 'cleanup' | 'summary' | 'actions' | 'custom';
+export type AiAutomationKind = 'cleanup' | 'summary' | 'actions' | 'translate' | 'custom';
 export type AiAutomationRule = {
   id: string; name: string; enabled: boolean; kind: AiAutomationKind;
   target: string; prompt: string; sources: AiAutomationSource[];

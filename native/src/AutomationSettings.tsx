@@ -44,7 +44,7 @@ export default function AutomationSettings({languages,busy,background,onOperatio
         <p className="muted">Exports use saved transcript content and paragraph timestamps. Paused automation leaves export tasks pending. Re-exporting a changed saved transcript creates new files; identical results are not duplicated. Use Markdown to save directly into a local notes vault.</p>
         <ul className="batch-jobs" aria-label="Export tasks">{view?.exports.map(task=><li key={task.noteId}><div><strong>{task.title}</strong><span>{task.status}</span>{task.error&&<p className="error-text">{task.error}</p>}</div></li>)}</ul>
       </section>
-      <AiAutomation busy={busy} background={background} paused={Boolean(view?.settings.paused)} onOperation={onOperation}/>
+      <AiAutomation busy={busy} background={background} paused={Boolean(view?.settings.paused)} onPaused={()=>setView(current=>current?{...current,settings:{...current.settings,paused:true}}:current)} onOperation={onOperation}/>
     </div>
   </dialog>;
 }

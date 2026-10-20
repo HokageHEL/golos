@@ -8,6 +8,7 @@ use crate::{
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     sync::atomic::Ordering,
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS ai_automation_tasks(
  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
  rule_id TEXT NOT NULL,
  rule_name TEXT NOT NULL,
+ rule_hash TEXT NOT NULL DEFAULT '',
  kind TEXT NOT NULL,
  target TEXT NOT NULL,
  prompt TEXT NOT NULL,
@@ -49,7 +51,7 @@ CREATE TABLE IF NOT EXISTS ai_automation_tasks(
  result_id TEXT,
  created_at INTEGER NOT NULL,
  updated_at INTEGER NOT NULL,
- UNIQUE(note_id,source_hash,rule_id,model,port,context_window)
+ UNIQUE(note_id,source_hash,rule_id,rule_hash,model,port,context_window)
 );
 CREATE INDEX IF NOT EXISTS ai_automation_tasks_pending ON ai_automation_tasks(status,created_at,id);
 CREATE INDEX IF NOT EXISTS ai_automation_tasks_note ON ai_automation_tasks(note_id,created_at DESC);
@@ -57,10 +59,12 @@ CREATE TRIGGER IF NOT EXISTS ai_automation_note_cleanup AFTER DELETE ON notes BE
  DELETE FROM ai_automation_tasks WHERE note_id=old.id;
 END;
 ";
-const KINDS: &[&str] = &["cleanup", "summary", "actions", "custom"];
+const KINDS: &[&str] = &["cleanup", "summary", "actions", "translate", "custom"];
 const SOURCES: &[&str] = &["single", "batch", "watch"];
 const TASK_LIMIT: usize = 100;
 const SOURCE_LIMIT: usize = 2_000_000;
+const PENDING_LIMIT: i64 = 1000;
+const PENDING_BYTES: i64 = 64_000_000;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Rule {
@@ -144,6 +148,12 @@ pub fn normalized(mut rules: Vec<Rule>) -> Result<Vec<Rule>, String> {
         } else {
             rule.target = rule.target.trim().into();
         }
+        if rule.kind == "translate" && rule.target.trim().is_empty() {
+            return Err("Automatic translation requires an explicit target language.".into());
+        }
+        if rule.kind != "custom" {
+            rule.prompt.clear();
+        }
         if rule.kind == "custom" && rule.prompt.trim().is_empty() {
             return Err("Custom rules require a prompt.".into());
         }
@@ -225,7 +235,7 @@ pub fn rules(db: &Connection) -> Result<Vec<Rule>, String> {
         .map_err(|e| e.to_string())
 }
 pub fn tasks(db: &Connection) -> Result<Vec<Task>, String> {
-    db.prepare("SELECT t.id,t.note_id,COALESCE(n.title,''),t.kind,t.rule_name,t.status,t.error,t.result_id,t.model,t.source FROM ai_automation_tasks t LEFT JOIN notes n ON n.id=t.note_id ORDER BY t.rowid DESC LIMIT ?1")
+    db.prepare("SELECT t.id,t.note_id,COALESCE(n.title,''),t.kind,t.rule_name,t.status,t.error,t.result_id,t.model,t.source FROM ai_automation_tasks t LEFT JOIN notes n ON n.id=t.note_id ORDER BY CASE t.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,CASE WHEN t.status IN ('running','queued') THEN t.rowid END,t.updated_at DESC,t.rowid DESC LIMIT ?1")
         .map_err(|e| e.to_string())?
         .query_map([TASK_LIMIT as i64], |row| {
             Ok(Task {
@@ -277,6 +287,13 @@ fn schedule(db: &Connection, note_id: &str, source: &str) -> Result<usize, Strin
     if !SOURCES.contains(&source) {
         return Err("Unsupported automatic transcription source.".into());
     }
+    let matching: Vec<Rule> = rules(db)?
+        .into_iter()
+        .filter(|rule| rule.enabled && rule.sources.iter().any(|item| item == source))
+        .collect();
+    if matching.is_empty() {
+        return Ok(0);
+    }
     let note: Option<(String, String)> = db
         .query_row(
             "SELECT status,segments FROM notes WHERE id=?1",
@@ -300,20 +317,19 @@ fn schedule(db: &Connection, note_id: &str, source: &str) -> Result<usize, Strin
         return Ok(0);
     }
     let source_hash = ai::hash(&segments)?;
-    let matching: Vec<Rule> = rules(db)?
-        .into_iter()
-        .filter(|rule| rule.enabled && rule.sources.iter().any(|item| item == source))
-        .collect();
-    if matching.is_empty() {
-        return Ok(0);
-    }
     let settings = model_settings(db)?;
     let at = now();
     let mut queued = 0;
     for rule in matching {
+        let rule_hash=format!("{:x}",Sha256::digest(serde_json::to_vec(&serde_json::json!({"v":1,"kind":rule.kind,"target":rule.target,"prompt":rule.prompt})).map_err(|e|e.to_string())?));
+        let duplicate:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM ai_automation_tasks WHERE note_id=?1 AND source_hash=?2 AND rule_id=?3 AND rule_hash=?4 AND model=?5 AND port=?6 AND context_window=?7)",params![note_id,source_hash,rule.id,rule_hash,settings.model,settings.port,settings.context_window],|row|row.get(0)).map_err(|e|e.to_string())?;
+        if duplicate {
+            continue;
+        }
+        pending_capacity(db, (source_json.len() + rule.prompt.len()) as i64)?;
         let inserted = db
             .execute(
-                "INSERT OR IGNORE INTO ai_automation_tasks(id,note_id,rule_id,rule_name,kind,target,prompt,source,source_language,source_hash,segments,model,port,context_window,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'auto',?9,?10,?11,?12,?13,'queued',?14,?14)",
+                "INSERT OR IGNORE INTO ai_automation_tasks(id,note_id,rule_id,rule_name,kind,target,prompt,source,source_language,source_hash,segments,model,port,context_window,status,created_at,updated_at,rule_hash) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'auto',?9,?10,?11,?12,?13,'queued',?14,?14,?15)",
                 params![
                     uuid::Uuid::new_v4().to_string(),
                     note_id,
@@ -328,7 +344,7 @@ fn schedule(db: &Connection, note_id: &str, source: &str) -> Result<usize, Strin
                     settings.model,
                     settings.port,
                     settings.context_window,
-                    at
+                    at,rule_hash
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -337,11 +353,18 @@ fn schedule(db: &Connection, note_id: &str, source: &str) -> Result<usize, Strin
     prune(db)?;
     Ok(queued)
 }
+fn pending_capacity(db: &Connection, additional: i64) -> Result<(), String> {
+    let(count,bytes):(i64,i64)=db.query_row("SELECT COUNT(*),COALESCE(SUM(length(CAST(segments AS BLOB))+length(CAST(prompt AS BLOB))),0) FROM ai_automation_tasks WHERE status IN ('queued','running')",[],|row|Ok((row.get(0)?,row.get(1)?))).map_err(|e|e.to_string())?;
+    if count >= PENDING_LIMIT || bytes + additional > PENDING_BYTES {
+        return Err("Automatic AI queue is full (1,000 pending tasks / 64 MB of snapshots). Finish or remove pending work; the transcript was saved. Use Local AI & translation to generate a result manually.".into());
+    }
+    Ok(())
+}
 fn prune(db: &Connection) -> Result<(), String> {
-    // Keep every pending/running task and the 100 most recent task rows. Finished
+    // Keep every pending/running task and the 100 most recently finished tasks. Finished
     // metadata may be pruned; ai_results and their generated text are untouched.
     db.execute(
-        "DELETE FROM ai_automation_tasks WHERE status IN ('done','failed','cancelled','skipped') AND rowid NOT IN (SELECT rowid FROM ai_automation_tasks ORDER BY rowid DESC LIMIT ?1)",
+        "DELETE FROM ai_automation_tasks WHERE status IN ('done','failed','cancelled','skipped') AND rowid NOT IN (SELECT rowid FROM ai_automation_tasks WHERE status IN ('done','failed','cancelled','skipped') ORDER BY updated_at DESC,rowid DESC LIMIT ?1)",
         [TASK_LIMIT as i64],
     )
     .map_err(|e| e.to_string())?;
@@ -470,6 +493,10 @@ pub fn prepare_next(db: &Connection) -> Result<Option<Run>, String> {
                 continue;
             }
         };
+        if ai::hash(&segments)? != pending.source_hash {
+            skip(&tx,&pending.id,"The captured source checksum is invalid; this task was skipped. Your saved transcript is unchanged.")?;
+            continue;
+        }
         let (Ok(port), Ok(context_window)) = (
             u16::try_from(pending.port),
             u32::try_from(pending.context_window),
@@ -587,6 +614,9 @@ pub fn fail(
 /// Restart recovery: interrupted work becomes failed and retryable, while
 /// pending queued tasks stay durable for the scheduler.
 pub fn recover(db: &Connection) -> Result<(), String> {
+    // Generic AI recovery runs first. Restore automatic provenance on its
+    // interrupted result, including when the last chunk checkpoint was untitled.
+    db.execute("UPDATE ai_results SET phase='Automatic '||(SELECT t.rule_name FROM ai_automation_tasks t WHERE t.result_id=ai_results.id AND t.status='running' LIMIT 1)||' · Interrupted' WHERE status='failed' AND phase='Interrupted' AND id IN (SELECT result_id FROM ai_automation_tasks WHERE status='running')",[]).map_err(|e|e.to_string())?;
     db.execute(
         "UPDATE ai_automation_tasks SET status='failed',error='Automatic local AI was interrupted. Retry this task; queued tasks remain pending.',updated_at=?1 WHERE status='running'",
         [now()],
@@ -632,6 +662,8 @@ pub fn action(db: &Connection, id: &str, action: &str) -> Result<(), String> {
             if current_hash != source_hash {
                 return Err("This task captured an older transcript. Retry is refused; run the rule again on the current transcript so the result is clearly based on what you see.".into());
             }
+            let bytes:i64=db.query_row("SELECT length(CAST(segments AS BLOB))+length(CAST(prompt AS BLOB)) FROM ai_automation_tasks WHERE id=?1",[id],|row|row.get(0)).map_err(|e|e.to_string())?;
+            pending_capacity(db, bytes)?;
             db.execute(
                 "UPDATE ai_automation_tasks SET status='queued',error=NULL,result_id=NULL,updated_at=?2 WHERE id=?1 AND status IN ('failed','cancelled','skipped')",
                 params![id, now()],
@@ -744,6 +776,184 @@ mod tests {
             sources: sources.iter().map(|item| item.to_string()).collect(),
         }
     }
+    #[tokio::test]
+    #[ignore = "Requires public Whisper/audio fixtures and a cloud-disabled local Ollama"]
+    async fn real_whisper_to_automatic_ai_and_backup() {
+        let model_path = std::env::var("GOLOS_TEST_MODEL").unwrap();
+        let audio_path = std::env::var("GOLOS_TEST_AUDIO").unwrap();
+        let port: u16 = std::env::var("GOLOS_TEST_OLLAMA_PORT")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let local_model = std::env::var("GOLOS_TEST_OLLAMA_MODEL").unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "golos-auto-ai-integration-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("audio")).unwrap();
+        let db = Connection::open_in_memory().unwrap();
+        library::init(&db, std::path::Path::new("in-memory")).unwrap();
+        let samples = crate::audio::read_audio(std::path::Path::new(&audio_path)).unwrap();
+        let note = library::Note {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "Public JFK fixture".into(),
+            created_at: 1,
+            duration_seconds: samples.len() as f64 / 16000.,
+            status: "ready".into(),
+            segments: vec![],
+            error: None,
+            folder: "Test".into(),
+            tags: vec![],
+        };
+        library::insert(&db, &note).unwrap();
+        ai::configure(
+            &db,
+            &ai::Settings {
+                port,
+                model: local_model.clone(),
+                context_window: 16384,
+            },
+        )
+        .unwrap();
+        let mut cleanup = sample("Local cleanup", "cleanup", true, &["batch"]);
+        cleanup.target.clear();
+        let summary = sample("Local summary", "summary", true, &["batch"]);
+        let mut translated = sample("Local translation", "translate", true, &["batch"]);
+        translated.target = "Ukrainian".into();
+        configure(&db, vec![cleanup, summary, translated]).unwrap();
+        crate::jobs::enqueue(&db, &note.id, "en").unwrap();
+        crate::jobs::next(&db).unwrap();
+        let transcript = crate::engine::transcribe(
+            std::path::Path::new(&model_path),
+            std::path::Path::new(&audio_path),
+            "en",
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            |_| {},
+        )
+        .unwrap();
+        assert!(
+            crate::jobs::finish(&db, &note.id, &Ok(transcript.clone()), false)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(tasks(&db).unwrap().len(), 3);
+        let client = local_ai::Client::new(port).unwrap();
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let model = client.inspect(&local_model, &cancel).await.unwrap();
+        let mut generated = vec![];
+        while let Some(run) = prepare_next(&db).unwrap() {
+            let mut work = run.work;
+            crate::ai_generation::generate(&mut work, &client, &model, "", &cancel, |work| {
+                ai::checkpoint(&db, work)
+            })
+            .await
+            .unwrap();
+            assert!(!work.content.trim().is_empty());
+            if ["cleanup", "translate"].contains(&work.kind.as_str()) {
+                assert_eq!(work.segments.len(), transcript.len());
+                for (a, b) in work.segments.iter().zip(&transcript) {
+                    assert_eq!(
+                        (a.start_ms, a.end_ms, &a.speaker),
+                        (b.start_ms, b.end_ms, &b.speaker)
+                    );
+                }
+            }
+            work.status = "done".into();
+            work.phase = format!("Automatic {} · Complete", run.rule_name);
+            ai::checkpoint(&db, &work).unwrap();
+            finish(&db, &run.task_id, &work).unwrap();
+            generated.push(work);
+        }
+        assert!(tasks(&db).unwrap().iter().all(|task| task.status == "done"));
+        assert_eq!(
+            ai::hash(&library::get(&db, &note.id).unwrap().segments).unwrap(),
+            ai::hash(&transcript).unwrap()
+        );
+        let saved = library::get(&db, &note.id).unwrap();
+        let project = root.join("test.golos");
+        crate::project::export(&project, std::path::Path::new(&audio_path), &saved, &db).unwrap();
+        let restored = crate::project::import(&project, &root, &db).unwrap();
+        assert_eq!(ai::list(&db, &restored.id).unwrap().len(), 3);
+        assert!(ai::list(&db, &restored.id)
+            .unwrap()
+            .iter()
+            .all(|result| result.phase.starts_with("Automatic ")));
+        assert_eq!(tasks(&db).unwrap().len(), 3);
+        println!("Real Whisper → queued automatic cleanup + summary + translation → saved separate results → portable restore passed ({} results); originals unchanged",generated.len());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn semantic_rule_changes_deduplicate_independently_and_snapshots_are_verified() {
+        let db = fixture();
+        let mut rule = sample("Summary", "summary", true, &["single"]);
+        configure(&db, vec![rule.clone()]).unwrap();
+        assert_eq!(schedule_atomic(&db, "source", "single").unwrap(), 1);
+        assert_eq!(schedule_atomic(&db, "source", "single").unwrap(), 0);
+        rule.name = "Renamed".into();
+        configure(&db, vec![rule.clone()]).unwrap();
+        assert_eq!(schedule_atomic(&db, "source", "single").unwrap(), 0);
+        rule.kind = "custom".into();
+        rule.prompt = "List decisions".into();
+        configure(&db, vec![rule]).unwrap();
+        assert_eq!(schedule_atomic(&db, "source", "single").unwrap(), 1);
+        db.execute("UPDATE ai_automation_tasks SET segments='[]'", [])
+            .unwrap();
+        assert!(prepare_next(&db).unwrap().is_none());
+        assert!(tasks(&db)
+            .unwrap()
+            .iter()
+            .all(|task| task.status == "skipped"
+                && task.error.as_ref().unwrap().contains("checksum")));
+        assert!(ai::list(&db, "source").unwrap().is_empty());
+    }
+    #[test]
+    fn pending_queue_budget_failure_rolls_back_scheduling_and_preserves_source() {
+        let db = fixture();
+        let rule = sample("Summary", "summary", true, &["single"]);
+        configure(&db, vec![rule]).unwrap();
+        assert!(pending_capacity(&db, PENDING_BYTES + 1).is_err());
+        schedule_atomic(&db, "source", "single").unwrap();
+        let source_bytes: i64 = db
+            .query_row(
+                "SELECT length(CAST(segments AS BLOB)) FROM notes WHERE id='source'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db.execute(
+            "UPDATE ai_automation_tasks SET segments=zeroblob(?1)",
+            [PENDING_BYTES - source_bytes - 1],
+        )
+        .unwrap();
+        crate::ai::configure(
+            &db,
+            &ai::Settings {
+                model: "another:latest".into(),
+                port: 11434,
+                context_window: 8192,
+            },
+        )
+        .unwrap();
+        let mut existing = rules(&db).unwrap().remove(0);
+        existing.sources = vec!["watch".into()];
+        configure(
+            &db,
+            vec![
+                existing,
+                sample("New summary", "summary", true, &["single"]),
+                sample("New actions", "actions", true, &["single"]),
+            ],
+        )
+        .unwrap();
+        assert!(schedule_atomic(&db, "source", "single")
+            .unwrap_err()
+            .contains("queue is full"));
+        assert_eq!(tasks(&db).unwrap().len(), 1);
+        assert_eq!(
+            library::get(&db, "source").unwrap().segments[0].text,
+            "We agreed to ship on Friday."
+        );
+    }
     #[test]
     fn rules_validate_normalize_scope_and_remain_off_by_default() {
         let db = fixture();
@@ -768,6 +978,8 @@ mod tests {
         assert!(normalized(vec![invalid]).is_err());
         invalid = sample("x", "summary", true, &["single"]);
         invalid.kind = "translate".into();
+        assert!(normalized(vec![invalid.clone()]).is_err());
+        invalid.kind = "unknown".into();
         assert!(normalized(vec![invalid]).is_err());
         let many: Vec<Rule> = (0..11)
             .map(|_| sample("x", "summary", true, &["single"]))
@@ -893,6 +1105,10 @@ mod tests {
         );
         crate::ai::recover(&db).unwrap();
         recover(&db).unwrap();
+        assert_eq!(
+            ai::get(&db, &first_result).unwrap().phase,
+            "Automatic summary · Interrupted"
+        );
         let task = tasks(&db).unwrap()[0].clone();
         assert_eq!(task.status, "failed");
         assert!(task.error.unwrap().contains("interrupted"));

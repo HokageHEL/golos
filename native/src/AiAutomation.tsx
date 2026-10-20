@@ -9,6 +9,7 @@ type Props = {
   background: string | null;
   paused: boolean;
   onOperation: (label: string, task: () => Promise<void>) => Promise<void>;
+  onPaused?: () => void;
 };
 
 const maxRules = 10;
@@ -17,6 +18,7 @@ const kindOptions: [AiAutomationRule['kind'], string][] = [
   ['summary', 'Summary'],
   ['actions', 'Action points'],
   ['cleanup', 'Clean up transcript'],
+  ['translate', 'Translate transcript'],
   ['custom', 'Custom prompt'],
 ];
 const sourceOptions: [AiAutomationSource, string][] = [
@@ -45,6 +47,7 @@ function validate(rules: AiAutomationRule[]): string | null {
     if (rule.sources.some(source => !sourceOptions.some(([value]) => value === source))) return `${label}: remove the unknown source.`;
     if (byteLength(rule.target.trim()) > 80) return `${label}: keep the target language to 80 bytes or fewer.`;
     if (byteLength(rule.prompt) > 4000) return `${label}: keep the custom prompt to 4,000 bytes or fewer.`;
+    if (rule.kind === 'translate' && !rule.target.trim()) return `${label}: enter a target language for translation.`;
     if (rule.kind === 'custom' && !rule.prompt.trim()) return `${label}: enter a custom prompt.`;
   }
   return null;
@@ -54,12 +57,12 @@ function normalize(rule: AiAutomationRule): AiAutomationRule {
     ...rule,
     name: rule.name.trim(),
     target: rule.kind === 'cleanup' ? '' : rule.target.trim(),
-    prompt: rule.prompt.trim(),
+    prompt: rule.kind==='custom'?rule.prompt.trim():'',
     sources: [...rule.sources],
   };
 }
 
-export default function AiAutomation({ busy, background, paused, onOperation }: Props) {
+export default function AiAutomation({ busy, background, paused, onOperation,onPaused }: Props) {
   const [view, setView] = useState<AiAutomationView | null>(null);
   const [rules, setRules] = useState<AiAutomationRule[]>([]);
   const [tasks, setTasks] = useState<AiAutomationTask[]>([]);
@@ -122,6 +125,7 @@ export default function AiAutomation({ busy, background, paused, onOperation }: 
       if (rule.id !== id) return rule;
       const next = { ...rule, ...patch };
       if (next.kind === 'cleanup') next.target = '';
+      if (patch.kind && patch.kind !== 'custom') next.prompt = '';
       return next;
     }));
   }
@@ -133,7 +137,8 @@ export default function AiAutomation({ busy, background, paused, onOperation }: 
     if (problem) { setMessage(null); setError(problem); return; }
     await run('Saving automatic AI rules', async () => {
       await api.aiAutomationConfigure(rules.map(normalize));
-      await reload();
+      const saved=await api.aiAutomation();
+      setView(saved);setTasks(saved.tasks);setRules(cloneRules(saved.rules));
       setMessage('Automatic AI rules saved. They apply to future transcriptions only; saved edits are not backfilled or changed.');
     });
   }
@@ -158,8 +163,9 @@ export default function AiAutomation({ busy, background, paused, onOperation }: 
   async function pauseAutomatic() {
     await run('Pausing automatic AI', async () => {
       await api.pauseAutomation(true);
+      onPaused?.();
       await reload();
-      setMessage('Automatic AI paused. Running tasks were cancelled and queued rule work is skipped until you resume automation above.');
+      setMessage('Automatic AI paused. Running work is cancelling; queued rule work waits until you resume automation above.');
     });
   }
   async function taskAction(task: AiAutomationTask, action: 'retry' | 'skip' | 'remove') {
@@ -182,22 +188,22 @@ export default function AiAutomation({ busy, background, paused, onOperation }: 
     {!view&&!loadError&&<p role="status">Loading automatic AI settings…</p>}
     {view&&<>
       <h3>Rules</h3>
-      <p className="muted">Saved rules run only after new transcriptions that match their sources. They never backfill existing recordings, change saved transcript edits or overwrite a transcript. Disabling a saved rule stops future matches; queued work for that rule is skipped rather than run later. Review generated text for accuracy.</p>
+      <p className="muted">Saved rules run only after new transcriptions that match their sources. They never backfill existing recordings, change saved transcript edits or overwrite a transcript. Disabling or deleting a saved rule stops future matches; queued work for that rule is skipped rather than run later. Review generated text for accuracy.</p>
       <div className="editor-tools"><button className="primary" disabled={locked||rules.length>=maxRules} onClick={()=>{setError(null);setMessage(null);setRules(current=>[...current,newRule()]);}}>Add automatic rule</button><span>{rules.length} of {maxRules} rules</span>{rulesDirty&&<span role="status">Unsaved rule changes</span>}</div>
       {!rules.length&&<p>No rules are configured. Automatic AI is off, so future transcriptions never run local AI unless you add and save a rule.</p>}
       {rules.length>0&&rules.every(rule=>!rule.enabled)&&<p className="muted">All rules are disabled, so automatic AI stays off until you enable and save a rule.</p>}
       {rules.map((rule,index)=><article className="ai-automation-rule" key={rule.id} aria-label={`Automatic rule ${index+1}`}>
         <div className="editor-tools"><strong>{rule.name.trim()||`Rule ${index+1}`}</strong><button className="text-button" disabled={locked} aria-label={`Delete rule ${index+1}`} onClick={()=>setRules(current=>current.filter(item=>item.id!==rule.id))}>Delete rule</button></div>
         <label>Rule name<input aria-label="Rule name" value={rule.name} maxLength={100} disabled={locked} placeholder="e.g. Meeting notes" onChange={event=>updateRule(rule.id,{name:event.target.value})}/></label>
-        <label><input type="checkbox" aria-label={`Enable rule ${index+1}`} checked={rule.enabled} disabled={locked} onChange={event=>updateRule(rule.id,{enabled:event.target.checked})}/> Enabled for future transcriptions</label>
+        <label className="rule-enabled"><input type="checkbox" aria-label={`Enable rule ${index+1}`} checked={rule.enabled} disabled={locked} onChange={event=>updateRule(rule.id,{enabled:event.target.checked})}/> Enabled for future transcriptions</label>
         <label>Task<select aria-label="Rule task" value={rule.kind} disabled={locked} onChange={event=>updateRule(rule.id,{kind:event.target.value as AiAutomationRule['kind']})}>{kindOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
-        {rule.kind==='cleanup'?<p className="muted">Cleanup always preserves the source language. Translate automatically only with a separate custom rule that asks for it explicitly.</p>:<label>Target language<input aria-label="Rule target language" value={rule.target} maxLength={80} disabled={locked} placeholder="Optional; empty keeps the source language" onChange={event=>updateRule(rule.id,{target:event.target.value})}/></label>}
+        {rule.kind==='cleanup'?<p className="muted">Cleanup always preserves the source language. Use a separate Translate transcript rule with an explicit target language for automatic translation.</p>:<label>Target language<input aria-label="Rule target language" value={rule.target} maxLength={80} disabled={locked} placeholder={rule.kind==='translate'?'Required for translation':'Optional; empty keeps the source language'} onChange={event=>updateRule(rule.id,{target:event.target.value})}/></label>}
         {rule.kind==='custom'&&<label>Custom prompt<textarea aria-label="Rule custom prompt" value={rule.prompt} maxLength={4000} rows={3} disabled={locked} placeholder="Describe exactly what the local model should produce." onChange={event=>updateRule(rule.id,{prompt:event.target.value})}/></label>}
         <fieldset className="rule-sources"><legend>Run after</legend>{sourceOptions.map(([value,label])=><label key={value}><input type="checkbox" checked={rule.sources.includes(value)} disabled={locked} onChange={event=>toggleSource(rule,value,event.target.checked)}/> {label}</label>)}</fieldset>
         <p className="muted">Single recording: a finished, saved transcript. Manual batch: only recordings you add to the batch queue. Watched folders: imported transcripts from watched folders.</p>
       </article>)}
       <div className="editor-tools"><button className="primary" disabled={locked} onClick={()=>{void saveRules();}}>Save automatic AI rules</button>{rulesDirty&&<button className="secondary" disabled={locked} onClick={()=>{setRules(cloneRules(view.rules));setError(null);setMessage(null);}}>Discard rule changes</button>}</div>
-      <p className="muted">Saving rules applies them to future transcriptions only, never to saved edits, existing results or earlier recordings. Queued work is skipped while automation is paused.</p>
+      <p className="muted">Saving rules applies them to future transcriptions only, never to saved edits, existing results or earlier recordings. Queued work waits while automation is paused.</p>
 
       <h3>Local model for automatic AI</h3>
       <p>Install Ollama and a local instruct model separately. Start it with <code>OLLAMA_NO_CLOUD=1</code> on the loopback interface: <code>OLLAMA_NO_CLOUD=1 ollama serve</code>. Golos only connects to a local service on 127.0.0.1, never pulls models and accepts no cloud endpoints or API keys.</p>
@@ -208,12 +214,12 @@ export default function AiAutomation({ busy, background, paused, onOperation }: 
       <label>Context window<select aria-label="Context window" value={settings.contextWindow} disabled={locked} onChange={event=>setSettings(current=>({...current,contextWindow:Number(event.target.value)}))}>{[8192,16384,32768].map(size=><option key={size} value={size}>{size.toLocaleString()} tokens</option>)}</select></label>
       <ul className="ai-models">{models.map(model=><li key={model.name}>{model.name} · {(model.size/1e9).toFixed(2)} GB on disk <button className="text-button" disabled={locked} onClick={()=>setSettings(current=>({...current,model:model.name}))}>Use {model.name}</button></li>)}</ul>
       <div className="editor-tools"><button className="secondary" disabled={locked||!validPort||!settings.model.trim()} onClick={()=>{void saveModel();}}>Save local model settings</button><span className="muted">Opening this section or saving settings does not connect to Ollama.</span></div>
-      <p className="muted">Changing model settings never changes queued jobs; each task keeps the model captured when it was queued. Larger contexts use more memory.</p>
+      <p className="muted">Changing rule prompts, targets or sources affects future jobs; queued jobs keep their captured rule. Disable a saved rule or skip its queued tasks to stop them. Changing model settings never changes queued jobs; each task keeps the model captured when it was queued. Larger contexts use more memory. Restart an existing Ollama service after enabling cloud-disabled mode.</p>
 
       <h3>Recent automatic tasks</h3>
-      <p className="muted">Up to 100 recent tasks from this device. Queued work is skipped while automation is paused; retry captures the source again.</p>
+      <p className="muted">Up to 100 tasks, with running and oldest queued work first. Finished task metadata is pruned; saved results stay available. Queued work waits while automation is paused; retry uses the captured source and model settings.</p>
       <div className="editor-tools"><button className="secondary" disabled={!!busy||effectivePaused} onClick={()=>{void pauseAutomatic();}}>Cancel automatic AI and pause</button><span role="status">{effectivePaused?'Automatic AI paused':'Automatic AI follows saved rules'}</span></div>
-      {effectivePaused?<p className="unsaved" role="status">Automatic AI is paused. Running tasks were cancelled and queued rule work is skipped. Use Resume automation above to allow future rules to run.</p>:<p className="muted">Pausing cancels all running automatic tasks and leaves queued rule work skipped until you resume automation above. Running tasks cannot be cancelled individually.</p>}
+      {effectivePaused?<p className="unsaved" role="status">Automatic AI is paused. Running work is cancelling or stopped; queued rule work waits. Use Resume automation above to run queued and future work.</p>:<p className="muted">Global pause also pauses watched folders and local exports. It cancels the running background operation and leaves queued rule work waiting until you resume automation above. Running tasks cannot be cancelled individually.</p>}
       {view.label&&<p role="status">{view.label}</p>}
       {tasks.some(task=>task.status==='running')&&<p className="unsaved" role="status">A task is running. Use Cancel automatic AI and pause to stop it; the next queued task will not start until you resume automation above.</p>}
       <ul className="batch-jobs" aria-label="Recent automatic tasks">{tasks.map(task=><li key={task.id}>

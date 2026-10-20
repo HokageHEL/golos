@@ -75,9 +75,7 @@ deadline and a Cancel control. Native Whisper remains independent of the service
   source snapshot plus generated text to SQLite. Delete unwanted results to reclaim
   space; deleting a recording removes its associated results.
 
-This milestone implements manual cleanup only. Automatic post-transcription AI
-rules, automatic summaries, prompt presets and other local providers remain
-separate parity work. It does not implement live transcription.
+Manual cleanup remains available. Optional [automatic local AI rules](AUTOMATIC_AI.md) now add post-transcription cleanup, summaries, translation and custom prompts as separate results. Other local providers and richer prompt preset management remain parity work. It does not implement live transcription.
 
 ## Bounds, exports and backup compatibility
 
@@ -95,7 +93,7 @@ metadata. JSON summaries omit internal identifiers and captured source snapshots
 Generated text is rendered as plain text, not executable HTML. Copy uses the
 system clipboard only when requested.
 
-Schema **5** adds local settings/results in a transaction, following the existing
+Schema **5** introduced local settings/results; schema **6** adds optional automatic rules/tasks. Upgrades remain transactional, following the existing
 verified pre-upgrade SQLite backup. Older library migrations remain tested. Newer
 unknown schemas are refused. `.golos` version **2** includes AI results/snapshots;
 version 1 remains importable, and projects without AI stay version 1. Old builds

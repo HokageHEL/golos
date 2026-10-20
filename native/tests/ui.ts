@@ -66,7 +66,7 @@ mockIPC((command, payload = {}) => {
       automation.settings.paused = Boolean(args.paused);
       if (args.paused) aiAutomationTasks = aiAutomationTasks.map(task => task.status === 'running'
         ? { ...task, status: 'cancelled', error: 'Cancelled by pause automation.' }
-        : task.status === 'queued' ? { ...task, status: 'skipped', error: null } : task);
+        : task);
       return;
     case 'choose_export_folder': automation.settings.exportDirectory = '/mock/exports'; return true;
     case 'configure_exports': automation.settings.exportEnabled = Boolean(args.enabled); automation.settings.exportFormats = args.formats as string[]; return;
