@@ -1111,3 +1111,19 @@ input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focu
 .capture-timer { font-size: 36px; font-variant-numeric: tabular-nums; margin: 12px 0; }
 .capture-card .actions { margin-top: 16px; }
 .welcome-actions { justify-content: center; }
+
+.library-filters { display: grid; gap: 8px; padding: 0 16px 12px; }
+.library-filters input, .library-filters select { width: 100%; min-width: 0; }
+.organization { display: grid; gap: 10px; padding: 16px 0; }
+.organization label { display: grid; gap: 4px; }
+.editor-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.sidebar { overflow-y: auto; }
+.sidebar > * { flex-shrink: 0; }
+.recordings { min-height: 120px; flex-shrink: 1; }
+.editor-toolbar { flex-wrap: wrap; gap: 12px; }
+.editor-toolbar .actions { flex-wrap: wrap; }
+input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+/* Long native source names must wrap inside the sidebar, not widen its grid. */
+.library-filters { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.library-filters > label { display: grid; gap: 6px; min-width: 0; }
+.library-filters button { white-space: normal; overflow-wrap: anywhere; }

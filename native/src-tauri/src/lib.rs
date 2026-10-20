@@ -1,11 +1,16 @@
 mod audio;
+#[cfg(any(target_os = "macos", test))]
+mod capture;
 mod diarize;
+mod docx;
+mod download;
 mod engine;
 mod import;
 mod library;
 mod migrations;
 mod model;
 mod onnx_metadata;
+mod project;
 mod recording;
 mod speaker_models;
 
@@ -128,12 +133,83 @@ fn setup_status(state: State<AppState>) -> Setup {
     }
 }
 #[tauri::command]
-fn list_notes(state: State<AppState>) -> Result<Vec<Note>, String> {
-    library::list(&*state.db()?)
+async fn list_notes(
+    app: tauri::AppHandle,
+    search: Option<String>,
+    status: Option<String>,
+    folder: Option<String>,
+    tag: Option<String>,
+    offset: Option<i64>,
+) -> Result<Vec<Note>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db = state.db()?;
+        library::query(
+            &db,
+            &search.unwrap_or_default(),
+            &status.unwrap_or_default(),
+            &folder.unwrap_or_default(),
+            &tag.unwrap_or_default(),
+            100,
+            offset.unwrap_or(0),
+            None,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn get_note(app: tauri::AppHandle, id: String) -> Result<Note, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let db = state.db()?;
+        library::get(&db, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn organize_note(
+    state: State<AppState>,
+    id: String,
+    title: String,
+    folder: String,
+    tags: Vec<String>,
+) -> Result<(), String> {
+    let _guard = state.claim()?;
+    library::organize(&*state.db()?, &id, &title, &folder, &tags)
 }
 
 #[tauri::command]
-async fn start_recording(app: tauri::AppHandle, title: String) -> Result<(), String> {
+async fn capture_info(
+    app: tauri::AppHandle,
+    applications: bool,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            crate::capture::macos::info(
+                &app.state::<AppState>().root,
+                if applications { "list" } else { "capabilities" },
+            )
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (app, applications);
+            Ok(serde_json::json!({"system":false,"mixed":false}))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn start_recording(
+    app: tauri::AppHandle,
+    title: String,
+    source: Option<String>,
+    application: Option<u32>,
+) -> Result<(), String> {
     if title.trim().is_empty() || title.len() > 200 {
         return Err("Choose a recording title of up to 200 bytes.".into());
     }
@@ -144,7 +220,11 @@ async fn start_recording(app: tauri::AppHandle, title: String) -> Result<(), Str
             .recording
             .lock()
             .map_err(|_| "Recording is unavailable. Restart Golos.")?;
-        let session = recording::Session::start(&state.root)?;
+        let session = recording::Session::start(
+            &state.root,
+            source.as_deref().unwrap_or("microphone"),
+            application.unwrap_or(0),
+        )?;
         *recording = Some(ActiveRecording {
             session,
             title,
@@ -171,6 +251,18 @@ fn recording_status(state: State<AppState>) -> Result<recording::Status, String>
         .ok_or("No recording is active.")?
         .session
         .status()
+}
+
+#[tauri::command]
+fn pause_recording(state: State<AppState>, paused: bool) -> Result<(), String> {
+    state
+        .recording
+        .lock()
+        .map_err(|_| "Recording is unavailable.")?
+        .as_ref()
+        .ok_or("No recording is active.")?
+        .session
+        .set_paused(paused)
 }
 
 #[derive(Serialize)]
@@ -222,6 +314,8 @@ fn save_recording(
             status: "ready".into(),
             segments: vec![],
             error: None,
+            folder: String::new(),
+            tags: vec![],
         };
         let warning = capture_error.or(recording.session.status()?.error);
         library::insert(&*state.db()?, &note)?;
@@ -269,6 +363,8 @@ async fn import_audio(app: tauri::AppHandle) -> Result<Option<Note>, String> {
                 status: "ready".into(),
                 segments: vec![],
                 error: None,
+                folder: String::new(),
+                tags: vec![],
             };
             library::insert(&*state.db()?, &note)?;
             Ok(Some(note))
@@ -316,6 +412,113 @@ async fn import_model(app: tauri::AppHandle) -> Result<bool, String> {
         if result.is_err() {
             let _ = fs::remove_file(temp);
         }
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadProgress {
+    received: u64,
+    total: u64,
+    phase: String,
+}
+
+#[tauri::command]
+async fn download_models(app: tauri::AppHandle, speakers: bool) -> Result<(), String> {
+    let guard = {
+        let state = app.state::<AppState>();
+        let guard = state.claim()?;
+        state.cancelled.store(false, Ordering::SeqCst);
+        guard
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        let required = if speakers { 120_000_000 } else { 200_000_000 };
+        if fs2::available_space(&state.root).map_err(|e| e.to_string())? < required {
+            return Err(format!(
+                "Free at least {} MB of disk space and retry.",
+                required / 1_000_000
+            ));
+        }
+        let pending = state
+            .root
+            .join(format!("download-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&pending).map_err(|e| e.to_string())?;
+        let result = (|| {
+            let total = if speakers {
+                download::SEGMENTATION.bytes + download::EMBEDDING.bytes
+            } else {
+                download::WHISPER.bytes
+            };
+            let notify = |received, phase: &str| {
+                let _ = app.emit(
+                    "model-download",
+                    DownloadProgress {
+                        received,
+                        total,
+                        phase: phase.into(),
+                    },
+                );
+            };
+            if speakers {
+                download::fetch(
+                    &download::SEGMENTATION,
+                    &pending.join("seg.tar.bz2"),
+                    &state.cancelled,
+                    |n| notify(n, "Downloading segmentation model"),
+                )?;
+                download::extract_segmentation(
+                    &pending.join("seg.tar.bz2"),
+                    &pending.join("seg.onnx"),
+                )?;
+                download::fetch(
+                    &download::EMBEDDING,
+                    &pending.join("emb.onnx"),
+                    &state.cancelled,
+                    |n| {
+                        notify(
+                            n + download::SEGMENTATION.bytes,
+                            "Downloading embedding model",
+                        )
+                    },
+                )?;
+                notify(total, "Validating speaker models");
+                speaker_models::install_cancellable(
+                    &state.root,
+                    &pending.join("seg.onnx"),
+                    &pending.join("emb.onnx"),
+                    &state.cancelled,
+                )?;
+            } else {
+                let file = pending.join("model.bin");
+                download::fetch(&download::WHISPER, &file, &state.cancelled, |n| {
+                    notify(n, "Downloading Whisper Small")
+                })?;
+                notify(total, "Validating Whisper model");
+                download::publish(
+                    &file,
+                    &state.root.join("model.bin"),
+                    &state.cancelled,
+                    |path| {
+                        model::inspect(path)?;
+                        let mut options = WhisperContextParameters::default();
+                        options.use_gpu(false);
+                        WhisperContext::new_with_params(
+                            path.to_str().ok_or("Unsupported model path")?,
+                            options,
+                        )
+                        .map_err(|e| format!("Cannot load the recommended model: {e}"))?;
+                        Ok(())
+                    },
+                )?;
+            }
+            Ok(())
+        })();
+        let _ = fs::remove_dir_all(pending);
         result
     })
     .await
@@ -519,7 +722,7 @@ async fn export_transcript(
     format: String,
     content: String,
 ) -> Result<bool, String> {
-    if !["txt", "srt"].contains(&format.as_str()) || content.len() > 10_000_000 {
+    if !["txt", "srt", "vtt"].contains(&format.as_str()) || content.len() > 10_000_000 {
         return Err("Invalid export.".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -535,6 +738,87 @@ async fn export_transcript(
         fs::write(file.into_path().map_err(|e| e.to_string())?, content)
             .map_err(|e| e.to_string())?;
         Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn export_saved(app: tauri::AppHandle, id: String, format: String) -> Result<bool, String> {
+    if !["docx", "wav", "golos"].contains(&format.as_str()) {
+        return Err("Unsupported export.".into());
+    }
+    let guard = app.state::<AppState>().claim()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        let (note, audio) = {
+            let db = state.db()?;
+            (
+                library::get(&db, &id)?,
+                if format == "docx" {
+                    None
+                } else {
+                    Some(authorize_audio(&state.root, &db, &id)?)
+                },
+            )
+        };
+        let Some(file) = app
+            .dialog()
+            .file()
+            .set_file_name(format!("recording.{format}"))
+            .add_filter("Export", &[format.as_str()])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let target = file.into_path().map_err(|e| e.to_string())?;
+        // Write beside the destination, so failed exports never truncate an existing backup.
+        let pending = target.with_file_name(format!(".golos-export-{}", uuid::Uuid::new_v4()));
+        let result = (|| {
+            match format.as_str() {
+                "docx" => docx::export(&pending, &note)?,
+                "golos" => project::export(
+                    &pending,
+                    audio.as_ref().ok_or("Audio is unavailable.")?,
+                    &note,
+                )?,
+                _ => {
+                    fs::copy(audio.as_ref().ok_or("Audio is unavailable.")?, &pending)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            fs::rename(&pending, &target).map_err(|e| e.to_string())?;
+            Ok(true)
+        })();
+        let _ = fs::remove_file(pending);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn import_project(app: tauri::AppHandle) -> Result<Option<Note>, String> {
+    let guard = app.state::<AppState>().claim()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let Some(file) = app
+            .dialog()
+            .file()
+            .add_filter("Golos project", &["golos"])
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+        let state = app.state::<AppState>();
+        let db = state.db()?;
+        project::import(
+            &file.into_path().map_err(|e| e.to_string())?,
+            &state.root,
+            &db,
+        )
+        .map(Some)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -574,6 +858,7 @@ pub fn run() {
                     backup.display()
                 );
             }
+            db.execute_batch("PRAGMA foreign_keys=ON;")?;
             let _ = fs::remove_file(root.join("model.pending"));
             app.manage(AppState {
                 root,
@@ -587,11 +872,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             setup_status,
             list_notes,
+            get_note,
+            organize_note,
             import_audio,
             start_recording,
+            capture_info,
             recording_status,
+            pause_recording,
             stop_recording,
             import_model,
+            download_models,
             import_diarization_models,
             detect_speakers,
             transcribe,
@@ -599,6 +889,8 @@ pub fn run() {
             save_note,
             delete_note,
             export_transcript,
+            export_saved,
+            import_project,
             audio_source
         ])
         .run(tauri::generate_context!())
@@ -675,6 +967,8 @@ mod tests {
                 status: "ready".into(),
                 segments: vec![],
                 error: None,
+                folder: String::new(),
+                tags: vec![],
             },
         )
         .unwrap();

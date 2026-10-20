@@ -17,7 +17,7 @@ and Tauri's JavaScript API, locked in the root `package-lock.json`.
   them from the upstream releases.
 - [ONNX Runtime license (MIT)](https://github.com/microsoft/onnxruntime/blob/main/LICENSE)
 
-Speaker diarization models are supplied by the user in this preview and are
+Speaker diarization models are downloaded from upstream on request or imported by the user and are
 **not** bundled. When a user imports them, the applicable licenses are:
 
 - [pyannote/segmentation-3.0 (MIT)](https://huggingface.co/pyannote/segmentation-3.0)
@@ -30,7 +30,7 @@ Speaker diarization models are supplied by the user in this preview and are
   release. Each model in that release has its own license; check the
   corresponding upstream repository before redistribution.
 
-Models are supplied by the user in this preview and are not bundled. Only synthetic audio regression fixtures are distributed. Before shipping a binary or adding model downloads,
+Models are downloaded from upstream on request or imported by the user and are not bundled. Guided segmentation installs retain the archive’s MIT LICENSE in the model generation directory. Only synthetic audio regression fixtures are distributed. Before distributing a release binary,
 assemble the actual license texts/notices for the selected dependencies and
 models into the distribution. This file is an inventory, not that completed bundle.
 

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.golos.transcription.capture</string>
+<key>CFBundleName</key><string>Golos Audio Capture</string>
+<key>NSMicrophoneUsageDescription</key><string>Golos mixes microphone audio with the application audio you choose, stored only on this device.</string>
+<key>NSScreenCaptureUsageDescription</key><string>Golos captures audio from the applications you choose. Screen video is never recorded.</string>
+</dict></plist>

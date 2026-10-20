@@ -6,19 +6,20 @@ app is a **macOS developer preview**; multiplatform support is planned.
 
 ## What works today
 
-- Record from your microphone directly into the local library, then play back and transcribe the saved audio.
+- Record, pause and resume microphone audio; macOS application/system audio and mixed capture use native ScreenCaptureKit (hardware validation remains outstanding).
 - Import WAV, MP3, M4A/MP4 audio (AAC-LC or ALAC), raw AAC-LC, FLAC,
   Ogg/Vorbis or Opus, and AIFF, up to 30 minutes / 512 MiB per file.
-- Transcribe locally on the CPU with an imported Whisper GGML model,
+- Download checksum-verified recommended models or import manually, then transcribe locally on the CPU with a Whisper GGML model,
   including Tiny, Base, Small, Medium, Large, and Large V3 Turbo.
 - Auto-detect the spoken language, or select English or Ukrainian.
-- Keep a local SQLite library, edit timestamped transcripts, and export TXT or SRT.
+- Rename, organize and search a local SQLite library; edit timestamped transcripts with undo/redo, replacement and paragraph tools.
+- Export TXT, SRT, VTT, DOCX, audio and portable project backups.
 - Play local audio, seek from timestamps, and follow highlighted transcript paragraphs.
 - Detect speakers offline with optional imported ONNX models and edit speaker labels.
 - Cancel transcription, retry interrupted jobs, and delete local library entries.
 
 No account, backend, API keys, Docker, or paid transcription service is needed
-for the native app. Models are imported separately. Local storage is not encrypted
+for the native app. Models are downloaded during guided setup or imported separately. Local storage is not encrypted
 by the app; see [storage and privacy](native/README.md#storage-and-privacy).
 
 ## Start developing
@@ -38,7 +39,7 @@ desktop app with the React/Vite development server.
 `npm run native:dev` runs only the browser UI preview; native file access,
 transcription, and saving require the Tauri app.
 
-To transcribe, import a compatible whisper.cpp GGML `.bin` model, then import an
+To transcribe, download the recommended model in onboarding/Settings or import a compatible whisper.cpp GGML `.bin` model, then import an
 audio file and choose **Transcribe offline**. The current default recommendation
 is multilingual `ggml-small-q5_1.bin` (about 190 MB); `.en` models support English
 only. See the [native guide](native/README.md#first-transcription) for model sources,
@@ -70,9 +71,8 @@ priorities: durable local data, desktop validation, mobile feasibility, and opti
 device sync before store monetization. The core transcription workflow must remain
 usable offline without an account.
 
-Next work includes bounded-memory inference beyond the 30-minute cap, verified
-model downloads, device benchmarks and acceleration evaluation, library search,
-DOCX export, Ukrainian UI, and accessibility. Playback and
+Next work includes device validation, bounded-memory inference beyond the 30-minute cap,
+benchmarks and acceleration evaluation, Ukrainian UI, and accessibility. Playback and
 optional offline speaker detection are already implemented; see the
 [speaker guide](native/SPEAKER_DIARIZATION.md) for setup and validation limits.
 
@@ -86,6 +86,8 @@ future work.
 npm run build
 npm run typecheck
 npm test
+npx playwright install chromium
+npm run test:ui  # browser flows with mocked native IPC
 npm run native:test
 cargo clippy --manifest-path native/src-tauri/Cargo.toml -- -D warnings
 cargo fmt --manifest-path native/src-tauri/Cargo.toml -- --check
@@ -108,3 +110,5 @@ models and audio fixtures.
 
 The repository contains only the native app. The former cloud-backed web app and
 its service configuration have been removed; earlier versions remain in Git history.
+
+See [usability features, setup and validation limits](docs/USABILITY_IMPROVEMENTS.md) for downloads, pause/resume, organization, editing, backups and macOS audio sources. Pricing remains undecided.
