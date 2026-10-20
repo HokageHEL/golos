@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '../App';
 
 const fixture = vi.hoisted(() => {
   const segment = { startMs: 0, endMs: 1000, speaker: 'Alice', text: 'Original saved text' };
   const notes = ['One', 'Two'].map((title, index) => ({ id: String(index), title, createdAt: 1, durationSeconds: 1, status: 'done', segments: [segment], error: null, folder: '', tags: [] }));
-  return { notes, capture: { elapsedSeconds: 1, stopped: false, paused: false, error: null }, saves: vi.fn(), exports: vi.fn(), source: vi.fn() };
+  return { notes, capture: { elapsedSeconds: 1, stopped: false, paused: false, error: null }, saves: vi.fn(), exports: vi.fn(), source: vi.fn(), download: vi.fn(), cancel: vi.fn(), progressListener: null as null | ((event: { payload: { received: number; total: number; phase: string } }) => void) };
 });
 vi.mock('../api', () => ({
   nativeAvailable: true,
@@ -23,9 +23,10 @@ vi.mock('../api', () => ({
     save: fixture.saves,
     export: fixture.exports,
     exportSaved: fixture.exports,
+    downloadModels: fixture.download, cancel: fixture.cancel,
   },
 }));
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: async (name: string, callback: typeof fixture.progressListener) => { if (name === 'model-download') fixture.progressListener = callback; return () => {}; } }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path: string) => path }));
 beforeEach(() => {
@@ -33,10 +34,10 @@ beforeEach(() => {
   window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener() {}, removeEventListener() {} });
   HTMLMediaElement.prototype.pause = vi.fn();
   HTMLMediaElement.prototype.load = vi.fn();
-  HTMLDialogElement.prototype.showModal = vi.fn();
-  HTMLDialogElement.prototype.close = vi.fn();
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) { this.open = true; });
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) { this.open = false; });
   fixture.capture.paused = false;
-  fixture.saves.mockClear(); fixture.source.mockClear();
+  fixture.saves.mockClear(); fixture.source.mockClear(); fixture.download.mockReset(); fixture.cancel.mockReset(); fixture.progressListener = null;
 });
 afterEach(cleanup);
 
@@ -79,4 +80,22 @@ it('supports undo/redo of text and keeps saved exports disabled for unsaved edit
   expect((editor as HTMLTextAreaElement).value).toBe('Original saved text');
   fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
   expect((editor as HTMLTextAreaElement).value).toBe('Changed');
+});
+
+it('shows model download progress and cancellation, then retries successfully', async () => {
+  let rejectDownload: (reason: Error) => void = () => {};
+  fixture.download.mockImplementationOnce(() => new Promise((_, reject) => { rejectDownload = reject; })).mockResolvedValueOnce(undefined);
+  fixture.cancel.mockImplementation(async () => { rejectDownload(new Error('Download cancelled. Installed model unchanged.')); });
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Download recommended model' }));
+  await waitFor(() => expect(fixture.download).toHaveBeenCalledWith(false));
+  act(() => { fixture.progressListener?.({ payload: { received: 1000000, total: 190085487, phase: 'Downloading Whisper Small' } }); });
+  expect(screen.getByText(/Downloading Whisper Small · 1.0/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel download' }));
+  await screen.findByText('Download cancelled. Installed model unchanged.');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry recommended model' }));
+  await screen.findByText('Models installed. Recording and transcription are ready offline.');
+  expect(fixture.download).toHaveBeenCalledTimes(2);
 });

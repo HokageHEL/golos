@@ -44,6 +44,7 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
         <div><div className="eyebrow">MAKE IT YOURS</div><h1 id="settings-title">Settings</h1></div>
         <button className="secondary settings-close" aria-label="Close settings" onClick={onClose} autoFocus>✕</button>
       </header>
+        {downloadProgress && <div role="status"><p>{downloadProgress.phase} · {(downloadProgress.received / 1_000_000).toFixed(1)} / {(downloadProgress.total / 1_000_000).toFixed(1)} MB</p><progress value={downloadProgress.received} max={downloadProgress.total}/><button className="secondary" onClick={onCancelDownload}>Cancel download</button></div>}
 
       <section className="settings-section" aria-labelledby="appearance-title">
         <h2 id="appearance-title">Appearance</h2>
@@ -67,7 +68,6 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
         <p>Download a model once, then transcribe offline. Audio stays on your device.</p>
         <p>Multilingual Whisper Small · 190 MB download · 200 MB free disk space required. Source: whisper.cpp on Hugging Face. Verified with a pinned SHA-256.</p>
         <button className="primary" disabled={modelDisabled} onClick={() => onDownloadModels(false)}>Download recommended model</button>
-        {downloadProgress && <div role="status"><p>{downloadProgress.phase} · {(downloadProgress.received / 1_000_000).toFixed(1)} / {(downloadProgress.total / 1_000_000).toFixed(1)} MB</p><progress value={downloadProgress.received} max={downloadProgress.total}/><button className="secondary" onClick={onCancelDownload}>Cancel download</button></div>}
         {error && !downloadProgress && <button className="secondary" disabled={modelDisabled} onClick={() => onDownloadModels(false)}>Retry recommended model</button>}
         <div className="model-card">
           <div><div className="eyebrow">OFFLINE ENGINE</div>

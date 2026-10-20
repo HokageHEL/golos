@@ -60,8 +60,18 @@ pub fn install_cancellable(
     embedding: &Path,
     cancelled: &std::sync::atomic::AtomicBool,
 ) -> Result<(), String> {
+    let license = fs::read(segmentation.with_extension("LICENSE"))
+        .map_err(|e| format!("Missing segmentation model license: {e}"))?;
     install_validated(root, segmentation, embedding, |seg, emb| {
         crate::diarize::validate_models(seg, emb)?;
+        let notice = seg
+            .parent()
+            .ok_or("Missing speaker installation directory.")?
+            .join("LICENSE-segmentation.txt");
+        fs::write(&notice, &license).map_err(|e| e.to_string())?;
+        fs::File::open(notice)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| e.to_string())?;
         crate::download::check_cancel(cancelled)
     })
 }

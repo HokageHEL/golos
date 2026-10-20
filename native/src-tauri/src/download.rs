@@ -116,26 +116,75 @@ pub fn publish(
 pub fn extract_segmentation(archive: &Path, target: &Path) -> Result<(), String> {
     let decoder = bzip2::read::BzDecoder::new(fs::File::open(archive).map_err(|e| e.to_string())?);
     let mut archive = tar::Archive::new(decoder);
+    let mut model_found = false;
+    let mut license_found = false;
     for entry in archive.entries().map_err(|e| e.to_string())? {
         let mut entry = entry.map_err(|e| e.to_string())?;
-        // Never extract paths from an archive to the filesystem.
-        if entry.path().map_err(|e| e.to_string())?.as_ref()
-            == Path::new("sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx")
-            && entry.header().entry_type().is_file()
-        {
-            if entry.size() > 20_000_000 {
-                return Err("Segmentation model is too large.".into());
+        let path = entry.path().map_err(|e| e.to_string())?.into_owned();
+        let model = path == Path::new("sherpa-onnx-pyannote-segmentation-3-0/model.int8.onnx");
+        let license = path == Path::new("sherpa-onnx-pyannote-segmentation-3-0/LICENSE");
+        // Never extract archive paths, links, scripts or unrelated files.
+        if (model || license) && entry.header().entry_type().is_file() {
+            let limit = if model { 20_000_000 } else { 100_000 };
+            if entry.size() > limit {
+                return Err("Segmentation archive member is too large.".into());
             }
-            let mut file = fs::File::create(target).map_err(|e| e.to_string())?;
+            let destination = if model {
+                target.to_path_buf()
+            } else {
+                target.with_extension("LICENSE")
+            };
+            let mut file = fs::File::create(destination).map_err(|e| e.to_string())?;
             std::io::copy(&mut entry, &mut file).map_err(|e| e.to_string())?;
-            return file.sync_all().map_err(|e| e.to_string());
+            file.sync_all().map_err(|e| e.to_string())?;
+            model_found |= model;
+            license_found |= license;
         }
     }
-    Err("Segmentation model is missing from the archive.".into())
+    if model_found && license_found {
+        Ok(())
+    } else {
+        Err("Segmentation model or license is missing from the archive.".into())
+    }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn extracts_only_the_pinned_model_and_license_members() {
+        let root = std::env::temp_dir().join(format!("golos-extract-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let archive = root.join("seg.tar.bz2");
+        let encoder = bzip2::write::BzEncoder::new(
+            fs::File::create(&archive).unwrap(),
+            bzip2::Compression::default(),
+        );
+        let mut tar = tar::Builder::new(encoder);
+        for (name, bytes) in [
+            ("model.int8.onnx", &b"model"[..]),
+            ("LICENSE", &b"MIT license"[..]),
+            ("run.sh", &b"never execute"[..]),
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o600);
+            header.set_cksum();
+            tar.append_data(
+                &mut header,
+                format!("sherpa-onnx-pyannote-segmentation-3-0/{name}"),
+                bytes,
+            )
+            .unwrap();
+        }
+        tar.into_inner().unwrap().finish().unwrap();
+        extract_segmentation(&archive, &root.join("seg.onnx")).unwrap();
+        assert_eq!(fs::read(root.join("seg.onnx")).unwrap(), b"model");
+        assert_eq!(fs::read(root.join("seg.LICENSE")).unwrap(), b"MIT license");
+        assert!(!root.join("run.sh").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn failed_validation_and_cancellation_preserve_working_model() {
         let root = std::env::temp_dir().join(format!("golos-publish-{}", uuid::Uuid::new_v4()));

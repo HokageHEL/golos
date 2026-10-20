@@ -34,7 +34,7 @@ Errors/cancellation preserve existing models. No audio is sent with model reques
 
 After installation, disconnect the network: recording, playback, transcription,
 speaker detection, editing and exports use local files and need no account.
-Models are not included in project backups. Speaker weight licensing is documented
+Models are not included in project backups. Guided speaker installations retain the segmentation archive’s MIT license alongside the active model pair. Speaker weight licensing is documented
 in `native/SPEAKER_DIARIZATION.md`; downloaded weights are not bundled for redistribution.
 
 ## Recording
@@ -168,8 +168,8 @@ Actual microphone/system-audio capture has not been claimed as tested here.
 
 - Native frontend build, both TypeScript checks, ESLint, Rust formatting and
   Clippy across all targets with warnings denied passed.
-- Frontend: 27 tests passed, including three mounted UI interaction regressions.
-- Default Rust suite: 71 passed, four opt-in checks skipped.
+- Frontend: 28 tests passed, including four mounted UI interaction regressions.
+- Default Rust suite: 72 passed, four opt-in checks skipped.
 - Separately executed: real upstream download/hash verification for all three
   artifacts and native speaker-model validation; real Whisper Small CPU inference
   on the public JFK sample, including inference cancellation. Both opt-in tests passed.
