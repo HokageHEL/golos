@@ -168,6 +168,42 @@ test('structured export selection and copying an unsaved draft work in the brows
 });
 
 
+test('manual export layout options reach mock IPC without changing saved data', async ({ page }) => {
+  // Real browser controls with mocked native IPC: no OS dialog or file write.
+  await page.getByText('Export options', { exact: true }).click();
+  const options = page.locator('details.export-options');
+  await options.getByRole('checkbox', { name: 'Customize export layout', exact: true }).check();
+  await options.getByRole('checkbox', { name: 'Include timestamps', exact: true }).uncheck();
+  await options.getByRole('checkbox', { name: 'Include speaker labels', exact: true }).uncheck();
+  await options.getByRole('combobox', { name: 'Paragraph grouping', exact: true }).selectOption('same-speaker');
+  await page.getByRole('button', { name: 'Export TXT', exact: true }).click();
+  await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
+  const text = await page.evaluate(() => (window as Window & { __lastTextExport?: { format: string; content: string } }).__lastTextExport);
+  expect(text?.format).toBe('txt');
+  expect(text?.content).toBe('A saved transcript for library search and editing.\nThe next paragraph keeps its timestamp.');
+  expect(text?.content).not.toContain('00:00:00.000');
+
+  await options.getByRole('spinbutton', { name: 'Subtitle timestamp offset', exact: true }).fill('500');
+  await options.getByRole('combobox', { name: 'Subtitle line width', exact: true }).selectOption('32');
+  await page.getByRole('button', { name: 'Export VTT', exact: true }).click();
+  await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
+  const vtt = await page.evaluate(() => (window as Window & { __lastTextExport?: { format: string; content: string } }).__lastTextExport);
+  expect(vtt?.format).toBe('vtt');
+  expect(vtt?.content).toContain('00:00:00.500 --> 00:00:10.500');
+  expect(vtt?.content).toContain('00:00:10.500 --> 00:00:20.500');
+  expect(vtt?.content.match(/-->/g)).toHaveLength(2);
+
+  await page.getByRole('button', { name: 'Export DOCX', exact: true }).click();
+  await expect(page.getByText('Exported.', { exact: true })).toBeVisible();
+  const docx = await page.evaluate(() => (window as Window & { __lastSavedExport?: { format: string; options: unknown } }).__lastSavedExport);
+  expect(docx).toEqual({
+    format: 'docx',
+    options: { includeTimestamps: false, includeSpeakers: false, grouping: 'same-speaker' },
+  });
+  await expect(page.getByRole('textbox', { name: 'Transcript at 0:00', exact: true })).toHaveValue('A saved transcript for library search and editing.');
+});
+
+
 test('batch import reports each failure, retains pending jobs and removes jobs without deleting recordings', async ({ page }, info) => {
   await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();

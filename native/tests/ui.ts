@@ -20,6 +20,11 @@ let aiAutomationTasks: AiAutomationTask[] = [{
 let queueJobs: { id: number; noteId: string; title: string; durationSeconds: number; language: string; status: string; error: string | null }[] = [];
 let paused = false;
 let recordingTitle = 'Mock recording';
+type ExportCapture = { format: string; content?: string; options?: unknown };
+const uiWindow = globalThis as typeof globalThis & {
+  __lastTextExport?: ExportCapture;
+  __lastSavedExport?: ExportCapture;
+};
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   if (Array.isArray(payload) || payload instanceof ArrayBuffer || payload instanceof Uint8Array) return;
@@ -115,7 +120,8 @@ mockIPC((command, payload = {}) => {
     case 'download_models': throw new Error('Mocked network failure. Retry or import a model.');
     case 'organize_note': Object.assign(notes.find(n => n.id === args.id)!, { title: args.title, folder: args.folder, tags: args.tags }); return;
     case 'save_note': Object.assign(notes.find(n => n.id === args.id)!, { segments: args.segments }); return;
-    case 'export_transcript': case 'export_saved': return true;
+    case 'export_transcript': uiWindow.__lastTextExport = { format: String(args.format), content: String(args.content) }; return true;
+    case 'export_saved': uiWindow.__lastSavedExport = { format: String(args.format), options: args.options }; return true;
     default: return;
   }
 }, { shouldMockEvents: true });
