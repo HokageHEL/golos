@@ -1,5 +1,6 @@
 mod audio;
 mod diarize;
+mod docx;
 mod download;
 mod engine;
 mod import;
@@ -7,6 +8,7 @@ mod library;
 mod migrations;
 mod model;
 mod onnx_metadata;
+mod project;
 mod recording;
 mod speaker_models;
 
@@ -129,8 +131,39 @@ fn setup_status(state: State<AppState>) -> Setup {
     }
 }
 #[tauri::command]
-fn list_notes(state: State<AppState>) -> Result<Vec<Note>, String> {
-    library::list(&*state.db()?)
+fn list_notes(
+    state: State<AppState>,
+    search: Option<String>,
+    status: Option<String>,
+    folder: Option<String>,
+    tag: Option<String>,
+    offset: Option<i64>,
+) -> Result<Vec<Note>, String> {
+    library::query(
+        &*state.db()?,
+        &search.unwrap_or_default(),
+        &status.unwrap_or_default(),
+        &folder.unwrap_or_default(),
+        &tag.unwrap_or_default(),
+        100,
+        offset.unwrap_or(0),
+        None,
+    )
+}
+#[tauri::command]
+fn get_note(state: State<AppState>, id: String) -> Result<Note, String> {
+    library::get(&*state.db()?, &id)
+}
+#[tauri::command]
+fn organize_note(
+    state: State<AppState>,
+    id: String,
+    title: String,
+    folder: String,
+    tags: Vec<String>,
+) -> Result<(), String> {
+    let _guard = state.claim()?;
+    library::organize(&*state.db()?, &id, &title, &folder, &tags)
 }
 
 #[tauri::command]
@@ -235,6 +268,8 @@ fn save_recording(
             status: "ready".into(),
             segments: vec![],
             error: None,
+            folder: String::new(),
+            tags: vec![],
         };
         let warning = capture_error.or(recording.session.status()?.error);
         library::insert(&*state.db()?, &note)?;
@@ -282,6 +317,8 @@ async fn import_audio(app: tauri::AppHandle) -> Result<Option<Note>, String> {
                 status: "ready".into(),
                 segments: vec![],
                 error: None,
+                folder: String::new(),
+                tags: vec![],
             };
             library::insert(&*state.db()?, &note)?;
             Ok(Some(note))
@@ -634,7 +671,7 @@ async fn export_transcript(
     format: String,
     content: String,
 ) -> Result<bool, String> {
-    if !["txt", "srt"].contains(&format.as_str()) || content.len() > 10_000_000 {
+    if !["txt", "srt", "vtt"].contains(&format.as_str()) || content.len() > 10_000_000 {
         return Err("Invalid export.".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -650,6 +687,78 @@ async fn export_transcript(
         fs::write(file.into_path().map_err(|e| e.to_string())?, content)
             .map_err(|e| e.to_string())?;
         Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn export_saved(app: tauri::AppHandle, id: String, format: String) -> Result<bool, String> {
+    if !["docx", "wav", "golos"].contains(&format.as_str()) {
+        return Err("Unsupported export.".into());
+    }
+    let guard = app.state::<AppState>().claim()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        let (note, audio) = {
+            let db = state.db()?;
+            (
+                library::get(&db, &id)?,
+                authorize_audio(&state.root, &db, &id)?,
+            )
+        };
+        let Some(file) = app
+            .dialog()
+            .file()
+            .set_file_name(format!("recording.{format}"))
+            .add_filter("Export", &[format.as_str()])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let target = file.into_path().map_err(|e| e.to_string())?;
+        // Write beside the destination, so failed exports never truncate an existing backup.
+        let pending = target.with_file_name(format!(".golos-export-{}", uuid::Uuid::new_v4()));
+        let result = (|| {
+            match format.as_str() {
+                "docx" => docx::export(&pending, &note)?,
+                "golos" => project::export(&pending, &audio, &note)?,
+                _ => {
+                    fs::copy(&audio, &pending).map_err(|e| e.to_string())?;
+                }
+            }
+            fs::rename(&pending, &target).map_err(|e| e.to_string())?;
+            Ok(true)
+        })();
+        let _ = fs::remove_file(pending);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn import_project(app: tauri::AppHandle) -> Result<Option<Note>, String> {
+    let guard = app.state::<AppState>().claim()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let Some(file) = app
+            .dialog()
+            .file()
+            .add_filter("Golos project", &["golos"])
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+        let state = app.state::<AppState>();
+        let db = state.db()?;
+        project::import(
+            &file.into_path().map_err(|e| e.to_string())?,
+            &state.root,
+            &db,
+        )
+        .map(Some)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -689,6 +798,7 @@ pub fn run() {
                     backup.display()
                 );
             }
+            db.execute_batch("PRAGMA foreign_keys=ON;")?;
             let _ = fs::remove_file(root.join("model.pending"));
             app.manage(AppState {
                 root,
@@ -702,6 +812,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             setup_status,
             list_notes,
+            get_note,
+            organize_note,
             import_audio,
             start_recording,
             recording_status,
@@ -716,6 +828,8 @@ pub fn run() {
             save_note,
             delete_note,
             export_transcript,
+            export_saved,
+            import_project,
             audio_source
         ])
         .run(tauri::generate_context!())
@@ -792,6 +906,8 @@ mod tests {
                 status: "ready".into(),
                 segments: vec![],
                 error: None,
+                folder: String::new(),
+                tags: vec![],
             },
         )
         .unwrap();

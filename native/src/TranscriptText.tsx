@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 
-type Props = { selection?: { start: number; end: number; nonce: number } | null; text: string; label: string; disabled: boolean; onChange: (text: string) => void };
+type Props = { onSplit?: (offset: number) => void; selection?: { start: number; end: number; nonce: number } | null; text: string; label: string; disabled: boolean; onChange: (text: string) => void };
 
 /** Fit the actual wrapped text, rather than reserving two lines for every segment. */
-export default function TranscriptText({ text, label, disabled, onChange, selection }: Props) {
+export default function TranscriptText({ text, label, disabled, onChange, selection, onSplit }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const element = ref.current;
@@ -26,5 +26,5 @@ export default function TranscriptText({ text, label, disabled, onChange, select
     observer.observe(element);
     return () => observer.disconnect();
   }, [text]);
-  return <textarea ref={ref} aria-label={label} value={text} rows={1} disabled={disabled} onChange={e => onChange(e.target.value)}/>;
+  return <textarea ref={ref} aria-label={label} value={text} rows={1} disabled={disabled} onChange={e => onChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && onSplit) { e.preventDefault(); onSplit(e.currentTarget.selectionStart); } }} title="⌘/Ctrl+Enter splits at the cursor"/>;
 }

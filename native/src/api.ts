@@ -3,6 +3,7 @@ import type { Segment } from './transcript/types';
 
 export type Note = {
   id: string; title: string; createdAt: number; durationSeconds: number;
+  folder: string; tags: string[];
   status: 'ready' | 'processing' | 'done' | 'failed'; segments: Segment[]; error: string | null;
 };
 export type RecordingStatus = { elapsedSeconds: number; stopped: boolean; paused: boolean; error: string | null };
@@ -10,7 +11,9 @@ export type Setup = { modelReady: boolean; modelName: string | null; dataDirecto
 export const nativeAvailable = isTauri();
 export const api = {
   setup: () => invoke<Setup>('setup_status'),
-  list: () => invoke<Note[]>('list_notes'),
+  list: (filters: { search?: string; status?: string; folder?: string; tag?: string; offset?: number } = {}) => invoke<Note[]>('list_notes', filters),
+  get: (id: string) => invoke<Note>('get_note', { id }),
+  organize: (id: string, title: string, folder: string, tags: string[]) => invoke<void>('organize_note', { id, title, folder, tags }),
   startRecording: (title: string) => invoke<void>('start_recording', { title }),
   pauseRecording: (paused: boolean) => invoke<void>('pause_recording', { paused }),
   recordingStatus: () => invoke<RecordingStatus>('recording_status'),
@@ -24,7 +27,9 @@ export const api = {
   cancel: () => invoke<void>('cancel_transcription'),
   save: (id: string, segments: Segment[]) => invoke<void>('save_note', { id, segments }),
   delete: (id: string) => invoke<void>('delete_note', { id }),
-  export: (format: 'txt' | 'srt', content: string) => invoke<boolean>('export_transcript', { format, content }),
+  export: (format: 'txt' | 'srt' | 'vtt', content: string) => invoke<boolean>('export_transcript', { format, content }),
+  exportSaved: (id: string, format: 'docx' | 'wav' | 'golos') => invoke<boolean>('export_saved', { id, format }),
+  importProject: () => invoke<Note | null>('import_project'),
   // Returns the local path of the recording's normalized audio after Rust has
   // checked that the note exists and authorized only that file for playback.
   audioSource: (id: string) => invoke<string>('audio_source', { id }),

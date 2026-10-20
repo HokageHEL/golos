@@ -28,7 +28,7 @@ use std::{
 };
 
 /// Schema version written by this build.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 /// Version reported by preview libraries that predate schema versioning.
 pub const LEGACY_PREVIEW_VERSION: i64 = 0;
 /// Message stored on `processing` rows that a shutdown interrupted.
@@ -193,7 +193,7 @@ fn classify(db: &Connection, db_path: &Path, version: i64) -> Result<State, Stri
             db_path.display()
         )),
         (LEGACY_PREVIEW_VERSION, None) => Ok(State::Fresh),
-        (LEGACY_PREVIEW_VERSION, Some("table")) => {
+        (LEGACY_PREVIEW_VERSION | 1, Some("table")) => {
             validate_notes_schema(db, db_path)?;
             Ok(State::LegacyPreview)
         }
@@ -322,7 +322,7 @@ fn apply_current_schema(db: &Connection) -> Result<(), String> {
         .pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|e| format!("Could not record the library schema version: {e}"))?;
     transaction
-        .execute_batch(CREATE_NOTES)
+        .execute_batch(&format!("{CREATE_NOTES}; CREATE TABLE IF NOT EXISTS organization (note_id TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE, folder TEXT NOT NULL DEFAULT '', tags TEXT NOT NULL DEFAULT '[]'); CREATE INDEX IF NOT EXISTS notes_created ON notes(created_at DESC,id DESC);"))
         .map_err(|e| format!("Could not apply the library schema: {e}"))?;
     transaction
         .commit()
@@ -494,7 +494,7 @@ mod tests {
     const NOTES_TABLES: &str =
         "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='notes'";
     const JOURNAL_MODE: &str = "PRAGMA journal_mode";
-    const BACKUP_MARKER: &str = ".pre-v1-";
+    const BACKUP_MARKER: &str = ".pre-v2-";
     /// Mirrors `library::insert`, which leaves `segments` at its `'[]'` default.
     const INSERT_ROW: &str = "INSERT INTO notes
         (id,title,created_at,duration_seconds,status) VALUES(?1,?2,?3,?4,?5)";
@@ -586,6 +586,29 @@ mod tests {
 
     fn notes_tables(db: &Connection) -> i64 {
         db.query_row(NOTES_TABLES, [], |row| row.get(0)).unwrap()
+    }
+
+    #[test]
+    fn upgrades_version_one_with_metadata_and_preserves_transcript() {
+        let fixture = TempLibrary::new("v1-metadata");
+        let db = fixture.open_legacy();
+        add_row(&db, "one", "Old title", 1, 3.0, "done");
+        db.execute_batch("PRAGMA user_version=1").unwrap();
+        let before = text_of(&db, "SELECT segments FROM notes WHERE id=?1", "one");
+        let result = migrate(&db, &fixture.db_path()).unwrap();
+        assert!(result.backup.is_some());
+        assert_eq!(result.from_version, 1);
+        assert_eq!(result.to_version, 2);
+        assert_eq!(
+            text_of(&db, "SELECT segments FROM notes WHERE id=?1", "one"),
+            before
+        );
+        db.execute(
+            "INSERT INTO organization(note_id,folder,tags) VALUES('one','Work','[]')",
+            [],
+        )
+        .unwrap();
+        assert!(migrate(&db, &fixture.db_path()).unwrap().backup.is_none());
     }
 
     #[test]
@@ -724,16 +747,16 @@ mod tests {
         );
         // A library written by a future build, deliberately not in WAL mode so
         // the test can prove the journal mode was left alone.
-        db.execute_batch("PRAGMA user_version = 2; PRAGMA journal_mode = DELETE;")
+        db.execute_batch("PRAGMA user_version = 3; PRAGMA journal_mode = DELETE;")
             .unwrap();
 
         let error = migrate(&db, &path).unwrap_err();
-        assert!(error.contains("schema version 2"), "unexpected: {error}");
+        assert!(error.contains("schema version 3"), "unexpected: {error}");
         assert!(
             error.contains("No changes were made"),
             "unexpected: {error}"
         );
-        assert_eq!(read_version(&db).unwrap(), 2);
+        assert_eq!(read_version(&db).unwrap(), 3);
         assert_eq!(journal_mode(&db), "delete");
         assert_eq!(text_of(&db, STATUS_OF, "interrupted"), "processing");
         assert!(fixture.backups().is_empty());
@@ -741,7 +764,7 @@ mod tests {
 
         // The refusal is persistent, not just a view of this connection.
         let reopened = fixture.open();
-        assert_eq!(read_version(&reopened).unwrap(), 2);
+        assert_eq!(read_version(&reopened).unwrap(), 3);
         assert_eq!(journal_mode(&reopened), "delete");
         assert_eq!(row_count(&reopened), 1);
     }
@@ -783,7 +806,8 @@ mod tests {
         let fixture = TempLibrary::new("missing-table");
         let path = fixture.db_path();
         let db = fixture.open();
-        db.execute_batch("PRAGMA user_version = 1;").unwrap();
+        db.pragma_update(None, "user_version", SCHEMA_VERSION)
+            .unwrap();
 
         let error = migrate(&db, &path).unwrap_err();
         assert!(error.contains("no notes table"), "unexpected: {error}");
@@ -907,7 +931,7 @@ mod tests {
         let fixture = TempLibrary::new("backup-failure");
         let path = fixture.db_path();
         // A snapshot that must survive the failed attempt untouched.
-        let existing = fixture.path("library.pre-v1-1.sqlite3");
+        let existing = fixture.path("library.pre-v2-1.sqlite3");
         fs::write(&existing, b"an existing backup").unwrap();
 
         let db = fixture.open_legacy();
@@ -961,7 +985,7 @@ mod tests {
         let first = reserve_backup(&path, millis).unwrap();
         assert_eq!(
             first.file_name().unwrap(),
-            "library.pre-v1-1760000000000.sqlite3"
+            "library.pre-v2-1760000000000.sqlite3"
         );
         assert!(first.is_file(), "the reserved name must be created empty");
         // Stand in for a completed snapshot a later upgrade must not disturb.
@@ -971,7 +995,7 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(
             second.file_name().unwrap(),
-            "library.pre-v1-1760000000000-1.sqlite3"
+            "library.pre-v2-1760000000000-1.sqlite3"
         );
         assert_eq!(fs::read(&first).unwrap(), b"an existing backup");
     }

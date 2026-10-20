@@ -1111,3 +1111,9 @@ input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focu
 .capture-timer { font-size: 36px; font-variant-numeric: tabular-nums; margin: 12px 0; }
 .capture-card .actions { margin-top: 16px; }
 .welcome-actions { justify-content: center; }
+
+.library-filters { display: grid; gap: 8px; padding: 0 16px 12px; }
+.library-filters input, .library-filters select { width: 100%; min-width: 0; }
+.organization { display: grid; gap: 10px; padding: 16px 0; }
+.organization label { display: grid; gap: 4px; }
+.editor-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
