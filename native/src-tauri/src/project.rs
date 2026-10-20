@@ -72,6 +72,15 @@ pub fn import(path: &Path, root: &Path, db: &Connection) -> Result<Note, String>
             return Err("Project manifest is too large.".into());
         }
     }
+    #[derive(Deserialize)]
+    struct Version {
+        version: u32,
+    }
+    let version: Version =
+        serde_json::from_str(&json).map_err(|e| format!("Invalid project manifest: {e}"))?;
+    if ![1, 2].contains(&version.version) {
+        return Err("Unsupported project version.".into());
+    }
     let manifest: Manifest =
         serde_json::from_str(&json).map_err(|e| format!("Invalid project manifest: {e}"))?;
     if ![1, 2].contains(&manifest.version)
@@ -217,7 +226,7 @@ fn validate_result(work: &crate::ai::Work, note: &Note) -> Result<(), String> {
         || work.error.as_ref().is_some_and(|e| e.len() > 10000)
         || work.created_at < 0
         || (!work.conversation.is_empty() && uuid::Uuid::parse_str(&work.conversation).is_err())
-        || (work.kind != "speech_english" && !(4096..=32768).contains(&work.context_window))
+        || (work.kind != "speech_english" && !(8192..=32768).contains(&work.context_window))
         || work.source_hash != crate::ai::hash(&work.source)?
     {
         return Err("Invalid saved AI result metadata or source checksum.".into());

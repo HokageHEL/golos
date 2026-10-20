@@ -51,6 +51,7 @@ pub struct Work {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
+    pub prompt: String,
     pub id: String,
     pub kind: String,
     pub target: String,
@@ -63,10 +64,25 @@ pub struct Summary {
     pub conversation: String,
 }
 pub fn hash(segments: &[Segment]) -> Result<String, String> {
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(segments).map_err(|e| e.to_string())?)
-    ))
+    // Stable portable v1 encoding: lengths, timestamps and UTF-8 bytes, independent of serde fields/order.
+    let mut hash = Sha256::new();
+    hash.update(b"golos.ai-source.v1\0");
+    hash.update((segments.len() as u64).to_be_bytes());
+    for segment in segments {
+        hash.update(segment.start_ms.to_be_bytes());
+        hash.update(segment.end_ms.to_be_bytes());
+        match &segment.speaker {
+            None => hash.update([0]),
+            Some(speaker) => {
+                hash.update([1]);
+                hash.update((speaker.len() as u64).to_be_bytes());
+                hash.update(speaker.as_bytes());
+            }
+        }
+        hash.update((segment.text.len() as u64).to_be_bytes());
+        hash.update(segment.text.as_bytes());
+    }
+    Ok(format!("v1:{:x}", hash.finalize()))
 }
 pub fn settings(db: &Connection) -> Result<Settings, String> {
     db.query_row(
@@ -85,8 +101,8 @@ pub fn settings(db: &Connection) -> Result<Settings, String> {
 pub fn configure(db: &Connection, settings: &Settings) -> Result<(), String> {
     crate::local_ai::Client::new(settings.port)?;
     crate::local_ai::local_tag(&settings.model)?;
-    if !(4096..=32768).contains(&settings.context_window) {
-        return Err("Choose a context between 4096 and 32768 tokens.".into());
+    if !(8192..=32768).contains(&settings.context_window) {
+        return Err("Choose a context between 8192 and 32768 tokens.".into());
     }
     db.execute(
         "UPDATE ai_settings SET port=?1,model=?2,context_window=?3 WHERE id=1",
@@ -181,8 +197,11 @@ pub fn get(db: &Connection, id: &str) -> Result<Work, String> {
     }).map_err(|e|e.to_string())
 }
 pub fn list(db: &Connection, note_id: &str) -> Result<Vec<Summary>, String> {
+    list_page(db, note_id, 0)
+}
+pub fn list_page(db: &Connection, note_id: &str, offset: i64) -> Result<Vec<Summary>, String> {
     let current = hash(&library::get(db, note_id)?.segments)?;
-    db.prepare("SELECT id,kind,target,model,status,created_at,phase,error,source_hash,conversation FROM ai_results WHERE note_id=?1 ORDER BY rowid DESC LIMIT 100").map_err(|e|e.to_string())?.query_map([note_id],|row|Ok(Summary{id:row.get(0)?,kind:row.get(1)?,target:row.get(2)?,model:row.get(3)?,status:row.get(4)?,created_at:row.get(5)?,phase:row.get(6)?,error:row.get(7)?,stale:row.get::<_,String>(8)?!=current,conversation:row.get(9)?})).map_err(|e|e.to_string())?.collect::<Result<_,_>>().map_err(|e|e.to_string())
+    db.prepare("SELECT id,kind,target,model,status,created_at,phase,error,source_hash,conversation,prompt FROM ai_results WHERE note_id=?1 ORDER BY rowid DESC LIMIT 100 OFFSET ?2").map_err(|e|e.to_string())?.query_map(params![note_id,offset.max(0)],|row|Ok(Summary{prompt:row.get(10)?,id:row.get(0)?,kind:row.get(1)?,target:row.get(2)?,model:row.get(3)?,status:row.get(4)?,created_at:row.get(5)?,phase:row.get(6)?,error:row.get(7)?,stale:row.get::<_,String>(8)?!=current,conversation:row.get(9)?})).map_err(|e|e.to_string())?.collect::<Result<_,_>>().map_err(|e|e.to_string())
 }
 pub fn checkpoint(db: &Connection, work: &Work) -> Result<(), String> {
     if work.content.len() > 2_000_000
@@ -310,6 +329,36 @@ pub(crate) mod tests {
                 source_language: "auto".into(),
             },
         )
+    }
+    #[test]
+    fn history_pages_include_older_results_and_context_minimum_is_explicit() {
+        let (db, request) = fixture();
+        let original = hash(&library::get(&db, "source").unwrap().segments).unwrap();
+        assert!(original.starts_with("v1:"));
+        let mut ids = vec![];
+        for _ in 0..105 {
+            ids.push(create(&db, &request, "local", 8192).unwrap().id);
+        }
+        let first = list_page(&db, "source", 0).unwrap();
+        let second = list_page(&db, "source", 100).unwrap();
+        assert_eq!(first.len(), 100);
+        assert_eq!(second.len(), 5);
+        assert_eq!(first[0].id, ids[104]);
+        assert_eq!(second[4].id, ids[0]);
+        assert!(list_page(&db, "source", 105).unwrap().is_empty());
+        assert!(configure(
+            &db,
+            &Settings {
+                port: 11434,
+                model: "local".into(),
+                context_window: 4096
+            }
+        )
+        .is_err());
+        assert_eq!(
+            hash(&library::get(&db, "source").unwrap().segments).unwrap(),
+            original
+        );
     }
     #[test]
     fn results_retry_recovery_and_apply_preserve_original() {

@@ -153,3 +153,73 @@ test('watched-folder and local export controls preserve opt-in choices and retry
   await automation.getByRole('button', { name: 'Save export settings', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath('automation-exports.png'), fullPage: true });
 });
+
+test('local AI keeps summaries separate, exports results and retains saved history', async ({ page }, info) => {
+  await page.getByRole('button', {name:'Local AI & translation',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Local AI & translation'});
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button',{name:'Generate locally',exact:true}).click();
+  await expect(dialog.getByText('Local summary [s1].',{exact:true})).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'Use as transcript draft'})).toBeDisabled();
+  await dialog.getByRole('button',{name:'Export result',exact:true}).click();
+  await expect(dialog.getByText('Generated result exported.',{exact:true})).toBeVisible();
+  await dialog.getByRole('button',{name:'Export result DOCX',exact:true}).click();
+  await expect(dialog.getByText('Generated DOCX exported.',{exact:true})).toBeVisible();
+  await dialog.getByRole('button',{name:'Close local AI'}).click();
+  await expect(page.getByRole('textbox',{name:'Transcript at 0:00',exact:true})).toHaveValue('A saved transcript for library search and editing.');
+  await page.getByRole('button',{name:'Local AI & translation',exact:true}).click();
+  await dialog.getByRole('button',{name:'Summary',exact:true}).click();
+  await expect(dialog.getByText('Local summary [s1].',{exact:true})).toBeVisible();
+  await page.setViewportSize({width:760,height:560});
+  await expect(dialog).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath('local-ai-summary.png'),fullPage:true});
+});
+
+test('local cleanup creates an undoable unsaved draft and dirty drafts block generation', async ({ page }) => {
+  const editor=page.getByRole('textbox',{name:'Transcript at 0:00',exact:true});
+  await editor.fill('My private unsaved changes.');
+  await page.getByRole('button',{name:'Local AI & translation',exact:true}).click();
+  let dialog=page.getByRole('dialog',{name:'Local AI & translation'});
+  await expect(dialog.getByRole('button',{name:'Generate locally',exact:true})).toBeDisabled();
+  await expect(dialog.getByText(/Save your transcript edits before generating/)).toBeVisible();
+  await dialog.getByRole('button',{name:'Close local AI'}).click();
+  await expect(editor).toHaveValue('My private unsaved changes.');
+  await page.getByRole('button',{name:'Discard edits',exact:true}).click();
+  await page.getByRole('button',{name:'Local AI & translation',exact:true}).click();
+  dialog=page.getByRole('dialog',{name:'Local AI & translation'});
+  await dialog.getByRole('combobox',{name:'Local task',exact:true}).selectOption('cleanup');
+  await dialog.getByRole('button',{name:'Generate locally',exact:true}).click();
+  await expect(dialog.getByRole('button',{name:'Use as transcript draft'})).toBeEnabled();
+  await dialog.getByRole('button',{name:'Use as transcript draft'}).click();
+  await expect(editor).toHaveValue('Cleaned browser transcript.');
+  await expect(page.getByRole('button',{name:'Save edits',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect(editor).toHaveValue('A saved transcript for library search and editing.');
+});
+
+test('translation preview retains metadata and creates a separate recording without altering the source',async({page})=>{
+  await page.getByRole('button',{name:'Local AI & translation',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Local AI & translation'});
+  await dialog.getByRole('combobox',{name:'Local task'}).selectOption('translate');
+  await expect(dialog.getByRole('button',{name:'Generate locally',exact:true})).toBeDisabled();
+  await dialog.getByRole('textbox',{name:'Target language (required)'}).fill('Ukrainian');
+  await dialog.getByRole('button',{name:'Generate locally',exact:true}).click();
+  const preview=dialog.getByLabel('Generated paragraphs');
+  await expect(preview.getByText('0:00–0:10 · Alice',{exact:true})).toBeVisible();
+  await dialog.getByRole('combobox',{name:'Result export format'}).selectOption('vtt');
+  await dialog.getByRole('button',{name:'Export result',exact:true}).click();
+  await expect(dialog.getByText('Generated result exported.',{exact:true})).toBeVisible();
+  await dialog.getByRole('button',{name:'Create separate recording',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'[Ukrainian] Research interview',exact:true})).toBeVisible();
+  await expect(page.getByRole('textbox',{name:'Transcript at 0:00',exact:true})).toHaveValue('Cleaned browser transcript.');
+  await page.getByRole('button',{name:/^Research interview.*Transcribed/}).click();
+  await expect(page.getByRole('textbox',{name:'Transcript at 0:00',exact:true})).toHaveValue('A saved transcript for library search and editing.');
+  await page.getByRole('button',{name:'Local AI & translation',exact:true}).click();
+  await dialog.getByRole('button',{name:'Translate transcript · Ukrainian',exact:true}).click();
+  await dialog.getByRole('button',{name:'Retry captured source',exact:true}).click();
+  await expect(dialog.getByRole('button',{name:'Translate transcript · Ukrainian',exact:true})).toHaveCount(2);
+  await dialog.getByRole('button',{name:'Delete result',exact:true}).click();
+  await dialog.getByRole('button',{name:'Keep result',exact:true}).click();
+  await expect(dialog.getByRole('button',{name:'Translate transcript · Ukrainian',exact:true})).toHaveCount(2);
+});

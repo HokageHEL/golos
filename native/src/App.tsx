@@ -14,6 +14,7 @@ import Settings from './Settings';
 import Organization from './Organization';
 import BatchQueue from './BatchQueue';
 import AutomationSettings from './AutomationSettings';
+import LocalAi from './LocalAi';
 import { change, undo, redo, replaceAll, splitParagraph, mergeParagraph, type History } from './editing';
 import { exportDocument } from './export/document';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
@@ -75,6 +76,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [automationOpen, setAutomationOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [automationLabel, setAutomationLabel] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [query, setQuery] = useState('');
@@ -367,6 +369,7 @@ export default function App() {
   }
 
   return <div className="app">
+    {aiOpen && active && <LocalAi key={active.id} note={active} dirty={dirty} modelReady={!!setup?.modelReady} languages={languages} busy={busy} background={automationLabel} audioAvailable={!!audioUrl} onOperation={perform} onSeek={seekTo} onClose={()=>setAiOpen(false)} onApply={segments=>{editDraft(segments);setAiOpen(false);setMessage('Generated draft applied — unsaved. Undo is available.');}} onCreated={async note=>{select(note);setNotes(await api.list({search:librarySearch,status:statusFilter,folder:folderFilter,tag:tagFilter}));setAiOpen(false);setMessage(`Created separate recording: ${note.title}`);}}/>}
     {automationOpen && <AutomationSettings languages={languages} busy={busy} background={automationLabel} onOperation={perform} onClose={() => setAutomationOpen(false)}/>}
     {batchOpen && <BatchQueue languages={languages} modelReady={!!setup?.modelReady} busy={busy || automationLabel} backgroundBusy={!!automationLabel} progress={progress} error={error} onOperation={perform} onChanged={refreshAfterBatch} onClose={() => setBatchOpen(false)}/>}
     <aside className="sidebar">
@@ -439,7 +442,7 @@ export default function App() {
             <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {formatClock(active.durationSeconds * 1000)} · Stored locally</p></div>
             <button className="text-button danger" disabled={locked || dirty} onClick={() => { setError(null); setConfirmDelete(active); }}>Delete</button></div>
 
-          <div className="editor-tools"><button className="secondary" disabled={locked} onClick={() => exportSaved('wav')}>Export audio</button><button className="secondary" disabled={locked || dirty} onClick={() => exportSaved('golos')}>Export project backup</button></div>
+          <div className="editor-tools"><button className="secondary" disabled={readLocked} onClick={()=>setAiOpen(true)}>Local AI &amp; translation</button><button className="secondary" disabled={locked} onClick={() => exportSaved('wav')}>Export audio</button><button className="secondary" disabled={locked || dirty} onClick={() => exportSaved('golos')}>Export project backup</button></div>
           {nativeAvailable && confirmDelete?.id !== active.id && <AudioPlayer
             key={`${active.id}:${audioAttempt}`}
             onRetry={() => { resetPlayback(); setAudioAttempt(value => value + 1); }}

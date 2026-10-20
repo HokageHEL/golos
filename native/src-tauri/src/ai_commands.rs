@@ -13,6 +13,7 @@ pub(crate) struct Status {
 pub(crate) async fn ai_status(
     app: tauri::AppHandle,
     note_id: Option<String>,
+    offset: Option<i64>,
 ) -> Result<Status, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -20,7 +21,11 @@ pub(crate) async fn ai_status(
         Ok(Status {
             settings: ai::settings(&db)?,
             results: if let Some(id) = note_id {
-                ai::list(&db, &id)?
+                if offset.unwrap_or(0) == 0 {
+                    ai::list(&db, &id)?
+                } else {
+                    ai::list_page(&db, &id, offset.unwrap_or(0))?
+                }
             } else {
                 vec![]
             },
@@ -279,7 +284,13 @@ pub(crate) async fn ai_docx(app: tauri::AppHandle, id: String) -> Result<bool, S
         };
         let target = file.into_path().map_err(|e| e.to_string())?;
         let pending = target.with_file_name(format!(".golos-ai-{}.pending", uuid::Uuid::new_v4()));
-        note.title = format!("{} · {}", note.title, work.kind);
+        note.title = format!(
+            "{} · {}{}{}",
+            note.title,
+            work.kind,
+            if work.target.is_empty() { "" } else { " · " },
+            work.target
+        );
         let result = (|| {
             if work.segments.is_empty() {
                 docx::export_text(&pending, &note.title, &work.content)?;

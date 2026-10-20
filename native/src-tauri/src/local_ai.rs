@@ -79,6 +79,11 @@ impl Client {
         } else {
             self.http.get(self.url(path))
         };
+        let request = if path == "/api/chat" {
+            request
+        } else {
+            request.timeout(Duration::from_secs(10))
+        };
         let response = wait(request.send(), cancel).await?;
         if response.status() != reqwest::StatusCode::OK {
             return Err(format!("Local Ollama returned HTTP {}. Check model availability and the local service; redirects and remote providers are not supported.",response.status().as_u16()));
@@ -298,8 +303,8 @@ fn validate_show(value: &Value) -> Result<(u32, usize), String> {
     Ok((context, template))
 }
 pub fn budget(model: &Model, context: u32, output: u32) -> Result<usize, String> {
-    if !(4096..=32768).contains(&context) {
-        return Err("Choose a local context window between 4096 and 32768 tokens.".into());
+    if !(8192..=32768).contains(&context) {
+        return Err("Choose a local context window between 8192 and 32768 tokens.".into());
     }
     context.min(model.context).checked_sub(output+model.template_bytes as u32+512).filter(|value|*value>=1024).map(|value|value as usize).ok_or("This model/context leaves too little room for transcript content. Choose a larger context or another model.".into())
 }
@@ -326,7 +331,7 @@ fn piece(value: &Value, text: &mut String) -> Result<bool, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::{
         io::{Read, Write},
@@ -334,13 +339,13 @@ mod tests {
         sync::{Arc, Mutex},
         thread,
     };
-    fn show() -> Value {
+    pub(crate) fn show() -> Value {
         json!({"details":{"format":"gguf"},"capabilities":["completion"],"model_info":{"general.architecture":"test","general.parameter_count":1500000,"test.context_length":32768},"template":"{{.Prompt}}"})
     }
-    fn tags() -> Value {
+    pub(crate) fn tags() -> Value {
         json!({"models":[{"name":"test:latest","size":2000000,"digest":"a".repeat(64),"details":{"format":"gguf"}}]})
     }
-    fn server(
+    pub(crate) fn server(
         replies: Vec<(u16, Vec<u8>)>,
     ) -> (Client, Arc<Mutex<Vec<String>>>, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -382,7 +387,7 @@ mod tests {
         });
         (client, requests, handle)
     }
-    fn json_response(value: Value) -> (u16, Vec<u8>) {
+    pub(crate) fn json_response(value: Value) -> (u16, Vec<u8>) {
         (200, value.to_string().into_bytes())
     }
     #[test]
@@ -494,6 +499,38 @@ mod tests {
             .unwrap_err()
             .contains("complete answer"));
         handle.join().unwrap();
+    }
+    #[tokio::test]
+    async fn changed_model_digest_stops_before_transcript_is_sent() {
+        let (client, requests, handle) = server(vec![json_response(tags()), json_response(show())]);
+        let model = Model {
+            name: "test:latest".into(),
+            size: 2000000,
+            digest: "b".repeat(64),
+            context: 32768,
+            template_bytes: 0,
+        };
+        let error = client
+            .generate(
+                Prompt {
+                    model: &model,
+                    context: 8192,
+                    system: "Task",
+                    input: "PRIVATE SOURCE",
+                    structured: false,
+                },
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+        assert!(error.contains("changed during generation"));
+        handle.join().unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests
+            .iter()
+            .all(|request| !request.contains("PRIVATE SOURCE")));
     }
     #[tokio::test]
     async fn cancellation_interrupts_waiting_for_headers_and_body() {
