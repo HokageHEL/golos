@@ -46,7 +46,7 @@ pub(crate) fn ai_automation_skip_queued(state: State<AppState>) -> Result<usize,
     skip_queued(&*state.db()?)
 }
 fn skip_queued(db: &rusqlite::Connection) -> Result<usize, String> {
-    db.execute("UPDATE ai_automation_tasks SET status='skipped',error='Skipped by user.',updated_at=?1 WHERE status='queued'", [std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_millis().min(i64::MAX as u128) as i64])
+    db.execute("UPDATE ai_automation_tasks SET status='skipped',error='Skipped by user.',updated_at=?1 WHERE status='queued'", [std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_secs().min(i64::MAX as u64) as i64])
         .map_err(|e| e.to_string())
 }
 
@@ -71,6 +71,21 @@ mod tests {
         }
         assert_eq!(ai_automation::tasks(&db).unwrap().len(), 100);
         assert_eq!(skip_queued(&db).unwrap(), 150);
+        // All automatic task timestamps use seconds. Milliseconds here would
+        // make skipped tasks appear newer than every future completed task,
+        // causing retention to discard new task history indefinitely.
+        let skipped_at: i64 = db
+            .query_row(
+                "SELECT updated_at FROM ai_automation_tasks WHERE id='0'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!((now - 60..=now).contains(&skipped_at));
         assert_eq!(skip_queued(&db).unwrap(), 0);
         assert_eq!(
             db.query_row(
@@ -104,6 +119,21 @@ mod tests {
             ))
             .unwrap(),
             "Original"
+        );
+        db.execute(
+            "UPDATE ai_automation_tasks SET updated_at=?1 WHERE id='151'",
+            [now + 1],
+        )
+        .unwrap();
+        ai_automation::configure(&db, vec![]).unwrap();
+        assert!(
+            db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM ai_automation_tasks WHERE id='151' AND status='done')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap(),
+            "Newly completed task history must outlive older bulk skips"
         );
     }
 }
