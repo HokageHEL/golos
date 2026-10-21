@@ -1,6 +1,6 @@
 # Automatic local AI rules
 
-Open **Folders & automation → Automatic AI rules**. Nothing runs by default:
+Open **Folders & automation → AI rules**. Nothing runs by default:
 there are no rules, and new rules start disabled. Configure a trusted local,
 cloud-disabled Ollama service and save its installed model tag, port and context.
 Then create a named rule, choose its task and sources, enable it, and explicitly
@@ -53,7 +53,8 @@ independent; automatic AI results are not automatically exported.
 
 **Cancel automatic AI and pause** uses global automation pause. It cancels the
 running background operation and leaves queued work waiting. It also pauses
-watched-folder work and local exports. Resume using **Resume automation** above.
+watched-folder work and local exports. Resume using **Resume automation** in the
+dialog footer.
 A generic cancellation during background AI also pauses automation so the next
 queued task does not immediately start. Recording and other foreground work use
 the existing operation guard; no background generation runs concurrently with them.

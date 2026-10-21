@@ -45,6 +45,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+/** Opens or closes one in-flow disclosure by its summary text. */
+function toggleSection(label: string) {
+  fireEvent.click(screen.getByText(label, { selector: 'summary' }));
+}
+function section(label: string) {
+  return screen.getByText(label, { selector: 'summary' }).closest('details') as HTMLDetailsElement;
+}
+
 it('retains edits across search and navigation, and saves the restored draft', async () => {
   render(<App/>);
   const editor = await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
@@ -83,6 +91,7 @@ it('shows pause/resume and protects discard, with the chosen source passed to na
 it('supports undo/redo of text and keeps saved exports disabled for unsaved edits', async () => {
   render(<App/>);
   const editor = await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Export');
   fireEvent.change(editor, { target: { value: 'Changed' } });
   expect((screen.getByRole('button', { name: 'Export DOCX' }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -117,6 +126,7 @@ it('exports structured formats and copies the current draft without silently sav
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } });
   render(<App/>);
   const editor = await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Export');
   fireEvent.change(screen.getByRole('combobox', { name: 'Other export format' }), { target: { value: 'json' } });
   fireEvent.click(screen.getByRole('button', { name: 'Export JSON' }));
   await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('json', expect.stringContaining('"timestampUnit": "milliseconds"')));
@@ -156,4 +166,76 @@ it('keeps draft editing usable while native automation runs and restores saving 
   await act(async()=>fixture.automationListener?.({payload:null}));
   expect((screen.getByRole('button',{name:'Save edits'}) as HTMLButtonElement).disabled).toBe(false);
   expect((editor as HTMLTextAreaElement).value).toBe('A draft edited during background transcription');
+});
+
+it('groups every export in one disclosure and keeps each export handler working', async () => {
+  fixture.exports.mockResolvedValue(true);
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  // Secondary exports stay collapsed until their section is opened.
+  expect(section('Export').open).toBe(false);
+  toggleSection('Export');
+  expect(section('Export').open).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Export TXT' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('txt', expect.stringContaining('Original saved text')));
+  fireEvent.click(screen.getByRole('button', { name: 'Export audio' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('0', 'wav'));
+  fireEvent.click(screen.getByRole('button', { name: 'Export project backup' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('0', 'golos'));
+  expect(screen.getByText('Exported.')).toBeTruthy();
+});
+
+it('keeps the find & replace draft when the section is closed and reopened', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Find & replace');
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find in transcript' }), { target: { value: 'saved' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text' }), { target: { value: 'reviewed' } });
+  toggleSection('Find & replace');
+  expect(section('Find & replace').open).toBe(false);
+  toggleSection('Find & replace');
+  expect(section('Find & replace').open).toBe(true);
+  expect((screen.getByRole('searchbox', { name: 'Find in transcript' }) as HTMLInputElement).value).toBe('saved');
+  expect((screen.getByRole('textbox', { name: 'Replacement text' }) as HTMLInputElement).value).toBe('reviewed');
+});
+
+it('keeps the speaker choice when the speaker section is closed and reopened', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Speaker detection');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Speakers' }), { target: { value: '3' } });
+  toggleSection('Speaker detection');
+  expect(section('Speaker detection').open).toBe(false);
+  toggleSection('Speaker detection');
+  expect((screen.getByRole('combobox', { name: 'Speakers' }) as HTMLSelectElement).value).toBe('3');
+});
+
+it('reveals system audio permissions as soon as a system source is chosen', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  expect(screen.queryByText('System audio & permissions', { selector: 'summary' })).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recording source' }), { target: { value: 'system' } });
+  expect(section('System audio & permissions').open).toBe(true);
+  expect(screen.getByRole('button', { name: 'Refresh applications / grant access' })).toBeTruthy();
+  expect(screen.getByText(/Allow Golos Audio Capture in System Settings/)).toBeTruthy();
+  expect(screen.getByRole('combobox', { name: 'Application to capture' })).toBeTruthy();
+  // A different system source brings the permission steps back into view.
+  toggleSection('System audio & permissions');
+  expect(section('System audio & permissions').open).toBe(false);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recording source' }), { target: { value: 'mixed' } });
+  expect(section('System audio & permissions').open).toBe(true);
+});
+
+it('opens recording actions inside the library row and closes them with Escape', async () => {
+  render(<App/>);
+  const trigger = await screen.findByRole('button', { name: 'Actions for One' });
+  fireEvent.click(trigger);
+  const menu = screen.getByRole('menu');
+  // The menu expands in the row, so it cannot float over the player or editor.
+  expect(menu.closest('.recording-row')).toBeTruthy();
+  expect(menu.className).toBe('recording-menu');
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  fireEvent.keyDown(document, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+  expect(document.activeElement).toBe(trigger);
 });
