@@ -15,6 +15,7 @@ app is a **macOS developer preview**; multiplatform support is planned.
 - Rename, organize and search a local SQLite library; edit timestamped transcripts with undo/redo, replacement and paragraph tools.
 - Export TXT, SRT, VTT, DOCX, Markdown, HTML, CSV, JSON, audio and portable project backups.
 - Import batches, watch selected local folders and automatically export locally.
+- Configure opt-in automatic local AI rules for future individual, batch or watched-folder transcriptions; generated results stay separate. See [automatic AI](docs/AUTOMATIC_AI.md).
 - Generate separate local summaries, actions, chat, cleanup and translations with optional Ollama; translate speech to English with multilingual Whisper. See [local AI setup and validation limits](docs/LOCAL_AI.md).
 - Play local audio, seek from timestamps, and follow highlighted transcript paragraphs.
 - Detect speakers offline with optional imported ONNX models and edit speaker labels.

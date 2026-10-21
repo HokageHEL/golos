@@ -1,7 +1,7 @@
 // Development-only fixture; Vite's production entry does not import this module.
 // No file access, recording hardware or inference is exercised by this fixture.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
-import type { AiWork, AutomationView, Note } from '../src/api';
+import type { AiAutomationRule, AiAutomationTask, AiWork, AutomationView, Note } from '../src/api';
 const notes = ['Research interview', 'Weekly planning'].map<Note>((title, i) => ({
   id: String(i), title, createdAt: 1792400000, durationSeconds: 60, status: 'done',
   segments: [{ startMs: 0, endMs: 10000, speaker: 'Alice', text: 'A saved transcript for library search and editing.' }, { startMs: 10000, endMs: 20000, speaker: 'Alice', text: 'The next paragraph keeps its timestamp.' }],
@@ -10,6 +10,12 @@ const notes = ['Research interview', 'Weekly planning'].map<Note>((title, i) => 
 const automation: AutomationView = { settings: { paused: false, exportEnabled: false, exportDirectory: null, exportFormats: ['txt'] }, folders: [], files: [], exports: [], label: null };
 let aiSettings = {port:11434,model:'qwen2.5:1.5b',contextWindow:8192};
 let aiResults: AiWork[] = [];
+let aiAutomationRules: AiAutomationRule[] = [];
+let aiAutomationTasks: AiAutomationTask[] = [{
+  id: 'auto-1', noteId: '0', title: 'Research interview', kind: 'summary', ruleName: 'Meeting summary',
+  status: 'failed', error: 'Mocked local model unavailable. Start local Ollama and retry.',
+  resultId: null, model: 'qwen2.5:1.5b', source: 'single',
+}];
 let queueJobs: { id: number; noteId: string; title: string; durationSeconds: number; language: string; status: string; error: string | null }[] = [];
 let paused = false;
 let recordingTitle = 'Mock recording';
@@ -19,6 +25,17 @@ mockIPC((command, payload = {}) => {
   const args = payload;
   switch (command) {
     case 'ai_status': return {settings:{...aiSettings},results:aiResults.filter(result=>result.noteId===args.noteId).map(result=>({...structuredClone(result),stale:false}))};
+    case 'ai_automation_status': return {rules:structuredClone(aiAutomationRules),tasks:structuredClone(aiAutomationTasks),model:aiSettings.model,label:aiAutomationTasks.some(task=>task.status==='running')?'Running an automatic AI rule':null};
+    case 'ai_automation_configure': aiAutomationRules=structuredClone(args.rules as AiAutomationRule[]); return;
+    case 'ai_automation_skip_queued': { let count=0;aiAutomationTasks.forEach(task=>{if(task.status==='queued'){task.status='skipped';task.error=null;count++;}});return count;}
+    case 'ai_automation_action': {
+      const task=aiAutomationTasks.find(item=>item.id===args.id);
+      if(!task)return;
+      if(args.action==='remove')aiAutomationTasks=aiAutomationTasks.filter(item=>item.id!==args.id);
+      else if(args.action==='skip'){task.status='skipped';task.error=null;}
+      else if(args.action==='retry'){task.status='queued';task.error=null;}
+      return;
+    }
     case 'ai_models': return [{name:'qwen2.5:1.5b',size:986061892,digest:'mock',context:32768}];
     case 'ai_configure': aiSettings={...args.settings as typeof aiSettings}; return;
     case 'ai_get': return structuredClone(aiResults.find(result=>result.id===args.id));
@@ -46,7 +63,12 @@ mockIPC((command, payload = {}) => {
       else if (folder) folder.autoTranscribe = args.action === 'auto';
       return;
     }
-    case 'pause_automation': automation.settings.paused = Boolean(args.paused); return;
+    case 'pause_automation':
+      automation.settings.paused = Boolean(args.paused);
+      if (args.paused) aiAutomationTasks = aiAutomationTasks.map(task => task.status === 'running'
+        ? { ...task, status: 'cancelled', error: 'Cancelled by pause automation.' }
+        : task);
+      return;
     case 'choose_export_folder': automation.settings.exportDirectory = '/mock/exports'; return true;
     case 'configure_exports': automation.settings.exportEnabled = Boolean(args.enabled); automation.settings.exportFormats = args.formats as string[]; return;
     case 'export_queue_results': automation.exports = [{ noteId: '0', title: 'Research interview', status: 'failed', error: 'Mocked export permission error. Restore access and retry.' }]; return 1;

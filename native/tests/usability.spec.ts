@@ -154,6 +154,40 @@ test('watched-folder and local export controls preserve opt-in choices and retry
   await page.screenshot({ path: info.outputPath('automation-exports.png'), fullPage: true });
 });
 
+test('automatic local AI rules are opt-in, saved explicitly and pause queued work', async ({ page }, info) => {
+  await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
+  const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
+  await expect(automation.getByRole('heading', { name: 'Automatic AI rules', exact: true })).toBeVisible();
+  await expect(automation.getByText(/No rules are configured/)).toBeVisible();
+  await automation.getByRole('button', { name: 'Add automatic rule', exact: true }).click();
+  await automation.getByLabel('Rule name', { exact: true }).fill('Browser meeting summary');
+  await automation.getByRole('checkbox', { name: 'Single recording', exact: true }).check();
+  await automation.getByRole('checkbox', { name: 'Enable rule 1', exact: true }).check();
+  await automation.getByRole('button', { name: 'Save automatic AI rules', exact: true }).click();
+  await expect(automation.getByText(/Automatic AI rules saved/)).toBeVisible();
+  await expect(automation.getByLabel('Rule name', { exact: true })).toHaveValue('Browser meeting summary');
+  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('failed');
+  await automation.getByRole('button', { name: 'Retry automatic task Research interview', exact: true }).click();
+  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('queued');
+  await automation.getByLabel('Context window', { exact: true }).selectOption('16384');
+  await automation.getByRole('button', { name: 'Refresh installed models', exact: true }).click();
+  await expect(automation.getByText('Installed local models loaded.', { exact: true })).toBeVisible();
+  await automation.getByRole('button', { name: 'Cancel automatic AI and pause', exact: true }).click();
+  await expect(automation.getByText(/Automatic AI paused\. Running work is cancelling/)).toBeVisible();
+  await expect(automation.getByText(/resume automation above/).first()).toBeVisible();
+  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('queued');
+  await automation.getByLabel('Rule name', { exact: true }).fill('Unsaved browser rule draft');
+  await automation.getByRole('button', { name: 'Skip all queued automatic tasks', exact: true }).click();
+  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('skipped');
+  await expect(automation.getByText(/1 queued automatic task skipped, including tasks outside this list/)).toBeVisible();
+  await expect(automation.getByLabel('Rule name', { exact: true })).toHaveValue('Unsaved browser rule draft');
+  await expect(automation.getByRole('button', { name: 'Skip all queued automatic tasks', exact: true })).toBeDisabled();
+  await page.setViewportSize({ width: 760, height: 560 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await automation.getByRole('heading', { name: 'Automatic AI rules', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('automatic-ai-rules.png'), fullPage: true });
+});
+
 test('local AI keeps summaries separate, exports results and retains saved history', async ({ page }, info) => {
   await page.getByRole('button', {name:'Local AI & translation',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Local AI & translation'});

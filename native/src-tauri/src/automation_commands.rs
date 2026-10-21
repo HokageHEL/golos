@@ -80,20 +80,26 @@ pub(crate) fn watch_folder_action(
     id: String,
     action: String,
 ) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    if ["pause", "remove", "manual"].contains(&action.as_str())
-        && state
-            .automation_label
-            .lock()
-            .map_err(|e| e.to_string())?
-            .is_some()
-    {
-        state.cancelled.store(true, Ordering::SeqCst);
-    }
-    automation::action(&*state.db()?, &id, &action)?;
+    apply_watch_folder_action(&app.state::<AppState>(), &id, &action)?;
     let _ = app.emit("automation-changed", ());
     Ok(())
 }
+// Folder controls may interrupt folder imports/transcription, but must never
+// cancel another subsystem that happens to own the shared operation guard.
+fn apply_watch_folder_action(state: &AppState, id: &str, action: &str) -> Result<(), String> {
+    automation::action(&*state.db()?, id, action)?;
+    let label = state.automation_label.lock().map_err(|e| e.to_string())?;
+    if ["pause", "remove", "manual"].contains(&action)
+        && matches!(
+            label.as_deref(),
+            Some("Importing watched audio" | "Transcribing watched audio")
+        )
+    {
+        state.cancelled.store(true, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn pause_automation(app: tauri::AppHandle, paused: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -180,4 +186,54 @@ pub(crate) fn retry_exports(state: State<AppState>) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        path::PathBuf,
+        sync::{atomic::AtomicBool, Arc, Mutex},
+    };
+
+    #[test]
+    fn folder_controls_only_cancel_watched_audio_work() {
+        for label in [
+            "Applying automatic local AI",
+            "Exporting saved transcripts",
+            "Importing watched audio",
+            "Transcribing watched audio",
+        ] {
+            for action in ["pause", "manual", "remove", "resume", "auto"] {
+                let db = rusqlite::Connection::open_in_memory().unwrap();
+                crate::library::init(&db, Path::new(":memory:")).unwrap();
+                let id = automation::add(&db, Path::new("/fixture/watch"), "auto", true).unwrap();
+                let state = AppState {
+                    root: PathBuf::new(),
+                    db: Mutex::new(db),
+                    busy: Arc::new(AtomicBool::new(false)),
+                    cancelled: Arc::new(AtomicBool::new(false)),
+                    recording: Mutex::new(None),
+                    automation_label: Mutex::new(None),
+                    automation_paused: AtomicBool::new(false),
+                };
+                let _guard = state.claim_automation(label).unwrap();
+                // Invalid actions and missing folders never interrupt valid work.
+                assert!(apply_watch_folder_action(&state, &id, "invalid").is_err());
+                assert!(apply_watch_folder_action(&state, "missing", action).is_err());
+                assert!(!state.cancelled.load(Ordering::SeqCst));
+                apply_watch_folder_action(&state, &id, action).unwrap();
+                let expected = ["Importing watched audio", "Transcribing watched audio"]
+                    .contains(&label)
+                    && ["pause", "manual", "remove"].contains(&action);
+                assert_eq!(
+                    state.cancelled.load(Ordering::SeqCst),
+                    expected,
+                    "{label}: {action}"
+                );
+                assert!(!automation::settings(&state.db().unwrap()).unwrap().paused);
+                assert!(!state.automation_paused.load(Ordering::SeqCst));
+            }
+        }
+    }
 }

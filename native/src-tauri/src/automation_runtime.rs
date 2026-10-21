@@ -1,12 +1,16 @@
 use crate::{
-    auto_export, automation, batch, jobs, model, process_queued_job, watch, AppState, BusyGuard,
+    ai_automation, auto_export, automation, batch, jobs, model, process_queued_job, watch,
+    AppState, BusyGuard,
 };
 use rusqlite::params;
 use std::{
     path::Path,
-    sync::atomic::Ordering,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+/// Alternate priorities so a long automatic-AI backlog cannot starve watched
+/// imports, and continuous imports cannot starve the automatic queue.
+static SCHEDULER_TURN: AtomicU64 = AtomicU64::new(0);
 use tauri::{Emitter, Manager};
 struct Operation {
     app: tauri::AppHandle,
@@ -64,6 +68,12 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
                 format!("Transcript saved; local export needs retry: {error}"),
             );
         }
+        return Ok(());
+    }
+    let ai_first = SCHEDULER_TURN
+        .fetch_add(1, Ordering::Relaxed)
+        .is_multiple_of(2);
+    if ai_first && process_automatic_ai(app)? {
         return Ok(());
     }
     let eligible:Option<(String,String)>=state.db()?.query_row("SELECT j.note_id,j.language FROM transcription_jobs j JOIN watch_imports w ON w.note_id=j.note_id JOIN watch_folders f ON f.id=w.folder_id WHERE j.status='queued' AND f.enabled=1 AND f.auto_transcribe=1 ORDER BY j.id LIMIT 1",[],|row|Ok((row.get(0)?,row.get(1)?))).optional().map_err(|e|e.to_string())?;
@@ -167,7 +177,31 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
             return Ok(());
         }
     }
+    if !ai_first && process_automatic_ai(app)? {
+        return Ok(());
+    }
 
     Ok(())
+}
+/// Run one queued automatic task. The operation guard serializes it with
+/// transcription/imports and lets the existing global pause cancel it.
+fn process_automatic_ai(app: &tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<AppState>();
+    if !ai_automation::has_queued(&*state.db()?)? {
+        return Ok(false);
+    }
+    let Ok(_operation) = Operation::begin(app, "Applying automatic local AI") else {
+        return Ok(false);
+    };
+    match tauri::async_runtime::block_on(ai_automation::process_next(app)) {
+        Ok(processed) => Ok(processed),
+        Err(error) => {
+            let _ = app.emit(
+                "automation-error",
+                format!("Transcripts are saved; automatic local AI needs retry: {error}"),
+            );
+            Ok(true)
+        }
+    }
 }
 use rusqlite::OptionalExtension;
