@@ -198,6 +198,62 @@ async fn run_with(
     );
     Ok(work)
 }
+/// Optional local processing for a global dictation job. It reuses the
+/// existing loopback-only client, the saved AI work table and the shared
+/// model settings, so a dictated recording produces a separate result with its
+/// own model and prompt provenance.
+pub(crate) fn process_for_dictation(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    note_id: &str,
+    kind: &str,
+    prompt: &str,
+    language: &str,
+) -> Result<crate::dictation_runtime::Processed, String> {
+    let (work, port) = {
+        let db = state.db()?;
+        let settings = ai::settings(&db)?;
+        let request = ai::Request {
+            note_id: note_id.into(),
+            kind: kind.into(),
+            target: String::new(),
+            prompt: prompt.into(),
+            conversation: String::new(),
+            source_language: language.into(),
+        };
+        (
+            ai::create(
+                &db,
+                &request,
+                &settings.model,
+                settings.context_window,
+            )?,
+            settings.port,
+        )
+    };
+    let work = tauri::async_runtime::block_on(run_with(app, work, port, None))?;
+    if work.status != "done" {
+        return Err(work
+            .error
+            .unwrap_or_else(|| "The local model did not finish this task.".into()));
+    }
+    let text = if work.segments.is_empty() {
+        work.content.clone()
+    } else {
+        work.segments
+            .iter()
+            .map(|segment| segment.text.trim())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    Ok(crate::dictation_runtime::Processed {
+        text,
+        model: work.model,
+        prompt: work.prompt,
+    })
+}
+
 #[tauri::command]
 pub(crate) async fn ai_recording(
     app: tauri::AppHandle,

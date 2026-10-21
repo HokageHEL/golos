@@ -461,3 +461,48 @@ test('settings submenus keep navigation and footer clear at minimum and full win
     await automation.getByRole('button', { name: 'Close automation settings', exact: true }).click();
   }
 });
+
+test('the dictation overlay is button-only and never takes the keyboard', async ({ page }) => {
+  await page.goto('/tests/ui.html?overlay=1&dictation=recording');
+  const overlay = page.getByRole('group', { name: 'Global dictation', exact: true });
+  await expect(overlay).toBeVisible();
+  await expect(overlay.getByRole('button', { name: 'Stop and save', exact: true })).toBeVisible();
+  await expect(overlay.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  await expect(overlay.getByText(/cannot take keyboard focus/)).toBeVisible();
+});
+
+test('a background dictation locks the main recording controls without losing the draft', async ({ page }) => {
+  await page.goto('/tests/ui.html?dictation=recording');
+  await expect(page.getByRole('heading', { name: 'Research interview', exact: true })).toBeVisible();
+  const editor = page.getByRole('textbox', { name: 'Transcript at 0:00', exact: true });
+  await editor.fill('An unsaved browser draft.');
+  await expect(page.getByText(/Global dictation is running/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '● Record audio', exact: true })).toBeDisabled();
+  await expect(editor).toHaveValue('An unsaved browser draft.');
+});
+
+test('the dictation review keeps the original text, retries and inserts only on request', async ({ page }) => {
+  await page.goto('/tests/ui.html?dictation=preview');
+  await expect(page.getByRole('heading', { name: 'Research interview', exact: true })).toBeVisible();
+  const panel = page.getByRole('region', { name: 'Global dictation', exact: true });
+  await expect(panel.getByText('Original transcript', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Processed text', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('textbox', { name: 'Text to insert', exact: true })).toHaveValue('Cleaned dictated words.');
+  await panel.getByRole('button', { name: 'Insert into target', exact: true }).click();
+  await expect(panel.getByText('Paste requested; verify the target app.', { exact: true })).toBeVisible();
+  // The library selection and the editor draft are untouched.
+  await expect(page.getByRole('textbox', { name: 'Transcript at 0:00', exact: true })).toHaveValue('A saved transcript for library search and editing.');
+});
+
+test('dictation settings are compact, grouped and save on this device', async ({ page }) => {
+  await page.goto('/tests/ui.html');
+  await page.getByRole('button', { name: 'Global dictation…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Dictation', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('group', { name: 'Shortcut' })).toBeVisible();
+  await dialog.getByRole('checkbox', { name: 'Enable the global dictation shortcut' }).check();
+  await dialog.getByRole('textbox', { name: 'Dictation shortcut', exact: true }).fill('Cmd+Shift+D');
+  await dialog.getByRole('button', { name: 'Save dictation settings', exact: true }).click();
+  await expect(dialog.getByText('Dictation settings saved on this device.', { exact: true })).toBeVisible();
+});

@@ -83,10 +83,64 @@ export const api = {
   // Returns the local path of the recording's normalized audio after Rust has
   // checked that the note exists and authorized only that file for playback.
   audioSource: (id: string) => invoke<string>('audio_source', { id }),
+  // Global dictation. The native runtime owns the recording, the shortcut and
+  // the single-use insertion request; the webview only asks for steps.
+  dictationStatus: () => invoke<DictationStatus>('dictation_status'),
+  dictationSettings: () => invoke<DictationSettings>('dictation_settings'),
+  dictationConfigure: (settings: DictationSettings) => invoke<DictationSettings>('dictation_configure', { settings }),
+  dictationStart: () => invoke<DictationStatus>('dictation_start'),
+  dictationStop: () => invoke<DictationStatus>('dictation_stop'),
+  dictationPause: (paused: boolean) => invoke<DictationStatus>('dictation_pause', { paused }),
+  dictationRetrySave: () => invoke<DictationStatus>('dictation_retry_save'),
+  dictationRetryTranscribe: () => invoke<DictationStatus>('dictation_retry_transcribe'),
+  dictationRetryProcess: () => invoke<DictationStatus>('dictation_retry_process'),
+  dictationPreviewText: (text: string) => invoke<DictationStatus>('dictation_preview_text', { text }),
+  dictationInsert: () => invoke<DictationInsertOutcome>('dictation_insert'),
+  dictationDismiss: () => invoke<DictationStatus>('dictation_dismiss'),
+  dictationDiscard: () => invoke<DictationStatus>('dictation_discard'),
+  dictationPermissions: () => invoke<DictationPermissions>('dictation_permissions'),
+  dictationRequestPermission: (kind: DictationPermissionKind) => invoke<DictationPermissions>('dictation_request_permission', { kind }),
+  dictationOpenPermissionSettings: (kind: DictationPermissionKind) => invoke<void>('dictation_open_permission_settings', { kind }),
+  dictationHideOverlay: () => invoke<void>('dictation_hide_overlay'),
 };
 
 export type AiSettings = { port: number; model: string; contextWindow: number };
-export type AiAutomationSource = 'single' | 'batch' | 'watch';
+export type DictationPhase = 'idle' | 'starting' | 'recording' | 'paused' | 'stopped' | 'saving'
+  | 'saveFailed' | 'transcribing' | 'processing' | 'preview' | 'inserting' | 'pasteRequested' | 'failed';
+export type DictationMode = 'toggle' | 'hold';
+export type DictationPermissionKind = 'accessibility' | 'postEvents';
+export type DictationAppOverride = {
+  bundleId: string; aiEnabled: boolean | null; aiKind: string | null; aiPrompt: string | null;
+};
+export type DictationSettings = {
+  enabled: boolean; shortcut: string; mode: DictationMode; language: string;
+  showOverlay: boolean; overlayAlwaysOnTop: boolean; restoreClipboard: boolean;
+  aiEnabled: boolean; aiKind: string; aiPrompt: string; appOverrides: DictationAppOverride[];
+};
+export type DictationTarget = { bundleId: string; name: string };
+export type DictationPermissions = { accessibility: boolean; postEvents: boolean };
+export type DictationStatus = {
+  enabled: boolean; shortcut: string; shortcutDisplay: string; mode: DictationMode; language: string;
+  phase: DictationPhase; active: boolean; overlayVisible: boolean; showOverlay: boolean;
+  overlayAlwaysOnTop: boolean; restoreClipboard: boolean; aiEnabled: boolean; aiKind: string;
+  aiPrompt: string; appOverrides: DictationAppOverride[]; shortcutError: string | null;
+  startupFailed: boolean; insertionSupported: boolean; permissions: DictationPermissions | null;
+  target: DictationTarget | null; noteId: string | null; originalText: string;
+  processedText: string | null; previewText: string; processedModel: string | null;
+  processedPrompt: string | null; error: string | null; warning: string | null;
+  pasteMessage: string | null; clipboard: string | null; recovered: boolean;
+  canStart: boolean; canPause: boolean; canDiscard: boolean; canRetrySave: boolean;
+  canRetryTranscribe: boolean; canRetryProcess: boolean; canInsert: boolean; canDismiss: boolean;
+};
+export type DictationInsertOutcome =
+  | { status: 'pasteRequested'; clipboard: string; message: string }
+  | { status: 'refused'; reason: string; message: string }
+  | { status: 'failed'; clipboard: string; message: string };
+export const dictationPhaseLabel: Record<DictationPhase, string> = {
+  idle: 'Idle', starting: 'Starting', recording: 'Recording', paused: 'Paused', stopped: 'Stopped',
+  saving: 'Saving', saveFailed: 'Save failed', transcribing: 'Transcribing', processing: 'Processing',
+  preview: 'Preview', inserting: 'Inserting', pasteRequested: 'Paste requested', failed: 'Failed',
+};export type AiAutomationSource = 'single' | 'batch' | 'watch';
 export type AiAutomationKind = 'cleanup' | 'summary' | 'actions' | 'translate' | 'custom';
 export type AiAutomationRule = {
   id: string; name: string; enabled: boolean; kind: AiAutomationKind;

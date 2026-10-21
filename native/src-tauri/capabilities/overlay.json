@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "The recording overlay is a button-only surface. It may hide itself; it never registers shortcuts or reads the clipboard.",
+  "windows": ["overlay"],
+  "permissions": ["core:default", "core:window:allow-hide"]
+}

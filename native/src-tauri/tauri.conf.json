@@ -11,7 +11,10 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "label": "main", "title": "Golos", "width": 1180, "height": 780, "minWidth": 760, "minHeight": 560 }],
+    "windows": [
+      { "label": "main", "title": "Golos", "width": 1180, "height": 780, "minWidth": 760, "minHeight": 560 },
+      { "label": "overlay", "title": "Golos Dictation", "url": "index.html?overlay=1", "width": 380, "height": 220, "resizable": false, "decorations": false, "transparent": true, "visible": false, "focus": false, "alwaysOnTop": true, "skipTaskbar": true, "shadow": true }
+    ],
     "security": {
       "assetProtocol": { "enable": true },
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' asset: http://asset.localhost; connect-src ipc: http://ipc.localhost"

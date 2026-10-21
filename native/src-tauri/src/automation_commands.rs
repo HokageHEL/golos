@@ -193,7 +193,7 @@ mod tests {
     use super::*;
     use std::{
         path::PathBuf,
-        sync::{atomic::AtomicBool, Arc, Mutex},
+        sync::atomic::Ordering,
     };
 
     #[test]
@@ -208,16 +208,7 @@ mod tests {
                 let db = rusqlite::Connection::open_in_memory().unwrap();
                 crate::library::init(&db, Path::new(":memory:")).unwrap();
                 let id = automation::add(&db, Path::new("/fixture/watch"), "auto", true).unwrap();
-                let state = AppState {
-                    root: PathBuf::new(),
-                    db: Mutex::new(db),
-                    busy: Arc::new(AtomicBool::new(false)),
-                    cancelled: Arc::new(AtomicBool::new(false)),
-                    recording: Mutex::new(None),
-                    automation_label: Mutex::new(None),
-                    automation_paused: AtomicBool::new(false),
-                    batch_drop: crate::batch_drop::DropStore::new(),
-                };
+                let state = crate::test_state(PathBuf::new(), db);
                 let _guard = state.claim_automation(label).unwrap();
                 // Invalid actions and missing folders never interrupt valid work.
                 assert!(apply_watch_folder_action(&state, &id, "invalid").is_err());

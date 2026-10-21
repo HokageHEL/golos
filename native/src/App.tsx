@@ -10,8 +10,10 @@ import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';
 import DeleteRecordingDialog from './DeleteRecordingDialog';
 import Disclosure from './Disclosure';
 import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
-import { api, nativeAvailable, type Note, type Setup, type RecordingStatus, type Language, type TextExportFormat } from './api';
+import { api, nativeAvailable, type Note, type Setup, type RecordingStatus, type Language, type TextExportFormat, type DictationStatus } from './api';
 import Settings from './Settings';
+import DictationPanel from './DictationPanel';
+import DictationSettings from './DictationSettings';
 import Organization from './Organization';
 import BatchQueue from './BatchQueue';
 import AutomationSettings from './AutomationSettings';
@@ -94,6 +96,8 @@ export default function App() {
   const [matchIndex, setMatchIndex] = useState(-1);
   const [selection, setSelection] = useState<(TranscriptMatch & { nonce: number }) | null>(null);
   const [audioAttempt, setAudioAttempt] = useState(0);
+  const [dictation, setDictation] = useState<DictationStatus | null>(null);
+  const [dictationSettingsOpen, setDictationSettingsOpen] = useState(false);
   const matches = useMemo(() => findTranscriptMatches(draft, query), [draft, query]);
   const matchingSegments = useMemo(() => new Set(matches.map(match => match.segmentIndex)), [matches]);
   const selectedMatch = matchIndex < 0 ? -1 : Math.min(matchIndex, matches.length - 1);
@@ -103,7 +107,11 @@ export default function App() {
   const findState = query.trim() ? (matches.length ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : 'No matches') : '';
   const active = activeNote;
   const hasUnsaved = dirty || Object.keys(draftCache).length > 0;
-  const locked = Boolean(busy || automationLabel) || loading || !nativeAvailable;
+  // A background dictation holds the single recording session and the
+  // transcription pipeline, so the main window waits for it instead of
+  // showing a confusing "wait" error.
+  const dictationActive = Boolean(dictation?.active);
+  const locked = Boolean(busy || automationLabel) || dictationActive || loading || !nativeAvailable;
   const readLocked = Boolean(busy) || loading || !nativeAvailable;
   const activeIndex = activeSegmentIndex(draft, playheadMs);
   const hasSpeakerLabels = draft.some(segment => segment.speaker !== null);
@@ -241,9 +249,21 @@ export default function App() {
   useEffect(() => {
     if (!nativeAvailable) return;
     let disposed = false;
-    let revision = 0;
-    const state = listen<string | null>('automation-state', event => { revision++; if (!disposed) setAutomationLabel(event.payload); });
-    void state.then(async () => { const expected = revision; const view = await api.automation(); if (!disposed && expected === revision) setAutomationLabel(view.label); }).catch(e => { if (!disposed) setError(errorText(e)); });
+    void Promise.resolve().then(() => api.dictationStatus()).then(value => { if (!disposed) setDictation(value); })
+      .catch(() => { if (!disposed) setDictation(null); });
+    const subscription = listen<DictationStatus>('dictation-state', event => {
+      if (!disposed) setDictation(event.payload);
+    });
+    subscription.catch(() => {});
+    return () => { disposed = true; void subscription.then(unlisten => unlisten()).catch(() => {}); };
+  }, []);
+
+  useEffect(() => {
+    if (!nativeAvailable) return;
+    let disposed = false;
+    const revision = { current: 0 };
+    const state = listen<string | null>('automation-state', event => { revision.current++; if (!disposed) setAutomationLabel(event.payload); });
+    void state.then(async () => { const expected = revision.current; const view = await api.automation(); if (!disposed && expected === revision.current) setAutomationLabel(view.label); }).catch(e => { if (!disposed) setError(errorText(e)); });
     const errors = listen<string>('automation-error', event => { if (!disposed) setError(event.payload); });
     return () => { disposed = true; for (const subscription of [state, errors]) void subscription.then(unlisten => unlisten()).catch(() => {}); };
   }, []);
@@ -430,6 +450,8 @@ export default function App() {
     {aiOpen && active && <LocalAi key={active.id} note={active} dirty={dirty} modelReady={!!setup?.modelReady} languages={languages} busy={busy} background={automationLabel} audioAvailable={!!audioUrl} onOperation={perform} onSeek={seekTo} onClose={()=>setAiOpen(false)} onApply={segments=>{editDraft(segments);setAiOpen(false);setMessage('Generated draft applied — unsaved. Undo is available.');}} onCreated={async note=>{select(note);setNotes(await api.list({search:librarySearch,status:statusFilter,folder:folderFilter,tag:tagFilter}));setAiOpen(false);setMessage(`Created separate recording: ${note.title}`);}}/>}
     {automationOpen && <AutomationSettings languages={languages} busy={busy} background={automationLabel} onOperation={perform} onClose={() => setAutomationOpen(false)}/>}
     {batchOpen && <BatchQueue languages={languages} modelReady={!!setup?.modelReady} busy={busy || automationLabel} backgroundBusy={!!automationLabel} progress={progress} error={error} onOperation={perform} onChanged={refreshAfterBatch} onClose={() => setBatchOpen(false)}/>}
+    <DictationSettings open={dictationSettingsOpen} status={dictation} onStatus={setDictation}
+      onError={setError} nativeAvailable={nativeAvailable} onClose={() => setDictationSettingsOpen(false)}/>
     <aside className="sidebar">
       <a className="brand" href="#">golos<span className="brand-dot">●</span></a>
       <p className="tagline">Your words. Your device.</p>
@@ -448,6 +470,7 @@ export default function App() {
       <Disclosure className="sidebar-panel" summary="More tools">
         <button className="secondary" disabled={locked} onClick={() => setBatchOpen(true)}>Batch transcription</button>
         <button className="secondary" disabled={!!busy || loading || !nativeAvailable} onClick={event => openAutomation(event.currentTarget)}>Folders &amp; automation</button>
+        <button className="secondary" disabled={loading || !nativeAvailable} onClick={() => setDictationSettingsOpen(true)}>Global dictation…</button>
         <button className="secondary" disabled={locked} onClick={importProject}>Import project backup</button>
       </Disclosure>
       <div className="library-heading"><h2>Library</h2><span title="Loaded matching recordings">{notes.length}{notes.length >= 100 ? '＋' : ''}</span></div>
@@ -487,6 +510,10 @@ export default function App() {
       <header className="topbar"><span>Private transcription</span><span className="pill">No account needed</span></header>
       <div className="workspace">
         {automationLabel && <div className="notice" role="status"><span>{automationLabel} · Runs on this device.</span><button className="secondary" onClick={() => { void api.pauseAutomation(true).catch(e => setError(errorText(e))); }}>Pause automation and cancel current work</button></div>}
+        {dictationActive && <div className="dictation-locked-banner" role="status">
+          <span>Global dictation is running. Recording and transcription wait until it finishes.</span>
+          <button className="secondary" onClick={() => setDictationSettingsOpen(true)}>Dictation settings</button>
+        </div>}
         {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to record audio, import files, transcribe, and save to your local library.</div>}
         {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
         {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
@@ -500,6 +527,8 @@ export default function App() {
           </div> : <div className="actions"><button className="secondary" disabled={capturePhase !== 'recording' || capture.stopped} onClick={async () => { try { await api.pauseRecording(!capture.paused); setCapture(await api.recordingStatus()); } catch (e) { setError(errorText(e)); } }}>{capture.paused ? 'Resume' : 'Pause'}</button><button className="primary" disabled={capturePhase !== 'recording'} onClick={() => stopRecording()}>Stop and save</button><button className="secondary" disabled={capturePhase !== 'recording'} onClick={() => setDiscardCapture(true)}>Discard…</button></div>}
         </section>}
         {busy && !active && !capture && <div className="processing" role="status">{busy}…</div>}
+        {dictation && dictation.phase !== 'idle' && <DictationPanel status={dictation}
+          onStatus={setDictation} onError={setError} onOpenSettings={() => setDictationSettingsOpen(true)}/>}
 
         {!capture && (!active ? <section className="welcome">
           <div className="wave" aria-hidden="true">{[18, 36, 60, 42, 80, 54, 30, 60, 38, 18].map((height, i) => <span key={i} style={{ height }}/>)}</div>

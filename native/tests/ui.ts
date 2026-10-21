@@ -2,7 +2,7 @@
 // No file access, recording hardware or inference is exercised by this fixture.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { AiAutomationRule, AiAutomationTask, AiWork, AutomationView, Note } from '../src/api';
+import type { AiAutomationRule, AiAutomationTask, AiWork, AutomationView, DictationSettings, DictationStatus, Note } from '../src/api';
 const notes = ['Research interview', 'Weekly planning'].map<Note>((title, i) => ({
   id: String(i), title, createdAt: 1792400000, durationSeconds: 60, status: 'done',
   segments: [{ startMs: 0, endMs: 10000, speaker: 'Alice', text: 'A saved transcript for library search and editing.' }, { startMs: 10000, endMs: 20000, speaker: 'Alice', text: 'The next paragraph keeps its timestamp.' }],
@@ -25,6 +25,42 @@ const uiWindow = globalThis as typeof globalThis & {
   __lastTextExport?: ExportCapture;
   __lastSavedExport?: ExportCapture;
 };
+// The fixture never records sound, reads the clipboard or touches the OS. The
+// dictation state is a mock, so the browser checks the interface only.
+const query = new URLSearchParams(window.location.search);
+let dictationSettings: DictationSettings = {
+  enabled: false, shortcut: 'CmdOrCtrl+Shift+Space', mode: 'toggle', language: 'auto',
+  showOverlay: true, overlayAlwaysOnTop: true, restoreClipboard: true, aiEnabled: false,
+  aiKind: 'cleanup', aiPrompt: 'Fix punctuation.', appOverrides: [],
+};
+let dictationStatus: DictationStatus = {
+  enabled: false, shortcut: 'CmdOrCtrl+Shift+Space', shortcutDisplay: '⇧⌘Space', mode: 'toggle',
+  language: 'auto', phase: 'idle', active: false, overlayVisible: false, showOverlay: true,
+  overlayAlwaysOnTop: true, restoreClipboard: true, aiEnabled: false, aiKind: 'cleanup',
+  aiPrompt: 'Fix punctuation.', appOverrides: [], shortcutError: null, startupFailed: false,
+  insertionSupported: true, permissions: { accessibility: true, postEvents: true },
+  target: null, noteId: null, originalText: '', processedText: null, previewText: '',
+  processedModel: null, processedPrompt: null, error: null, warning: null, pasteMessage: null,
+  clipboard: null, recovered: false, canStart: true, canPause: false, canDiscard: false,
+  canRetrySave: false, canRetryTranscribe: false, canRetryProcess: false, canInsert: false,
+  canDismiss: false,
+};
+if (query.get('dictation') === 'recording') {
+  dictationStatus = {
+    ...dictationStatus,
+    phase: 'recording', active: true, canPause: true, canDiscard: true,
+    target: { bundleId: 'com.example.Notes', name: 'Notes' },
+  };
+}
+if (query.get('dictation') === 'preview') {
+  dictationStatus = {
+    ...dictationStatus,
+    phase: 'preview', noteId: 'dictated-1', originalText: 'Dictated words.',
+    processedText: 'Cleaned dictated words.', previewText: 'Cleaned dictated words.',
+    processedModel: 'mock-model', processedPrompt: 'Fix punctuation.', canInsert: true,
+    target: { bundleId: 'com.example.Notes', name: 'Notes' },
+  };
+}
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   if (Array.isArray(payload) || payload instanceof ArrayBuffer || payload instanceof Uint8Array) return;
@@ -122,6 +158,22 @@ mockIPC((command, payload = {}) => {
     case 'save_note': Object.assign(notes.find(n => n.id === args.id)!, { segments: args.segments }); return;
     case 'export_transcript': uiWindow.__lastTextExport = { format: String(args.format), content: String(args.content) }; return true;
     case 'export_saved': uiWindow.__lastSavedExport = { format: String(args.format), options: args.options }; return true;
+    case 'dictation_status': return structuredClone(dictationStatus);
+    case 'dictation_settings': return structuredClone(dictationSettings);
+    case 'dictation_configure': dictationSettings = { ...(args.settings as DictationSettings) }; return structuredClone(dictationSettings);
+    case 'dictation_start': dictationStatus = { ...dictationStatus, phase: 'recording', active: true, canPause: true, canDiscard: true }; return structuredClone(dictationStatus);
+    case 'dictation_stop': dictationStatus = { ...dictationStatus, phase: 'saving', active: true }; return structuredClone(dictationStatus);
+    case 'dictation_pause': dictationStatus = { ...dictationStatus, phase: args.paused ? 'paused' : 'recording' }; return structuredClone(dictationStatus);
+    case 'dictation_retry_save': case 'dictation_retry_transcribe': case 'dictation_retry_process':
+      dictationStatus = { ...dictationStatus, phase: 'preview', noteId: 'dictated-1', originalText: 'Dictated words.', previewText: 'Dictated words.', canInsert: true, error: null }; return structuredClone(dictationStatus);
+    case 'dictation_preview_text': return structuredClone(dictationStatus);
+    case 'dictation_insert': return { status: 'pasteRequested', clipboard: 'unchanged', message: 'Paste requested; verify the target app.' };
+    case 'dictation_dismiss': dictationStatus = { ...dictationStatus, phase: 'idle', active: false, noteId: null }; return structuredClone(dictationStatus);
+    case 'dictation_discard': dictationStatus = { ...dictationStatus, phase: 'idle', active: false, noteId: null }; return structuredClone(dictationStatus);
+    case 'dictation_permissions': return { accessibility: true, postEvents: true };
+    case 'dictation_request_permission': return { accessibility: true, postEvents: true };
+    case 'dictation_open_permission_settings': return;
+    case 'dictation_hide_overlay': return;
     default: return;
   }
 }, { shouldMockEvents: true });

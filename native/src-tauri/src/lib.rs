@@ -14,6 +14,11 @@ mod batch_drop;
 mod capture;
 mod diarize;
 pub mod dictation;
+mod dictation_commands;
+mod dictation_overlay;
+mod dictation_runtime;
+mod dictation_settings;
+mod dictation_shortcut;
 mod docx;
 mod download;
 mod engine;
@@ -33,6 +38,7 @@ mod watch;
 use library::{Note, Segment};
 use rusqlite::{params, Connection};
 use serde::Serialize;
+use dictation_runtime::DictationRuntime;
 use std::{
     collections::HashSet,
     fs,
@@ -89,32 +95,47 @@ fn authorize_audio(root: &Path, db: &Connection, id: &str) -> Result<PathBuf, St
     Ok(canonical)
 }
 
-struct AppState {
-    root: PathBuf,
-    db: Mutex<Connection>,
-    busy: Arc<AtomicBool>,
-    cancelled: Arc<AtomicBool>,
-    recording: Mutex<Option<ActiveRecording>>,
-    automation_label: Mutex<Option<String>>,
-    automation_paused: AtomicBool,
+pub(crate) struct AppState {
+    pub(crate) root: PathBuf,
+    pub(crate) db: Mutex<Connection>,
+    pub(crate) busy: Arc<AtomicBool>,
+    pub(crate) cancelled: Arc<AtomicBool>,
+    pub(crate) recording: Mutex<Option<ActiveRecording>>,
+    pub(crate) automation_label: Mutex<Option<String>>,
+    pub(crate) automation_paused: AtomicBool,
+    /// The one global dictation runtime. It owns the native shortcut, the
+    /// dictation recording session and the review state.
+    pub(crate) dictation: Arc<DictationRuntime>,
     batch_drop: batch_drop::DropStore,
 }
 
-struct ActiveRecording {
-    session: recording::Session,
-    _guard: BusyGuard,
-    id: String,
-    created_at: i64,
-    title: String,
+/// Which workflow owns the single recording session. The main window and the
+/// global dictation can never stop or discard each other's capture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecordingOwner {
+    Main,
+    Dictation,
 }
-struct BusyGuard(Arc<AtomicBool>);
+
+pub(crate) struct ActiveRecording {
+    pub(crate) session: recording::Session,
+    /// The main window keeps the operation guard with the session. Dictation
+    /// keeps it in the job instead, so the guard survives the save step.
+    pub(crate) _guard: Option<BusyGuard>,
+    pub(crate) id: String,
+    pub(crate) created_at: i64,
+    pub(crate) title: String,
+    pub(crate) owner: RecordingOwner,
+    pub(crate) job_id: Option<String>,
+}
+pub(crate) struct BusyGuard(Arc<AtomicBool>);
 impl Drop for BusyGuard {
     fn drop(&mut self) {
         self.0.store(false, Ordering::SeqCst);
     }
 }
 impl AppState {
-    fn claim(&self) -> Result<BusyGuard, String> {
+    pub(crate) fn claim(&self) -> Result<BusyGuard, String> {
         self.busy
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .map_err(|_| "Wait for the current operation to finish.".to_string())?;
@@ -152,7 +173,7 @@ impl AppState {
     fn audio_path(&self, id: &str) -> Result<PathBuf, String> {
         audio_path(&self.root, id)
     }
-    fn db(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
+    pub(crate) fn db(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
         self.db
             .lock()
             .map_err(|_| "Library is unavailable. Restart Golos.".into())
@@ -301,12 +322,14 @@ async fn start_recording(
         *recording = Some(ActiveRecording {
             session,
             title,
-            _guard: guard,
+            _guard: Some(guard),
             id: uuid::Uuid::new_v4().to_string(),
             created_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(|e| e.to_string())?
                 .as_secs() as i64,
+            owner: RecordingOwner::Main,
+            job_id: None,
         });
         Ok(())
     })
@@ -328,20 +351,24 @@ fn recording_status(state: State<AppState>) -> Result<recording::Status, String>
 
 #[tauri::command]
 fn pause_recording(state: State<AppState>, paused: bool) -> Result<(), String> {
-    state
+    let slot = state
         .recording
         .lock()
-        .map_err(|_| "Recording is unavailable.")?
-        .as_ref()
-        .ok_or("No recording is active.")?
-        .session
-        .set_paused(paused)
+        .map_err(|_| "Recording is unavailable.")?;
+    let recording = slot.as_ref().ok_or("No recording is active.")?;
+    if recording.owner != RecordingOwner::Main {
+        return Err(
+            "The global dictation recording is active. Pause or stop it from the dictation panel."
+                .into(),
+        );
+    }
+    recording.session.set_paused(paused)
 }
 
 #[derive(Serialize)]
-struct SavedRecording {
-    note: Note,
-    warning: Option<String>,
+pub(crate) struct SavedRecording {
+    pub(crate) note: Note,
+    pub(crate) warning: Option<String>,
 }
 
 #[tauri::command]
@@ -355,6 +382,15 @@ async fn stop_recording(
             .recording
             .lock()
             .map_err(|_| "Recording is unavailable.")?;
+        if slot
+            .as_ref()
+            .is_some_and(|recording| recording.owner != RecordingOwner::Main)
+        {
+            return Err(
+                "The global dictation recording is active. Stop or discard it from the dictation panel."
+                    .into(),
+            );
+        }
         if discard {
             slot.take();
             return Ok(None);
@@ -371,7 +407,7 @@ async fn stop_recording(
     .map_err(|e| e.to_string())?
 }
 
-fn save_recording(
+pub(crate) fn save_recording(
     state: &AppState,
     recording: &mut ActiveRecording,
 ) -> Result<SavedRecording, String> {
@@ -974,32 +1010,44 @@ async fn transcribe(app: tauri::AppHandle, id: String, language: String) -> Resu
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
         let state = app.state::<AppState>();
-        let path = state.audio_path(&id)?;
-        {
-            let db = state.db()?;
-            if db.execute("UPDATE notes SET status='processing',error=NULL WHERE id=?1 AND status!='done'", [&id])
-                .map_err(|e| e.to_string())? != 1 { return Err("Recording is missing or already transcribed.".into()); }
-        }
-        let event_app = app.clone();
-        let note_id = id.clone();
-        let result = engine::transcribe(&state.root.join("model.bin"), &path, &language,
-            state.cancelled.clone(), move |percent| {
-                let _ = event_app.emit("transcription-progress", Progress { note_id: note_id.clone(), percent });
-            });
-        let db = state.db()?;
-        match result {
-            Ok(segments) => {
-                let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
-                tx.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
-                    params![serde_json::to_string(&segments).map_err(|e| e.to_string())?, id]).map_err(|e| e.to_string())?;
-                let warning = ai_automation::schedule_atomic(&tx, &id, "single").err();
-                tx.commit().map_err(|e| e.to_string())?;
-                if let Some(error)=warning { let _=app.emit("automation-error",format!("Transcript saved; automatic local AI was not scheduled: {error}")); }
-                if let Err(error)=automation::schedule_export(&db,&id) { let _=app.emit("automation-error",error); }
-                Ok(()) }
-            Err(error) => { db.execute("UPDATE notes SET status='failed',error=?1 WHERE id=?2", params![error, id]).map_err(|e| e.to_string())?; Err(error) }
-        }
+        transcribe_note(&app, &state, &id, &language)
     }).await.map_err(|e| e.to_string())?
+}
+
+/// The one transcription pipeline. The main window and the global dictation
+/// worker both call it, so a dictated recording is transcribed exactly like a
+/// recording made in the library.
+pub(crate) fn transcribe_note(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: &str,
+    language: &str,
+) -> Result<(), String> {
+    let path = state.audio_path(id)?;
+    {
+        let db = state.db()?;
+        if db.execute("UPDATE notes SET status='processing',error=NULL WHERE id=?1 AND status!='done'", [id])
+            .map_err(|e| e.to_string())? != 1 { return Err("Recording is missing or already transcribed.".into()); }
+    }
+    let event_app = app.clone();
+    let note_id = id.to_string();
+    let result = engine::transcribe(&state.root.join("model.bin"), &path, language,
+        state.cancelled.clone(), move |percent| {
+            let _ = event_app.emit("transcription-progress", Progress { note_id: note_id.clone(), percent });
+        });
+    let db = state.db()?;
+    match result {
+        Ok(segments) => {
+            let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+            tx.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
+                params![serde_json::to_string(&segments).map_err(|e| e.to_string())?, id]).map_err(|e| e.to_string())?;
+            let warning = ai_automation::schedule_atomic(&tx, id, "single").err();
+            tx.commit().map_err(|e| e.to_string())?;
+            if let Some(error)=warning { let _=app.emit("automation-error",format!("Transcript saved; automatic local AI was not scheduled: {error}")); }
+            if let Err(error)=automation::schedule_export(&db,id) { let _=app.emit("automation-error",error); }
+            Ok(()) }
+        Err(error) => { db.execute("UPDATE notes SET status='failed',error=?1 WHERE id=?2", params![error, id]).map_err(|e| e.to_string())?; Err(error) }
+    }
 }
 
 #[tauri::command]
@@ -1205,8 +1253,18 @@ pub fn run() {
             let _ = window.set_focus();
         }
     }));
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+    // The global shortcut is registered from Rust only. The handler enqueues
+    // work; it never touches AppKit, the database or the microphone.
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(|app, _shortcut, event| {
+                dictation_shortcut::plugin_handler(app, &event);
+            })
+            .build(),
+    );
     builder
-        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let root = app.path().app_data_dir()?;
             fs::create_dir_all(root.join("audio"))?;
@@ -1234,6 +1292,9 @@ pub fn run() {
                     .map_err(std::io::Error::other)?
                     .paused,
             );
+            // The platform adapter is injected. Without one the runtime still
+            // records and transcribes, but it never claims insertion support.
+            let dictation = Arc::new(DictationRuntime::new(app.handle().clone(), None));
             app.manage(AppState {
                 root,
                 db: Mutex::new(db),
@@ -1243,7 +1304,17 @@ pub fn run() {
                 automation_label: Mutex::new(None),
                 automation_paused,
                 batch_drop: batch_drop::DropStore::new(),
+                dictation,
             });
+            let state = app.state::<AppState>();
+            // An interrupted job is restored for review only: no target lease
+            // and no automatic insertion survive a restart.
+            if let Err(error) = state.dictation.recover(&state) {
+                eprintln!("Golos could not restore the interrupted dictation job: {error}");
+            }
+            if let Err(error) = state.dictation.load(&state) {
+                eprintln!("Golos could not enable the global dictation shortcut: {error}");
+            }
             automation_runtime::start(app.handle().clone());
             Ok(())
         })
@@ -1327,16 +1398,55 @@ pub fn run() {
             export_transcript,
             export_saved,
             import_project,
-            audio_source
+            audio_source,
+            dictation_commands::dictation_status,
+            dictation_commands::dictation_settings,
+            dictation_commands::dictation_configure,
+            dictation_commands::dictation_start,
+            dictation_commands::dictation_stop,
+            dictation_commands::dictation_pause,
+            dictation_commands::dictation_retry_save,
+            dictation_commands::dictation_retry_transcribe,
+            dictation_commands::dictation_retry_process,
+            dictation_commands::dictation_preview_text,
+            dictation_commands::dictation_insert,
+            dictation_commands::dictation_dismiss,
+            dictation_commands::dictation_discard,
+            dictation_commands::dictation_permissions,
+            dictation_commands::dictation_request_permission,
+            dictation_commands::dictation_open_permission_settings,
+            dictation_commands::dictation_hide_overlay,
         ])
         .run(tauri::generate_context!())
         .expect("Could not start Golos");
+}
+
+/// A library state without a native platform adapter. The dictation runtime
+/// works without one and never claims insertion support.
+#[cfg(test)]
+pub(crate) fn test_state(root: PathBuf, db: Connection) -> AppState {
+    AppState {
+        root,
+        db: Mutex::new(db),
+        busy: Arc::new(AtomicBool::new(false)),
+        cancelled: Arc::new(AtomicBool::new(false)),
+        recording: Mutex::new(None),
+        automation_label: Mutex::new(None),
+        automation_paused: AtomicBool::new(false),
+        batch_drop: batch_drop::DropStore::new(),
+        dictation: Arc::new(DictationRuntime::with_parts(
+            None,
+            None,
+            Arc::new(dictation_runtime::RealPipeline),
+        )),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rusqlite::Connection;
+
 
     #[test]
     fn captured_audio_survives_failed_save_then_becomes_playable_library_entry() {
@@ -1359,20 +1469,13 @@ mod tests {
         writer.finalize().unwrap();
         let db = Connection::open_in_memory().unwrap();
         library::init(&db, Path::new("in-memory")).unwrap();
-        let state = AppState {
-            root: root.clone(),
-            db: Mutex::new(db),
-            busy: Arc::new(AtomicBool::new(false)),
-            cancelled: Arc::new(AtomicBool::new(false)),
-            recording: Mutex::new(None),
-            automation_label: Mutex::new(None),
-            automation_paused: AtomicBool::new(false),
-            batch_drop: batch_drop::DropStore::new(),
-        };
+        let state = test_state(root.clone(), db);
         let mut recording = ActiveRecording {
             session: recording::Session::from_saved_fixture(source.clone()),
-            _guard: state.claim().unwrap(),
+            _guard: Some(state.claim().unwrap()),
             id: uuid::Uuid::new_v4().to_string(),
+            owner: RecordingOwner::Main,
+            job_id: None,
             title: "Interview".into(),
             created_at: 123,
         };
@@ -1487,16 +1590,7 @@ mod tests {
     {
         let db = Connection::open_in_memory().unwrap();
         library::init(&db, Path::new(":memory:")).unwrap();
-        let state = AppState {
-            root: PathBuf::new(),
-            db: Mutex::new(db),
-            busy: Arc::new(AtomicBool::new(false)),
-            cancelled: Arc::new(AtomicBool::new(false)),
-            recording: Mutex::new(None),
-            automation_label: Mutex::new(None),
-            automation_paused: AtomicBool::new(false),
-            batch_drop: batch_drop::DropStore::new(),
-        };
+        let state = test_state(PathBuf::new(), db);
         let guard = state.claim_automation("Importing watched audio").unwrap();
         assert!(state.busy.load(Ordering::SeqCst));
         assert!(state.claim().is_err());
