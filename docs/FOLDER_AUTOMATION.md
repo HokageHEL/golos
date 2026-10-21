@@ -151,3 +151,29 @@ GOLOS_TEST_MODEL=/path/ggml-small-q5_1.bin GOLOS_TEST_AUDIO=/path/jfk.wav \
 The final unsigned arm64 macOS debug `Golos.app` bundle built successfully at
 approximately 80.4 MiB. This package build does not close the native permission,
 volume-failure, accessibility, signed-distribution or hardware gates above.
+
+## Native scheduler regression, October 21
+
+A packaged-app run exposed a lock-lifetime bug that the component test missed:
+selecting a stable file borrowed a database mutex guard in an `if let` expression.
+The guard survived into the import body, which then waited for the same lock.
+Candidate selection now returns an owned entry from a separate function and
+releases the lock before import begins. The regression test checks lock release
+inside the caller's branch, real snapshot/normalization/publication, content
+deduplication, unchanged source audio, queue provenance and watch-scoped automatic
+AI scheduling after synthetic ASR output. It makes no inference/hardware claim.
+
+The fixed unsigned arm64 macOS app was then run with an isolated identifier and
+temporary library. A folder was selected through the native picker and populated
+with public JFK WAV fixtures. The actual scheduled worker imported both files and
+real Whisper Small saved both transcripts. With no local AI service, a scoped
+summary task failed with the expected recovery error. A second file completed
+automatic processing through a labelled loopback HTTP stub, saving a separate
+result with automatic provenance and preserving the original transcript. The stub
+performed no AI inference. Results were checked in the public QA database and
+service request log; UI attachment after relaunch failed with `cgWindowNotFound`,
+so result navigation/event delivery, pause/close, fairness and permission recovery
+remain open. Real microphone/system audio was not tested.
+
+All 134 Rust tests passed (eight opt-in skips), formatting and strict all-target
+Clippy passed, and the unsigned macOS app built (87.07 MiB).
