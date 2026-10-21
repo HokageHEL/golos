@@ -126,42 +126,11 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
             }
             watch::observe(&db, folder, &entries, now(), false)?;
         }
-        if let Some(entry) = watch::candidate(&*state.db()?, folder, now())? {
+        if let Some(entry) = next_watched_candidate(&state, folder, now())? {
             let Ok(_operation) = Operation::begin(app, "Importing watched audio") else {
                 return Ok(());
             };
-            let result = (|| -> Result<(), String> {
-                let snapshot = watch::snapshot(folder, &entry, &state.root, &state.cancelled)?;
-                if watch::duplicate(&*state.db()?, &folder.id, &snapshot.digest)? {
-                    watch::status(&*state.db()?, &folder.id, &entry.name, "duplicate", None)?;
-                    return Ok(());
-                }
-                let title = Path::new(&entry.name)
-                    .file_stem()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("Recording");
-                let prepared =
-                    batch::prepare(&state.root, &snapshot.path, &state.cancelled)?.title(title);
-                prepared.commit_with(&*state.db()?, Some(&folder.language), |db, note| {
-                    let enabled: bool = db
-                        .query_row(
-                            "SELECT enabled FROM watch_folders WHERE id=?1",
-                            [&folder.id],
-                            |row| row.get(0),
-                        )
-                        .map_err(|_| "Folder observation was removed.".to_string())?;
-                    if !enabled || state.cancelled.load(Ordering::SeqCst) {
-                        return Err("Folder import cancelled.".into());
-                    }
-                    db.execute(
-                        "INSERT INTO watch_imports(folder_id,digest,note_id) VALUES(?1,?2,?3)",
-                        params![folder.id, snapshot.digest, note.id],
-                    )
-                    .map_err(|e| e.to_string())?;
-                    watch::status(db, &folder.id, &entry.name, "imported", None)
-                })?;
-                Ok(())
-            })();
+            let result = import_watched_candidate(&state, folder, &entry);
             if let Err(error) = result {
                 if !state.cancelled.load(Ordering::SeqCst) {
                     watch::status(
@@ -183,6 +152,57 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
 
     Ok(())
 }
+/// Return an owned candidate, releasing the database mutex before the caller's
+/// `if let` body starts. A mutex guard borrowed in that scrutinee would otherwise
+/// survive the whole import and deadlock on its first subsequent database read.
+fn next_watched_candidate(
+    state: &AppState,
+    folder: &automation::WatchFolder,
+    at: i64,
+) -> Result<Option<watch::Entry>, String> {
+    let db = state.db()?;
+    watch::candidate(&db, folder, at)
+}
+
+/// Snapshot/decode outside the database lock, then publish the recording, queue
+/// entry and watch provenance together. Shared by the scheduler and regression
+/// coverage, without requiring a native window or permission prompt.
+fn import_watched_candidate(
+    state: &AppState,
+    folder: &automation::WatchFolder,
+    entry: &watch::Entry,
+) -> Result<(), String> {
+    let snapshot = watch::snapshot(folder, entry, &state.root, &state.cancelled)?;
+    if watch::duplicate(&*state.db()?, &folder.id, &snapshot.digest)? {
+        watch::status(&*state.db()?, &folder.id, &entry.name, "duplicate", None)?;
+        return Ok(());
+    }
+    let title = Path::new(&entry.name)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Recording");
+    let prepared = batch::prepare(&state.root, &snapshot.path, &state.cancelled)?.title(title);
+    prepared.commit_with(&*state.db()?, Some(&folder.language), |db, note| {
+        let enabled: bool = db
+            .query_row(
+                "SELECT enabled FROM watch_folders WHERE id=?1",
+                [&folder.id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "Folder observation was removed.".to_string())?;
+        if !enabled || state.cancelled.load(Ordering::SeqCst) {
+            return Err("Folder import cancelled.".into());
+        }
+        db.execute(
+            "INSERT INTO watch_imports(folder_id,digest,note_id) VALUES(?1,?2,?3)",
+            params![folder.id, snapshot.digest, note.id],
+        )
+        .map_err(|e| e.to_string())?;
+        watch::status(db, &folder.id, &entry.name, "imported", None)
+    })?;
+    Ok(())
+}
+
 /// Run one queued automatic task. The operation guard serializes it with
 /// transcription/imports and lets the existing global pause cancel it.
 fn process_automatic_ai(app: &tauri::AppHandle) -> Result<bool, String> {
@@ -205,3 +225,128 @@ fn process_automatic_ai(app: &tauri::AppHandle) -> Result<bool, String> {
     }
 }
 use rusqlite::OptionalExtension;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ai, ai_automation::Rule, library, library::Segment};
+    use std::{
+        fs,
+        sync::{atomic::AtomicBool, Arc, Mutex},
+    };
+
+    #[test]
+    fn watched_candidate_releases_lock_before_import_and_keeps_watch_rule_scope() {
+        let root =
+            std::env::temp_dir().join(format!("golos-watch-runtime-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(root.join("audio")).unwrap();
+        let watched = root.join("public-input");
+        fs::create_dir(&watched).unwrap();
+        let watched = watched.canonicalize().unwrap();
+        let source = watched.join("Fixture.wav");
+        let mut wav = hound::WavWriter::create(
+            &source,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..16000 {
+            wav.write_sample(100_i16).unwrap();
+        }
+        wav.finalize().unwrap();
+        let original = fs::read(&source).unwrap();
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        library::init(&db, Path::new(":memory:")).unwrap();
+        automation::add(&db, &watched, "en", true).unwrap();
+        let folder = automation::folders(&db).unwrap().remove(0);
+        ai::configure(
+            &db,
+            &ai::Settings {
+                model: "fixture:local".into(),
+                port: 11439,
+                context_window: 8192,
+            },
+        )
+        .unwrap();
+        ai_automation::configure(
+            &db,
+            vec![Rule {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "Watch summary".into(),
+                enabled: true,
+                kind: "summary".into(),
+                target: String::new(),
+                prompt: String::new(),
+                sources: vec!["watch".into()],
+            }],
+        )
+        .unwrap();
+        let state = AppState {
+            root: root.clone(),
+            db: Mutex::new(db),
+            busy: Arc::new(AtomicBool::new(false)),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            recording: Mutex::new(None),
+            automation_label: Mutex::new(None),
+            automation_paused: AtomicBool::new(false),
+        };
+        watch::observe(
+            &state.db().unwrap(),
+            &folder,
+            &watch::entries(&folder).unwrap(),
+            0,
+            false,
+        )
+        .unwrap();
+        if let Some(entry) = next_watched_candidate(&state, &folder, watch::STABLE_MS).unwrap() {
+            // This must succeed inside the if-let body, before any importer
+            // re-enters the database. The original scrutinee retained its guard.
+            assert!(
+                state.db.try_lock().is_ok(),
+                "Candidate selection retained the library lock"
+            );
+            import_watched_candidate(&state, &folder, &entry).unwrap();
+            // Reprocessing the same content deduplicates without another note.
+            import_watched_candidate(&state, &folder, &entry).unwrap();
+        } else {
+            panic!("Stable fixture was not selected");
+        }
+        let db = state.db().unwrap();
+        let notes = library::list(&db).unwrap();
+        assert_eq!(notes.len(), 1);
+        let note = &notes[0];
+        assert_eq!(note.title, "Fixture");
+        assert_eq!(
+            jobs::next_for(&db, Some(&note.id)).unwrap(),
+            Some((note.id.clone(), "en".into()))
+        );
+        // Synthetic ASR output drives the real transcript-commit/rule boundary;
+        // this test makes no microphone or real-inference claim.
+        assert!(jobs::finish(
+            &db,
+            &note.id,
+            &Ok(vec![Segment {
+                start_ms: 0,
+                end_ms: 1000,
+                speaker: None,
+                text: "Public fixture text".into()
+            }]),
+            false
+        )
+        .unwrap()
+        .is_none());
+        let tasks = ai_automation::tasks(&db).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].source, "watch");
+        assert_eq!(tasks[0].status, "queued");
+        assert_eq!(fs::read(&source).unwrap(), original);
+        assert_eq!(fs::read_dir(root.join("audio")).unwrap().count(), 1);
+        drop(db);
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
