@@ -8,6 +8,7 @@ import AudioPlayer from './AudioPlayer';
 import TranscriptText from './TranscriptText';
 import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';
 import DeleteRecordingDialog from './DeleteRecordingDialog';
+import Disclosure from './Disclosure';
 import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
 import { api, nativeAvailable, type Note, type Setup, type RecordingStatus, type Language, type TextExportFormat } from './api';
 import Settings from './Settings';
@@ -66,8 +67,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Note | null>(null);
   const [recordingMenu, setRecordingMenu] = useState<RecordingMenuTarget | null>(null);
+  const menuTrigger = useRef<HTMLElement | null>(null);
   const [autoSpeakers, setAutoSpeakers] = useState(true);
-  const closeMenu = useCallback(() => setRecordingMenu(null), []);
+  const closeMenu = useCallback(() => { setRecordingMenu(null); menuTrigger.current?.focus(); }, []);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(nativeAvailable);
   const [audioError, setAudioError] = useState<string | null>(null);
@@ -92,6 +94,9 @@ export default function App() {
   const readLocked = Boolean(busy) || loading || !nativeAvailable;
   const activeIndex = activeSegmentIndex(draft, playheadMs);
   const hasSpeakerLabels = draft.some(segment => segment.speaker !== null);
+  // Transcript exports need a finished transcript and no pending edits; audio
+  // and project backups stay available for every recording.
+  const transcriptExportDisabled = locked || dirty || !draft.length || active?.status !== 'done';
 
   useEffect(() => {
     if (!nativeAvailable) return;
@@ -375,35 +380,50 @@ export default function App() {
     <aside className="sidebar">
       <a className="brand" href="#">golos<span className="brand-dot">●</span></a>
       <p className="tagline">Your words. Your device.</p>
-      <div className="library-filters"><label>Recording source<select aria-label="Recording source" value={source} disabled={locked} onChange={e => setSource(e.target.value)}>
+      <div className="sidebar-actions">
+        <button className="primary record-trigger"  disabled={locked || dirty} onClick={startRecording}>● Record audio</button>
+        <button className="secondary" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
+      </div>
+      <label className="sidebar-source">Recording source<select aria-label="Recording source" value={source} disabled={locked} onChange={e => setSource(e.target.value)}>
         <option value="microphone">Microphone</option><option value="system" disabled={!captureSupport.system}>Application / system audio (macOS 13+)</option><option value="mixed" disabled={!captureSupport.mixed}>Microphone + application audio (macOS 15+)</option>
       </select></label>
-      {source !== 'microphone' && <><select aria-label="Application to capture" value={application} disabled={locked} onChange={e => setApplication(Number(e.target.value))}><option value={0}>All system audio (excluding Golos)</option>{applications.map(app => <option key={app.pid} value={app.pid}>{app.name}</option>)}</select>
-      <button className="secondary" disabled={locked} onClick={() => { void perform('Loading applications', async () => { const info = await api.captureInfo(true); if (Array.isArray(info)) setApplications(info); }); }}>Refresh applications / grant access</button>
-      <p className="muted">Allow Golos Audio Capture in System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording. Mixed mode also needs Microphone access. Restart Golos after changing permission. Use headphones to avoid microphone echo.</p></>}
-      </div>
-      <button className="primary record-trigger"  disabled={locked || dirty} onClick={startRecording}>● Record audio</button>
-      <button className="secondary import" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
-      <button className="secondary import" disabled={locked} onClick={() => setBatchOpen(true)}>Batch transcription</button>
-      <button className="secondary import" disabled={!!busy || loading || !nativeAvailable} onClick={() => setAutomationOpen(true)}>Folders &amp; automation</button>
-      <button className="secondary import" disabled={locked} onClick={importProject}>Import project backup</button>
+      {source !== 'microphone' && <Disclosure className="sidebar-panel" summary="System audio & permissions" open>
+        <select aria-label="Application to capture" value={application} disabled={locked} onChange={e => setApplication(Number(e.target.value))}><option value={0}>All system audio (excluding Golos)</option>{applications.map(app => <option key={app.pid} value={app.pid}>{app.name}</option>)}</select>
+        <button className="secondary" disabled={locked} onClick={() => { void perform('Loading applications', async () => { const info = await api.captureInfo(true); if (Array.isArray(info)) setApplications(info); }); }}>Refresh applications / grant access</button>
+        <p className="muted">Allow Golos Audio Capture in System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording. Mixed mode also needs Microphone access. Restart Golos after changing permission. Use headphones to avoid microphone echo.</p>
+      </Disclosure>}
+      <Disclosure className="sidebar-panel" summary="More tools">
+        <button className="secondary" disabled={locked} onClick={() => setBatchOpen(true)}>Batch transcription</button>
+        <button className="secondary" disabled={!!busy || loading || !nativeAvailable} onClick={() => setAutomationOpen(true)}>Folders &amp; automation</button>
+        <button className="secondary" disabled={locked} onClick={importProject}>Import project backup</button>
+      </Disclosure>
       <div className="library-heading"><h2>Library</h2><span title="Loaded matching recordings">{notes.length}{notes.length >= 100 ? '＋' : ''}</span></div>
-      <div className="library-filters">
+      <div className="sidebar-search">
         <input aria-label="Search library" type="search" placeholder="Search titles & saved transcripts" title="Search word prefixes across saved titles and transcripts" value={librarySearch} onChange={e => setLibrarySearch(e.target.value)}/>
+      </div>
+      <Disclosure className="sidebar-panel" summary="Filters">
         <select aria-label="Recording status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="">All statuses</option><option value="ready">Ready to transcribe</option><option value="done">Transcribed</option><option value="failed">Needs retry</option><option value="processing">Processing</option></select>
         <input aria-label="Filter folder" placeholder="Filter by folder" value={folderFilter} onChange={e => setFolderFilter(e.target.value)}/>
         <input aria-label="Filter tag" placeholder="Filter by tag" value={tagFilter} onChange={e => setTagFilter(e.target.value)}/>
-      </div>
+      </Disclosure>
       <nav aria-label="Recordings"  className="recordings">
         {loading && <p className="muted">Opening your library…</p>}
         {!loading && !notes.length && <p className="muted empty-library">Your recordings will appear here. Everything stays on this device.</p>}
-        {notes.map(note => <button key={note.id} className={`recording ${selected === note.id ? 'selected' : ''}`}
-          disabled={readLocked} onClick={() => { void openNote(note); }}
-          onContextMenu={event => { event.preventDefault(); if (!locked && !dirty) setRecordingMenu({ note, x: event.clientX, y: event.clientY }); }}
-          onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); const bounds = event.currentTarget.getBoundingClientRect(); setRecordingMenu({ note, x: bounds.left + 12, y: bounds.bottom }); } }}>
-          <span className="recording-title">{note.title}</span>
-          <span className="recording-meta">{formatClock(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
-        </button>)}
+        {notes.map(note => <div key={note.id} className={`recording-row ${selected === note.id ? 'selected' : ''}`}>
+          <button className="recording"
+            disabled={readLocked} onClick={() => { void openNote(note); }}
+            onContextMenu={event => { event.preventDefault(); if (!locked && !dirty) { menuTrigger.current = event.currentTarget; setRecordingMenu({ note, trigger: event.currentTarget }); } }}
+            onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); menuTrigger.current = event.currentTarget; if (!locked && !dirty) setRecordingMenu({ note, trigger: event.currentTarget }); } }}>
+            <span className="recording-title">{note.title}</span>
+            <span className="recording-meta">{formatClock(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
+          </button>
+          <button className="recording-actions" aria-haspopup="menu" aria-expanded={recordingMenu?.note.id === note.id}
+            aria-label={`Actions for ${note.title}`} disabled={locked || dirty}
+            onClick={event => { menuTrigger.current = event.currentTarget; setRecordingMenu(current => current?.note.id === note.id ? null : { note, trigger: event.currentTarget }); }}>
+            <span aria-hidden="true">⋯</span>
+          </button>
+          {recordingMenu?.note.id === note.id && <RecordingMenu target={recordingMenu} onClose={closeMenu} onDelete={note => { closeMenu(); if (!locked && !dirty) { if (draftCache[note.id]) { setError('Open this recording and save or discard its draft before deleting it.'); return; } setError(null); setConfirmDelete(note); } }}/>}
+        </div>)}
         {notes.length >= 100 && <button className="secondary" onClick={async () => { try { const more = await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter, offset: notes.length }); setNotes(current => [...current, ...more]); } catch (e) { setError(errorText(e)); } }}>Load more</button>}
       </nav>
       <button className="settings-trigger" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}><span aria-hidden="true">⚙</span> Settings</button>
@@ -442,7 +462,32 @@ export default function App() {
             <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {formatClock(active.durationSeconds * 1000)} · Stored locally</p></div>
             <button className="text-button danger" disabled={locked || dirty} onClick={() => { setError(null); setConfirmDelete(active); }}>Delete</button></div>
 
-          <div className="editor-tools"><button className="secondary" disabled={readLocked} onClick={()=>setAiOpen(true)}>Local AI &amp; translation</button><button className="secondary" disabled={locked} onClick={() => exportSaved('wav')}>Export audio</button><button className="secondary" disabled={locked || dirty} onClick={() => exportSaved('golos')}>Export project backup</button></div>
+          <div className="document-actions">
+            <button className="secondary" disabled={readLocked} onClick={()=>setAiOpen(true)}>Local AI &amp; translation</button>
+            <Disclosure className="workspace-panel export-panel" summary="Export">
+              <div className="export-panel-body">
+                <div className="export-group">
+                  <h3>Transcript</h3>
+                  <p className="muted">Transcript files use the saved transcript. Save your edits first.</p>
+                  <div className="export-buttons">
+                    <button className="secondary" disabled={transcriptExportDisabled} onClick={() => exportTranscript('txt')}>Export TXT</button>
+                    <button className="secondary" disabled={transcriptExportDisabled} onClick={() => exportTranscript('srt')}>Export SRT</button>
+                    <button className="secondary" disabled={transcriptExportDisabled} onClick={() => exportTranscript('vtt')}>Export VTT</button>
+                    <button className="secondary" disabled={transcriptExportDisabled} onClick={() => exportSaved('docx')}>Export DOCX</button>
+                  </div>
+                  <label>Other formats<select aria-label="Other export format" value={extraFormat} disabled={locked} onChange={event => setExtraFormat(event.target.value as TextExportFormat)}><option value="md">Markdown (.md)</option><option value="html">HTML (print ready)</option><option value="csv">CSV (spreadsheet)</option><option value="json">JSON (structured)</option></select></label>
+                  <button className="secondary" disabled={transcriptExportDisabled} onClick={() => exportTranscript(extraFormat)}>Export {extraFormat.toUpperCase()}</button>
+                </div>
+                <div className="export-group">
+                  <h3>Recording</h3>
+                  <button className="secondary" disabled={locked} onClick={() => exportSaved('wav')}>Export audio</button>
+                  <button className="secondary" disabled={locked || dirty} onClick={() => exportSaved('golos')}>Export project backup</button>
+                  <button className="secondary" disabled={locked || !draft.length} onClick={() => { void perform('Copying transcript', async () => { await navigator.clipboard.writeText(exportDocument(active.title, draft, 'txt')); setMessage(dirty ? 'Draft copied to clipboard. Your edits are still unsaved.' : 'Transcript copied to clipboard.'); }); }}>Copy transcript</button>
+                  <p className="muted">Audio and project backups keep the recording exactly as it is stored on this device.</p>
+                </div>
+              </div>
+            </Disclosure>
+          </div>
           {nativeAvailable && confirmDelete?.id !== active.id && <AudioPlayer
             key={`${active.id}:${audioAttempt}`}
             onRetry={() => { resetPlayback(); setAudioAttempt(value => value + 1); }}
@@ -474,42 +519,41 @@ export default function App() {
             {busy === 'Transcribing on your device' && <><progress value={progress} max={100}/><button className="secondary" onClick={() => { void api.cancel().catch(e => setError(errorText(e))); }}>Cancel</button></>}</div>}
 
           {active.status === 'done' && <>
-            <div className="speaker-actions"><label>Speakers<select value={speakerCount} disabled={locked || dirty} onChange={e => setSpeakerCount(e.target.value)}>
-              <option value="auto">Detect automatically</option>{[1, 2, 3, 4, 5, 6, 8, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
-              <button className="secondary" disabled={locked || dirty || !draft.length || !setup?.diarizationReady} onClick={detectSpeakers}>Detect speakers</button>
-              <p>{!setup?.diarizationReady ? 'Install separate speaker models in Settings. A Whisper model transcribes text only.' : !hasSpeakerLabels ? 'Speakers have not been detected for this transcript. Choose Detect speakers.' : 'Labels are per recording. Correct mixed-speaker paragraphs below.'}</p>
-            </div>
+            <Disclosure className="workspace-panel speaker-panel" summary="Speaker detection">
+              <div className="speaker-actions"><label>Speakers<select value={speakerCount} disabled={locked || dirty} onChange={e => setSpeakerCount(e.target.value)}>
+                <option value="auto">Detect automatically</option>{[1, 2, 3, 4, 5, 6, 8, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
+                <button className="secondary" disabled={locked || dirty || !draft.length || !setup?.diarizationReady} onClick={detectSpeakers}>Detect speakers</button>
+                <p>{!setup?.diarizationReady ? 'Install separate speaker models in Settings. A Whisper model transcribes text only.' : !hasSpeakerLabels ? 'Speakers have not been detected for this transcript. Choose Detect speakers.' : 'Labels are per recording. Correct mixed-speaker paragraphs below.'}</p>
+              </div>
+            </Disclosure>
             <div className="editor-tools" data-history-revision={historyRevision}>
               <button className="secondary" disabled={readLocked || !history.past.length} onClick={() => travelHistory('undo')}>Undo</button>
               <button className="secondary" disabled={readLocked || !history.future.length} onClick={() => travelHistory('redo')}>Redo</button>
-              <input aria-label="Replacement text" placeholder="Replace with…" value={replacement} onChange={e => setReplacement(e.target.value)}/>
-              <button className="secondary" disabled={readLocked || !query} onClick={() => editDraft(replaceAll(draft, query, replacement))}>Replace all (case sensitive)</button>
             </div>
+            {!!draft.length && <Disclosure className="workspace-panel find-panel" summary="Find &amp; replace">
+              <div className="transcript-search" role="search" aria-label="Search transcript">
+                <label className="sr-only" htmlFor="transcript-search">Find in transcript</label>
+                <input id="transcript-search" type="search" placeholder="Find in transcript…" value={query} onChange={event => {
+                  setQuery(event.target.value); setMatchIndex(-1); setSelection(null);
+                }} onKeyDown={event => {
+                  if (event.key === 'Enter') { event.preventDefault(); navigateMatch(event.shiftKey ? -1 : 1); }
+                  if (event.key === 'Escape') { setQuery(''); setMatchIndex(-1); setSelection(null); }
+                }}/>
+                <span className="search-count" role="status">{query.trim() ? matches.length
+                  ? selectedMatch < 0 ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : `${selectedMatch + 1} of ${matches.length}`
+                  : 'No matches' : 'Search your edits too'}</span>
+                <button className="secondary" disabled={!matches.length} aria-label="Previous match" onClick={() => navigateMatch(-1)}>↑</button>
+                <button className="secondary" disabled={!matches.length} aria-label="Next match" onClick={() => navigateMatch(1)}>↓</button>
+              </div>
+              <div className="editor-tools">
+                <input aria-label="Replacement text" placeholder="Replace with…" value={replacement} onChange={e => setReplacement(e.target.value)}/>
+                <button className="secondary" disabled={readLocked || !query} onClick={() => editDraft(replaceAll(draft, query, replacement))}>Replace all (case sensitive)</button>
+              </div>
+            </Disclosure>}
             <div className="editor-toolbar"><span>{draft.length ? 'Transcript · Click any paragraph to edit' : 'No speech detected in this recording.'}</span><div className="actions">
               {dirty && <><button className="text-button" disabled={locked} onClick={() => { setDraft(active.segments); setHistory({ past: [], present: active.segments, future: [] }); setHistoryRevision(v => v + 1); setDirty(false); }}>Discard edits</button><button className="primary" disabled={locked} onClick={save}>Save edits</button></>}
-              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('txt')}>Export TXT</button>
-              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('srt')}>Export SRT</button>
-              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('vtt')}>Export VTT</button>
-              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportSaved('docx')}>Export DOCX</button>
-              <label>Other formats<select aria-label="Other export format" value={extraFormat} disabled={locked} onChange={event => setExtraFormat(event.target.value as TextExportFormat)}><option value="md">Markdown (.md)</option><option value="html">HTML (print ready)</option><option value="csv">CSV (spreadsheet)</option><option value="json">JSON (structured)</option></select></label>
-              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript(extraFormat)}>Export {extraFormat.toUpperCase()}</button>
-              <button className="secondary" disabled={locked || !draft.length} onClick={() => { void perform('Copying transcript', async () => { await navigator.clipboard.writeText(exportDocument(active.title, draft, 'txt')); setMessage(dirty ? 'Draft copied to clipboard. Your edits are still unsaved.' : 'Transcript copied to clipboard.'); }); }}>Copy transcript</button>
             </div></div>
             {dirty && <p className="unsaved" role="status">Unsaved edits — kept while you browse. Save to include them in library search and exports.</p>}
-            {!!draft.length && <div className="transcript-search" role="search" aria-label="Search transcript">
-              <label className="sr-only" htmlFor="transcript-search">Find in transcript</label>
-              <input id="transcript-search" type="search" placeholder="Find in transcript…" value={query} onChange={event => {
-                setQuery(event.target.value); setMatchIndex(-1); setSelection(null);
-              }} onKeyDown={event => {
-                if (event.key === 'Enter') { event.preventDefault(); navigateMatch(event.shiftKey ? -1 : 1); }
-                if (event.key === 'Escape') { setQuery(''); setMatchIndex(-1); setSelection(null); }
-              }}/>
-              <span className="search-count" role="status">{query.trim() ? matches.length
-                ? selectedMatch < 0 ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : `${selectedMatch + 1} of ${matches.length}`
-                : 'No matches' : 'Search your edits too'}</span>
-              <button className="secondary" disabled={!matches.length} aria-label="Previous match" onClick={() => navigateMatch(-1)}>↑</button>
-              <button className="secondary" disabled={!matches.length} aria-label="Next match" onClick={() => navigateMatch(1)}>↓</button>
-            </div>}
             <div className="transcript">{draft.map((segment, index) => {
               const isActive = index === activeIndex;
               return <div className={`segment ${isActive ? 'active' : ''}${matchingSegments.has(index) ? ' search-match' : ''}${matches[selectedMatch]?.segmentIndex === index ? ' selected-match' : ''}`} key={index} aria-current={isActive ? 'true' : undefined}>
@@ -540,7 +584,6 @@ export default function App() {
       nativeAvailable={nativeAvailable} error={error} message={message} onImportModel={importModel}
       onImportSpeakerModels={importSpeakerModels} loadingSpeakers={busy === 'Importing speaker models'}
       onClose={() => setSettingsOpen(false)}/>}
-    {recordingMenu && <RecordingMenu target={recordingMenu} onClose={closeMenu} onDelete={note => { closeMenu(); if (!locked && !dirty) { if (draftCache[note.id]) { setError('Open this recording and save or discard its draft before deleting it.'); return; } setError(null); setConfirmDelete(note); } }}/>}
     {confirmDelete && <DeleteRecordingDialog title={confirmDelete.title} busy={Boolean(busy)} error={error} onClose={() => setConfirmDelete(null)} onDelete={deleteRecording}/>}
   </div>;
 }

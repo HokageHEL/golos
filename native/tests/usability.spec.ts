@@ -3,6 +3,19 @@ import { test, expect, type Page } from '@playwright/test';
 // These are real browser interactions against mocked native IPC. They do not
 // request OS access, record sound, run inference or write the native library.
 const browserErrors = new WeakMap<Page, string[]>();
+
+/**
+ * Opens one in-flow disclosure by its summary text. Secondary workspace
+ * actions live inside these sections, so a test has to open the section
+ * before it can reach the controls it holds.
+ */
+async function openSection(page: Page, label: string) {
+  const summary = page.getByText(label, { exact: true }).first();
+  const section = summary.locator('xpath=..');
+  if (await section.getAttribute('open') === null) await summary.click();
+  await expect(section).toHaveAttribute('open', '');
+}
+
 test.beforeEach(async ({ page }) => {
   const errors: string[] = []; browserErrors.set(page, errors);
   page.on('pageerror', error => errors.push(error.message));
@@ -29,8 +42,10 @@ test('search and navigation retain drafts, and editing/export tools remain usabl
   await expect(first).toHaveValue('An unsaved browser draft.');
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect(first).toHaveValue('Another edit.');
+  await openSection(page, 'Export');
   await expect(page.getByRole('button', { name: 'Export DOCX', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Discard edits', exact: true }).click();
+  await openSection(page, 'Find & replace');
   await page.getByRole('searchbox', { name: 'Find in transcript', exact: true }).fill('saved');
   await page.getByRole('textbox', { name: 'Replacement text', exact: true }).fill('reviewed');
   await page.getByRole('button', { name: 'Replace all (case sensitive)', exact: true }).click();
@@ -47,6 +62,53 @@ test('search and navigation retain drafts, and editing/export tools remain usabl
   await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Export DOCX', exact: true }).click();
   await expect(page.getByText('Exported.', { exact: true })).toBeVisible();
+});
+
+test('secondary workspace actions stay grouped in in-flow disclosures at every size', async ({ page }, info) => {
+  // Secondary actions stay out of the way until their section is opened.
+  await expect(page.getByRole('button', { name: 'Export TXT', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Batch transcription', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('searchbox', { name: 'Find in transcript', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Detect speakers', exact: true })).toHaveCount(0);
+
+  for (const size of [{ width: 760, height: 560 }, { width: 1180, height: 780 }]) {
+    await page.setViewportSize(size);
+    await openSection(page, 'Export');
+    const panel = await page.locator('details.export-panel').boundingBox();
+    const expandedPlayer = await page.locator('.audio-player').boundingBox();
+    expect(panel).not.toBeNull();
+    expect(expandedPlayer).not.toBeNull();
+    // The export panel expands in the document flow, above the player.
+    expect(panel!.y + panel!.height).toBeLessThanOrEqual(expandedPlayer!.y + 1);
+    for (const label of ['Export TXT', 'Export SRT', 'Export VTT', 'Export DOCX', 'Export audio', 'Export project backup', 'Copy transcript']) {
+      await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
+    }
+    await expect(page.getByRole('combobox', { name: 'Other export format', exact: true })).toBeVisible();
+
+    await openSection(page, 'More tools');
+    await expect(page.getByRole('button', { name: 'Batch transcription', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Folders & automation', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Import project backup', exact: true })).toBeVisible();
+
+    await openSection(page, 'Find & replace');
+    await expect(page.getByRole('searchbox', { name: 'Find in transcript', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Replacement text', exact: true })).toBeVisible();
+
+    await openSection(page, 'Speaker detection');
+    await expect(page.getByRole('button', { name: 'Detect speakers', exact: true })).toBeVisible();
+
+    // Recording actions open inside the library row, never over the workspace.
+    const sidebar = await page.locator('.sidebar').boundingBox();
+    await page.getByRole('button', { name: 'Actions for Research interview', exact: true }).click();
+    const menu = await page.getByRole('menu').boundingBox();
+    expect(menu).not.toBeNull();
+    expect(menu!.x + menu!.width).toBeLessThanOrEqual(sidebar!.x + sidebar!.width + 1);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`workspace-sections-${size.width}.png`), fullPage: true });
+  }
 });
 
 test('rename and organization controls render at the minimum window size', async ({ page }, info) => {
@@ -93,6 +155,7 @@ test('mixed-source capture exposes pause/resume, confirmed discard and stop/save
 
 test('structured export selection and copying an unsaved draft work in the browser', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openSection(page, 'Export');
   await page.getByRole('combobox', { name: 'Other export format', exact: true }).selectOption('json');
   await page.getByRole('button', { name: 'Export JSON', exact: true }).click();
   await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
@@ -106,6 +169,7 @@ test('structured export selection and copying an unsaved draft work in the brows
 
 
 test('batch import reports each failure, retains pending jobs and removes jobs without deleting recordings', async ({ page }, info) => {
+  await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();
   const queue = page.getByRole('dialog', { name: 'Batch transcription', exact: true });
   await queue.getByRole('combobox', { name: 'Batch audio language', exact: true }).selectOption('uk');
@@ -117,6 +181,7 @@ test('batch import reports each failure, retains pending jobs and removes jobs w
   await expect(queue.getByText('Mock interview A', { exact: true })).toHaveCount(0);
   await queue.getByRole('button', { name: 'Close batch queue', exact: true }).click();
   await expect(page.getByRole('button', { name: /Mock interview A.*Ready/ })).toBeVisible();
+  await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();
   await expect(queue.getByText('Mock interview B', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 760, height: 560 });
@@ -126,6 +191,7 @@ test('batch import reports each failure, retains pending jobs and removes jobs w
 
 
 test('watched-folder and local export controls preserve opt-in choices and retry failed output', async ({ page }, info) => {
+  await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
   const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
   await automation.getByRole('combobox', { name: 'New folder language', exact: true }).selectOption('uk');
@@ -156,6 +222,7 @@ test('watched-folder and local export controls preserve opt-in choices and retry
 });
 
 test('automatic AI submenus retain drafts while saving rules and controlling queued work', async ({ page }, info) => {
+  await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
   const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
   await automation.getByRole('button', { name: 'AI rules Opt-in processing', exact: true }).click();
@@ -293,6 +360,7 @@ test('settings submenus keep navigation and footer clear at minimum and full win
     await checkShell(settings);
     await page.screenshot({ path: info.outputPath(`settings-dark-${size.width}.png`), fullPage: true });
     await settings.getByRole('button', { name: 'Done', exact: true }).click();
+    await openSection(page, 'More tools');
     await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
     const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
     for (const label of ['Watched folders Import & transcribe', 'Local exports Saved transcripts', 'AI rules Opt-in processing', 'AI model Local service', 'AI tasks Queue & results']) {
