@@ -129,6 +129,27 @@ A CI pass closes none of them.
    recent 4096 request IDs per process run. The parent must generate unique
    request IDs (UUIDs) and never reuse one.
 
+## Integration notes for the parent (orchestration)
+
+- `MacPlatform::new(AppHandle)` is the constructor, and the type is exported as
+  `dictation::platform::MacPlatform`.
+- `capture_target` and `insert` are blocking calls. When they are invoked from
+  the AppKit main thread the adapter runs them inline (to avoid a
+  self-deadlock), which blocks the UI for the duration of the AX round trips
+  and the clipboard snapshot. Call them from an async command, a worker
+  thread, or `std::thread::spawn`, never from a synchronous Tauri command that
+  runs on the main thread.
+- `insert` returns `Ok(InsertOutcome::Refused { .. })` for a safety refusal and
+  `Err(String)` for cancellation, a queue timeout, or a native scheduling
+  failure. Both mean "nothing was inserted"; only `PasteRequested` means a
+  paste may have been delivered, and even then the UI must ask the user to
+  verify the target app.
+- A request ID is single use. A second call with the same ID is refused with
+  `AlreadyDispatched`, including after a lost response. Use a fresh ID for
+  every manual retry.
+- `release_target` cancels queued work for that token and drops the retained
+  native objects, so dismissal cannot be followed by a late paste.
+
 ## Contract amendments the parent may want to make
 
 These are observations from implementing the adapter against the contracts in
