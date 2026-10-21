@@ -2,6 +2,7 @@
 //! This module alone does not register a shortcut, capture audio or insert text.
 use serde::{Deserialize, Serialize};
 
+pub mod platform;
 #[cfg(target_os = "macos")]
 pub mod shortcut;
 

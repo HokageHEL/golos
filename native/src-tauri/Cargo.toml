@@ -54,10 +54,10 @@ strip = true
 tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.25.0"
+core-graphics = { version = "0.25.0", features = ["elcapitan"] }
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSWindow", "NSPanel", "NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem"] }
-objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "HIServices", "AXConstants", "AXAttributeConstants", "AXRoleConstants", "AXError", "AXUIElement", "AXValue"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSApplication", "NSResponder", "NSWindow", "NSPanel", "NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem"] }
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXConstants", "AXAttributeConstants", "AXRoleConstants", "AXError", "AXUIElement", "AXValue"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSDate", "NSDictionary", "NSObject", "NSString", "NSURL", "NSValue", "NSRange", "NSGeometry", "NSNotification"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFString", "CFArray", "CFDictionary", "CFNumber", "CFRunLoop", "CFDate"] }
 tauri-plugin-global-shortcut = "2.4.1"
