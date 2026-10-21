@@ -98,6 +98,7 @@ it('shows model download progress and cancellation, then retries successfully', 
   render(<App/>);
   await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('button', { name: /Transcription Offline model/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Download recommended model' }));
   await waitFor(() => expect(fixture.download).toHaveBeenCalledWith(false));
   act(() => { fixture.progressListener?.({ payload: { received: 1000000, total: 190085487, phase: 'Downloading Whisper Small' } }); });

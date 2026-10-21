@@ -151,11 +151,11 @@ it('surfaces status errors and retries loading the shared local setup', async ()
 it('keeps configuration disabled during background work and pauses cancellation explicitly', async () => {
   state.rules = [rule()];
   state.tasks = [task({ id: 'queued', title: 'Queued meeting', status: 'queued', error: null }), task({ id: 'running', title: 'Research interview', status: 'running', error: null })];
-  render(<AiAutomation {...props({ background: 'Transcribing watched audio' })}/>);
+  render(<AiAutomation page="tasks" {...props({ background: 'Transcribing watched audio' })}/>);
   await screen.findByDisplayValue('Saved summary');
-  expect((screen.getByRole('button', { name: 'Add automatic rule' }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole('button', { name: 'Save automatic AI rules' }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole('button', { name: 'Save local model settings' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Add automatic rule', hidden: true }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save automatic AI rules', hidden: true }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save local model settings', hidden: true }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByLabelText('Rule name') as HTMLInputElement).disabled).toBe(true);
   expect((screen.getByLabelText('Rule name') as HTMLInputElement).value).toBe('Saved summary');
   expect((screen.getByRole('button', { name: 'Skip queued automatic task Queued meeting' }) as HTMLButtonElement).disabled).toBe(true);
@@ -176,7 +176,7 @@ it('offers retry, skip and remove only for valid task states', async () => {
     task({ id: 'done', title: 'Done meeting', status: 'done', error: null, resultId: 'result-1' }),
     task({ id: 'running', title: 'Running meeting', status: 'running', error: null }),
   ];
-  render(<AiAutomation {...props()}/>);
+  render(<AiAutomation page="tasks" {...props()}/>);
   await screen.findByLabelText('Status of Queued meeting');
   expect((screen.getByRole('button', { name: 'Retry automatic task Queued meeting' }) as HTMLButtonElement).disabled).toBe(true);
   expect((screen.getByRole('button', { name: 'Skip queued automatic task Queued meeting' }) as HTMLButtonElement).disabled).toBe(false);
@@ -196,9 +196,9 @@ it('offers retry, skip and remove only for valid task states', async () => {
 });
 
 it('configures a loopback local model without connecting on open or save', async () => {
-  render(<AiAutomation {...props()}/>);
+  render(<AiAutomation page="model" {...props()}/>);
   await screen.findByText(/No rules are configured/);
-  expect(screen.getByText('Local model for automatic AI')).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Local AI model' })).toBeTruthy();
   expect(mocks.models).not.toHaveBeenCalled();
   const context = screen.getByLabelText('Context window') as HTMLSelectElement;
   expect([...context.options].map(option => option.value)).toEqual(['8192', '16384', '32768']);
@@ -240,7 +240,7 @@ it('requires an explicit target for automatic translation',async()=>{
 
 it('distinguishes complete, deleted and incomplete automatic results',async()=>{
   state.tasks=[task({id:'complete',title:'Complete',status:'done',resultId:'result-complete',error:null}),task({id:'deleted',title:'Deleted',status:'done',resultId:null,error:null}),task({id:'partial',title:'Partial',status:'failed',resultId:'result-partial'})];
-  render(<AiAutomation {...props()}/>);
+  render(<AiAutomation page="tasks" {...props()}/>);
   await screen.findByLabelText('Status of Complete');
   expect(screen.getAllByText(/Saved separately\./)).toHaveLength(1);
   expect(screen.getByText(/saved result was deleted/)).toBeTruthy();
@@ -249,7 +249,7 @@ it('distinguishes complete, deleted and incomplete automatic results',async()=>{
 
 it('skips all queued automatic work without losing unsaved rule drafts',async()=>{
   state.rules=[rule()];state.tasks=[task({status:'queued',error:null})];
-  render(<AiAutomation {...props({paused:true})}/>);
+  render(<AiAutomation page="tasks" {...props({paused:true})}/>);
   await screen.findByDisplayValue('Saved summary');
   fireEvent.change(screen.getByLabelText('Rule name'),{target:{value:'Unsaved rule draft'}});
   fireEvent.click(screen.getByRole('button',{name:'Skip all queued automatic tasks'}));

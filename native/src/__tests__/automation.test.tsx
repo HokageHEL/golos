@@ -31,6 +31,7 @@ it('can pause background work and stop observing a folder without a delete comma
 });
 it('persists selected output formats and schedules saved results independently of transcription',async()=>{
   render(<AutomationSettings {...props()}/>);await screen.findByText('/local/exports');
+  fireEvent.click(screen.getByRole('button',{name:/Local exports Saved transcripts/}));
   fireEvent.click(screen.getByRole('checkbox',{name:'VTT'}));fireEvent.click(screen.getByRole('checkbox',{name:'Export automatically after transcription'}));
   fireEvent.click(screen.getByRole('button',{name:'Save export settings'}));await waitFor(()=>expect(fixture.configure).toHaveBeenCalledWith(true,['txt','vtt']));
   fireEvent.click(screen.getByRole('button',{name:'Export completed queue results'}));await screen.findByText('2 completed queue results scheduled for export using saved settings.');
@@ -41,4 +42,23 @@ it('surfaces denied directory access and keeps retry controls available',async()
   render(<AutomationSettings {...props()}/>);await screen.findByText('/local/interviews');fireEvent.click(screen.getByRole('button',{name:'Add watched folder'}));
   expect(await screen.findByRole('alert')).toHaveProperty('textContent','Cannot read folder. Reselect it or grant Files and Folders access.');
   expect((screen.getByRole('button',{name:'Add watched folder'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('keeps unsaved folder and export choices while switching submenus',async()=>{
+  render(<AutomationSettings {...props()}/>);await screen.findByText('/local/interviews');
+  fireEvent.change(screen.getByRole('combobox',{name:'New folder language'}),{target:{value:'uk'}});
+  fireEvent.click(screen.getByRole('checkbox',{name:'Include files already in the folder'}));
+  fireEvent.click(screen.getByRole('button',{name:/Local exports Saved transcripts/}));
+  expect(screen.queryByRole('button',{name:'Add watched folder'})).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox',{name:'VTT'}));
+  fireEvent.click(screen.getByRole('button',{name:/AI rules Opt-in processing/}));
+  await screen.findByRole('heading',{name:'Automatic AI rules'});
+  expect(screen.queryByRole('button',{name:'Save export settings'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:/Watched folders Import & transcribe/}));
+  expect((screen.getByRole('combobox',{name:'New folder language'}) as HTMLSelectElement).value).toBe('uk');
+  expect((screen.getByRole('checkbox',{name:'Include files already in the folder'}) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:/Local exports Saved transcripts/}));
+  expect((screen.getByRole('checkbox',{name:'VTT'}) as HTMLInputElement).checked).toBe(true);
+  expect(fixture.add).not.toHaveBeenCalled();
+  expect(fixture.configure).not.toHaveBeenCalled();
 });

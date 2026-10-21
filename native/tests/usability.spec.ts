@@ -137,6 +137,7 @@ test('watched-folder and local export controls preserve opt-in choices and retry
   await expect(automation.getByRole('button', { name: 'Resume folder', exact: true })).toBeVisible();
   await automation.getByRole('button', { name: 'Pause automation', exact: true }).click();
   await expect(automation.getByRole('button', { name: 'Resume automation', exact: true })).toBeVisible();
+  await automation.getByRole('button', { name: 'Local exports Saved transcripts', exact: true }).click();
   await automation.getByRole('button', { name: 'Choose export folder', exact: true }).click();
   await automation.getByRole('checkbox', { name: 'VTT', exact: true }).check();
   await automation.getByRole('checkbox', { name: 'Export automatically after transcription', exact: true }).check();
@@ -154,9 +155,10 @@ test('watched-folder and local export controls preserve opt-in choices and retry
   await page.screenshot({ path: info.outputPath('automation-exports.png'), fullPage: true });
 });
 
-test('automatic local AI rules are opt-in, saved explicitly and pause queued work', async ({ page }, info) => {
+test('automatic AI submenus retain drafts while saving rules and controlling queued work', async ({ page }, info) => {
   await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
   const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
+  await automation.getByRole('button', { name: 'AI rules Opt-in processing', exact: true }).click();
   await expect(automation.getByRole('heading', { name: 'Automatic AI rules', exact: true })).toBeVisible();
   await expect(automation.getByText(/No rules are configured/)).toBeVisible();
   await automation.getByRole('button', { name: 'Add automatic rule', exact: true }).click();
@@ -165,27 +167,28 @@ test('automatic local AI rules are opt-in, saved explicitly and pause queued wor
   await automation.getByRole('checkbox', { name: 'Enable rule 1', exact: true }).check();
   await automation.getByRole('button', { name: 'Save automatic AI rules', exact: true }).click();
   await expect(automation.getByText(/Automatic AI rules saved/)).toBeVisible();
-  await expect(automation.getByLabel('Rule name', { exact: true })).toHaveValue('Browser meeting summary');
-  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('failed');
-  await automation.getByRole('button', { name: 'Retry automatic task Research interview', exact: true }).click();
-  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('queued');
+  await automation.getByLabel('Rule name', { exact: true }).fill('Unsaved browser rule draft');
+  await automation.getByRole('button', { name: 'AI model Local service', exact: true }).click();
   await automation.getByLabel('Context window', { exact: true }).selectOption('16384');
   await automation.getByRole('button', { name: 'Refresh installed models', exact: true }).click();
   await expect(automation.getByText('Installed local models loaded.', { exact: true })).toBeVisible();
-  await automation.getByRole('button', { name: 'Cancel automatic AI and pause', exact: true }).click();
-  await expect(automation.getByText(/Automatic AI paused\. Running work is cancelling/)).toBeVisible();
-  await expect(automation.getByText(/resume automation above/).first()).toBeVisible();
+  await automation.getByRole('button', { name: 'AI tasks Queue & results', exact: true }).click();
+  await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('failed');
+  await automation.getByRole('button', { name: 'Retry automatic task Research interview', exact: true }).click();
   await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('queued');
-  await automation.getByLabel('Rule name', { exact: true }).fill('Unsaved browser rule draft');
+  await automation.getByRole('button', { name: 'Cancel automatic AI and pause', exact: true }).click();
+  await expect(automation.getByRole('button', { name: 'Resume automation', exact: true })).toBeVisible();
   await automation.getByRole('button', { name: 'Skip all queued automatic tasks', exact: true }).click();
   await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('skipped');
   await expect(automation.getByText(/1 queued automatic task skipped, including tasks outside this list/)).toBeVisible();
-  await expect(automation.getByLabel('Rule name', { exact: true })).toHaveValue('Unsaved browser rule draft');
   await expect(automation.getByRole('button', { name: 'Skip all queued automatic tasks', exact: true })).toBeDisabled();
+  await automation.getByRole('button', { name: 'AI rules Opt-in processing', exact: true }).click();
+  await expect(automation.getByLabel('Rule name', { exact: true })).toHaveValue('Unsaved browser rule draft');
+  await automation.getByRole('button', { name: 'AI model Local service', exact: true }).click();
+  await expect(automation.getByLabel('Context window', { exact: true })).toHaveValue('16384');
   await page.setViewportSize({ width: 760, height: 560 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await automation.getByRole('heading', { name: 'Automatic AI rules', exact: true }).scrollIntoViewIfNeeded();
-  await page.screenshot({ path: info.outputPath('automatic-ai-rules.png'), fullPage: true });
+  await page.screenshot({ path: info.outputPath('automatic-ai-model.png'), fullPage: true });
 });
 
 test('local AI keeps summaries separate, exports results and retains saved history', async ({ page }, info) => {
@@ -256,4 +259,42 @@ test('translation preview retains metadata and creates a separate recording with
   await dialog.getByRole('button',{name:'Delete result',exact:true}).click();
   await dialog.getByRole('button',{name:'Keep result',exact:true}).click();
   await expect(dialog.getByRole('button',{name:'Translate transcript · Ukrainian',exact:true})).toHaveCount(2);
+});
+
+test('settings submenus keep navigation and footer clear at minimum and full window sizes', async ({ page }, info) => {
+  async function checkShell(dialog: ReturnType<typeof page.getByRole>) {
+    const header = await dialog.locator('.settings-header').boundingBox();
+    const body = await dialog.locator('.settings-workspace-body').boundingBox();
+    const footer = await dialog.locator('.settings-footer').boundingBox();
+    expect(header).not.toBeNull(); expect(body).not.toBeNull(); expect(footer).not.toBeNull();
+    expect(header!.y + header!.height).toBeLessThanOrEqual(body!.y + 1);
+    expect(body!.y + body!.height).toBeLessThanOrEqual(footer!.y + 1);
+    expect(footer!.y + footer!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    expect(await dialog.locator('.settings-page-content').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  }
+  for (const size of [{ width: 760, height: 560 }, { width: 1180, height: 780 }]) {
+    await page.setViewportSize(size);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
+    for (const label of ['Appearance Theme', 'Transcription Offline model', 'Speakers Optional models']) {
+      const navigation = settings.getByRole('button', { name: label, exact: true });
+      await navigation.click(); await expect(navigation).toHaveAttribute('aria-current', 'page');
+      await checkShell(settings);
+    }
+    await settings.getByRole('button', { name: 'Appearance Theme', exact: true }).click();
+    await settings.getByRole('radio', { name: 'Dark Easy on the eyes', exact: true }).check();
+    await checkShell(settings);
+    await page.screenshot({ path: info.outputPath(`settings-dark-${size.width}.png`), fullPage: true });
+    await settings.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.getByRole('button', { name: 'Folders & automation', exact: true }).click();
+    const automation = page.getByRole('dialog', { name: 'Folders & automation', exact: true });
+    for (const label of ['Watched folders Import & transcribe', 'Local exports Saved transcripts', 'AI rules Opt-in processing', 'AI model Local service', 'AI tasks Queue & results']) {
+      const navigation = automation.getByRole('button', { name: label, exact: true });
+      await navigation.click(); await expect(navigation).toHaveAttribute('aria-current', 'page');
+      await checkShell(automation);
+    }
+    await automation.getByRole('button', { name: 'AI rules Opt-in processing', exact: true }).click();
+    await page.screenshot({ path: info.outputPath(`automation-dark-${size.width}.png`), fullPage: true });
+    await automation.getByRole('button', { name: 'Close automation settings', exact: true }).click();
+  }
 });

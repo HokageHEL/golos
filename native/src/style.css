@@ -71,7 +71,7 @@ button,select,textarea{
 }
 button{
   cursor:pointer;
-  transition:background .15s,opacity .15s
+  transition:opacity .15s
 }
 button:disabled{
   cursor:default;
@@ -1159,3 +1159,43 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 
 .ai-automation .rule-enabled { display: flex; align-items: center; gap: 8px; }
 .ai-automation input[type=checkbox] { width: auto; justify-self: start; flex-shrink: 0; }
+
+/* Settings share one stable shell: navigation and controls stay reachable while
+   only the selected page scrolls. Hidden pages stay mounted to preserve drafts. */
+.settings-workspace-dialog { width: min(960px, calc(100vw - 32px)); overflow: hidden; }
+.settings-content.settings-workspace { padding: 0; display: flex; flex-direction: column; height: min(720px, calc(100dvh - 48px)); min-height: 0; overflow: hidden; }
+.settings-workspace > .settings-header { padding: 20px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.settings-workspace .settings-header h1 { font-size: clamp(24px, 3.5vw, 32px); }
+.settings-workspace .settings-header > div { min-width: 0; }
+.settings-workspace .settings-header > button { flex-shrink: 0; }
+.settings-workspace-body { display: grid; grid-template-columns: 180px minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
+.settings-navigation { display: flex; flex-direction: column; gap: 5px; padding: 16px 12px; border-right: 1px solid var(--border); overflow-y: auto; min-width: 0; background: var(--surface); }
+.settings-navigation button { display: grid; gap: 3px; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--muted); background: transparent; box-shadow: none; }
+.settings-navigation button small { font-size: 11px; font-weight: 400; }
+.settings-navigation button:hover { background: var(--background); color: var(--text); }
+.settings-navigation button[aria-current=page] { color: var(--text); border-color: var(--border); background: var(--background); }
+.settings-navigation button[aria-current=page] > span { font-weight: 700; }
+.settings-page-content { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 22px 26px; scrollbar-gutter: stable; }
+.settings-page-content .settings-section { padding: 0; border: 0; }
+.settings-page-content [hidden] { display: none !important; }
+.settings-page-content h2 { margin: 0 0 12px; font-size: 20px; }
+.settings-page-content h3 { margin: 16px 0 8px; }
+.settings-page-content .notice { margin: 0 0 16px; overflow-wrap: anywhere; }
+.settings-page-content p, .settings-page-content code { overflow-wrap: anywhere; }
+.settings-page-content .editor-tools { align-items: end; gap: 12px; }
+.settings-page-content .editor-tools > label { flex: 1 1 180px; min-width: 0; display: grid; gap: 6px; }
+.settings-page-content .editor-tools > label:has(input[type=checkbox]) { display: flex; align-items: center; }
+.settings-page-content .editor-tools input:not([type=checkbox]), .settings-page-content .editor-tools select { width: 100%; min-width: 0; }
+.settings-page-content button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.settings-workspace > .settings-footer { flex-shrink: 0; padding: 14px 24px; background: var(--surface); }
+.automation-footer > div { display: grid; gap: 4px; min-width: 0; }
+.automation-footer > button { flex-shrink: 0; }
+@media (max-width: 650px) {
+  .settings-workspace-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-navigation { flex-direction: row; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .settings-navigation button { width: auto; flex: 0 0 auto; padding: 8px 12px; }
+  .settings-navigation button small { display: none; }
+  .settings-page-content { padding: 18px; }
+  .settings-workspace > .settings-header, .settings-workspace > .settings-footer { padding: 14px 18px; }
+  .automation-footer .muted { display: none; }
+}
