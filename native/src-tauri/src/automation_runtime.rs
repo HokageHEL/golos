@@ -293,6 +293,7 @@ mod tests {
             recording: Mutex::new(None),
             automation_label: Mutex::new(None),
             automation_paused: AtomicBool::new(false),
+            batch_drop: crate::batch_drop::DropStore::new(),
         };
         watch::observe(
             &state.db().unwrap(),
