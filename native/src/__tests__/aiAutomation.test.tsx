@@ -165,7 +165,7 @@ it('keeps configuration disabled during background work and pauses cancellation 
   fireEvent.click(pause);
   await waitFor(() => expect(mocks.pause).toHaveBeenCalledWith(true));
   await screen.findByText(/Automatic AI paused\. Running work is cancelling/);
-  expect(screen.getAllByText(/resume automation above/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/resume automation in the dialog footer/).length).toBeGreaterThan(0);
   expect(screen.getByText(/Running tasks cannot be cancelled individually/)).toBeTruthy();
 });
 

@@ -1163,7 +1163,7 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 /* Settings share one stable shell: navigation and controls stay reachable while
    only the selected page scrolls. Hidden pages stay mounted to preserve drafts. */
 .settings-workspace-dialog { width: min(960px, calc(100vw - 32px)); overflow: hidden; }
-.settings-content.settings-workspace { padding: 0; display: flex; flex-direction: column; height: min(720px, calc(100dvh - 48px)); min-height: 0; overflow: hidden; }
+.settings-content.settings-workspace { padding: 0; display: flex; flex-direction: column; height: min(720px, calc(100dvh - 50px)); min-height: 0; overflow: hidden; }
 .settings-workspace > .settings-header { padding: 20px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .settings-workspace .settings-header h1 { font-size: clamp(24px, 3.5vw, 32px); }
 .settings-workspace .settings-header > div { min-width: 0; }

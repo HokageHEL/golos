@@ -178,6 +178,7 @@ test('automatic AI submenus retain drafts while saving rules and controlling que
   await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('queued');
   await automation.getByRole('button', { name: 'Cancel automatic AI and pause', exact: true }).click();
   await expect(automation.getByRole('button', { name: 'Resume automation', exact: true })).toBeVisible();
+  await expect(automation.getByText(/Use Resume automation in the dialog footer/)).toBeVisible();
   await automation.getByRole('button', { name: 'Skip all queued automatic tasks', exact: true }).click();
   await expect(automation.getByLabel('Status of Research interview', { exact: true })).toHaveText('skipped');
   await expect(automation.getByText(/1 queued automatic task skipped, including tasks outside this list/)).toBeVisible();
@@ -263,16 +264,22 @@ test('translation preview retains metadata and creates a separate recording with
 
 test('settings submenus keep navigation and footer clear at minimum and full window sizes', async ({ page }, info) => {
   async function checkShell(dialog: ReturnType<typeof page.getByRole>) {
+    const bounds = await dialog.boundingBox();
     const header = await dialog.locator('.settings-header').boundingBox();
     const body = await dialog.locator('.settings-workspace-body').boundingBox();
     const footer = await dialog.locator('.settings-footer').boundingBox();
+    const navigation = await dialog.locator('.settings-navigation').boundingBox();
+    const content = await dialog.locator('.settings-page-content').boundingBox();
     expect(header).not.toBeNull(); expect(body).not.toBeNull(); expect(footer).not.toBeNull();
     expect(header!.y + header!.height).toBeLessThanOrEqual(body!.y + 1);
     expect(body!.y + body!.height).toBeLessThanOrEqual(footer!.y + 1);
     expect(footer!.y + footer!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    expect(footer!.y + footer!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height - 0.5);
+    if (page.viewportSize()!.width > 650) expect(navigation!.x + navigation!.width).toBeLessThanOrEqual(content!.x + 1);
+    else expect(navigation!.y + navigation!.height).toBeLessThanOrEqual(content!.y + 1);
     expect(await dialog.locator('.settings-page-content').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   }
-  for (const size of [{ width: 760, height: 560 }, { width: 1180, height: 780 }]) {
+  for (const size of [{ width: 760, height: 560 }, { width: 1180, height: 780 }, { width: 480, height: 800 }]) {
     await page.setViewportSize(size);
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
@@ -294,6 +301,7 @@ test('settings submenus keep navigation and footer clear at minimum and full win
       await checkShell(automation);
     }
     await automation.getByRole('button', { name: 'AI rules Opt-in processing', exact: true }).click();
+    if (size.width <= 650) expect(await automation.locator('.settings-navigation').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath(`automation-dark-${size.width}.png`), fullPage: true });
     await automation.getByRole('button', { name: 'Close automation settings', exact: true }).click();
   }

@@ -32,3 +32,11 @@ were also inspected through native accessibility and screenshots at the normal
 switching kept the navigation, close control and footer clear. Minimum-size
 geometry is covered by Chromium above; native minimum-size/VoiceOver and workspace
 action grouping remain subsequent work.
+
+Review follow-up adds dialog-boundary and navigation/content separation checks,
+including the 480-pixel browser-only layout (below the native minimum width).
+Navigation names stay stable when visual hints are hidden. Named page regions and
+a polite page-title announcement expose section changes without moving keyboard
+focus away from navigation. A regression check waits for a real polling cycle and
+confirms rule/model/folder/export drafts still survive switching sections. Pause
+guidance names the footer's Resume control explicitly.
