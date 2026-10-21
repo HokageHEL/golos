@@ -22,4 +22,13 @@ and 1180×780. Screenshots are captured in dark mode at both sizes. These checks
 exercise browser rendering with mocked native IPC; they do not validate native
 file pickers, permission prompts, VoiceOver or macOS capture hardware. Existing
 recording, editing, export and local-AI flows remain in the browser regression
-suite. Workspace action grouping and native WebKit review remain subsequent work.
+suite. Browser fixtures use a stable per-checkout loopback port, strict binding
+and no server reuse, so parallel worktrees cannot silently validate another
+checkout. Set `GOLOS_UI_PORT` to choose a different unused port explicitly.
+
+The packaged macOS app's Settings navigation, speaker page and automation pages
+were also inspected through native accessibility and screenshots at the normal
+1180×780 window size, using an isolated app identifier and public fixtures. Page
+switching kept the navigation, close control and footer clear. Minimum-size
+geometry is covered by Chromium above; native minimum-size/VoiceOver and workspace
+action grouping remain subsequent work.
