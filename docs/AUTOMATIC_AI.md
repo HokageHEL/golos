@@ -94,9 +94,13 @@ records are retained; older finished metadata is pruned, while their saved AI
 results remain in the paged recording history. Saved results/snapshots still add
 disk usage and can be explicitly deleted there.
 
-Schema **6** adds rule/task tables transactionally, with the existing verified
-pre-upgrade SQLite backup. Tests migrate version 5 without changing transcripts,
-manual AI results/settings, watched folders, export tasks, or batch jobs. Rules
+Schema **7** adds rule/task tables transactionally, with the existing verified
+pre-upgrade SQLite backup. Tests migrate version 5 and both development-era
+version 6 task-table shapes without changing transcripts, manual AI results/settings,
+watched folders, export tasks, or batch jobs. Rebuilding preserves task order and
+computes the same semantic rule hashes used for scheduling. Completed results
+reconcile to completed tasks after interruption; deleting a result clears its
+task link. Rules
 and queued jobs are device configuration and are not imported from project files;
 portable projects include generated results and provenance, without triggering
 new automatic work on import. Older project formats remain importable.
@@ -106,7 +110,9 @@ new automatic work on import. Older project formats remain importable.
 Default Rust tests cover opt-in validation/scopes, settings snapshots, semantic
 deduplication, source checksums, queue budgets and scheduling rollback, source
 changes/disabled rules, cancellation/failure/retry/restart, provenance, retention,
-original-text preservation and schema-5 migration. DOM/browser checks use mocked
+bulk-skip timestamp consistency and preservation of newer completed task history,
+original-text preservation, schema-5/6 migrations, finished-result crash recovery,
+and deleted-result link cleanup. DOM/browser checks use mocked
 native IPC and cover opt-in saving, UTF-8 limits, required translation targets,
 cleanup behavior, polling without draft clobbering, normalization, hidden prompt
 removal, error recovery, task controls and global pause. Native bridge/device tests
@@ -137,11 +143,35 @@ quality, VoiceOver/native WebKit, external document consumers, and real micropho
 application/system capture and permission recovery. Full offline MacWhisper parity
 is still tracked in [the parity matrix](MACWHISPER_PARITY.md).
 
-Milestone validation on October 20, 2026: **124 Rust tests passed**, eight opt-in
+Milestone validation on October 20, 2026: **133 Rust tests passed**, eight opt-in
 tests skipped by default; the real component integration above passed separately.
-**61 frontend tests** and **11 Chromium flows** passed. ESLint, both TypeScript
+**63 frontend tests** and **11 Chromium flows** passed. ESLint, both TypeScript
 checks, Rust formatting/all-target Clippy with warnings denied, production frontend
 build and an unsigned arm64 macOS debug app build passed (86.97 MiB). The T3
 collaborative preview also exercised rule creation, explicit translation target,
 saving and normalization using the mocked-native fixture. This is browser UI
 evidence, not native scheduler, microphone or system-audio hardware evidence.
+
+On October 21, the 133 Rust tests, 63 frontend tests and 11 mocked-native Chromium
+flows passed again after restart recovery and the bulk-skip retention fix. Earlier
+packaged-app validation used a distinct application identifier and a temporary
+library containing only public fixtures: manual Whisper model replacement returned
+to Ready, and an explicitly enabled single-recording summary rule and loopback
+model settings were saved through the native UI. The full native scheduler flow
+did not complete: the audio chooser left the public WAV fixture disabled, and
+subsequent UI automation lost its app connection. This is an unresolved native
+validation finding, not proof of a decoder or permission failure. Foregrounding
+the model picker resolved an earlier disabled-button observation; no picker or
+dialog-layout workaround was retained. Real microphone/system capture, permission
+recovery and native import-to-automatic-result behavior remain unvalidated.
+
+The October 21 unsigned arm64 macOS debug build passed (87.07 MiB). In a fresh,
+isolated packaged app, real guided Whisper Small download cancellation, retry,
+pinned-checksum installation and cancellation with a working model installed
+passed. A separate filesystem check confirmed the 190,085,487-byte installed
+model matches the compiled-in SHA-256 and no pending model files remained. The
+native rule/model controls saved successfully. Audio selection again remained
+disabled; a pointer-based follow-up failed in the UI tool with
+`noWindowsAvailable` while the app process remained alive. No import or scheduler
+success is claimed from this attempt. A loopback AI stub was prepared, but no
+generation request reached it; it provides no real-inference evidence.

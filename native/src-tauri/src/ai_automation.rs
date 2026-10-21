@@ -6,7 +6,10 @@ use crate::{
     library::{self, Segment},
     local_ai, AppState,
 };
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{
+    params, params_from_iter, types::Value, Connection, OptionalExtension, Transaction,
+    TransactionBehavior,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -17,7 +20,9 @@ use std::{
 use tauri::{Emitter, Manager};
 
 /// Saved rules and durable background tasks. AI results stay in `ai_results`;
-/// pruning a completed task never deletes a generated result.
+/// pruning a completed task never deletes a generated result, and deleting a
+/// result clears the task link that named it so task metadata can never point at
+/// work the user removed.
 pub const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS ai_automation_rules(
  id TEXT PRIMARY KEY,
@@ -58,6 +63,9 @@ CREATE INDEX IF NOT EXISTS ai_automation_tasks_note ON ai_automation_tasks(note_
 CREATE TRIGGER IF NOT EXISTS ai_automation_note_cleanup AFTER DELETE ON notes BEGIN
  DELETE FROM ai_automation_tasks WHERE note_id=old.id;
 END;
+CREATE TRIGGER IF NOT EXISTS ai_automation_result_cleanup AFTER DELETE ON ai_results BEGIN
+ UPDATE ai_automation_tasks SET result_id=NULL WHERE result_id=old.id;
+END;
 ";
 const KINDS: &[&str] = &["cleanup", "summary", "actions", "translate", "custom"];
 const SOURCES: &[&str] = &["single", "batch", "watch"];
@@ -65,6 +73,21 @@ const TASK_LIMIT: usize = 100;
 const SOURCE_LIMIT: usize = 2_000_000;
 const PENDING_LIMIT: i64 = 1000;
 const PENDING_BYTES: i64 = 64_000_000;
+/// Unique key of the current automatic-task table, in declaration order. It
+/// includes the semantic rule hash, so changing a rule's task, prompt or target
+/// schedules new work instead of being taken for an earlier result.
+const TASK_UNIQUE: [&str; 7] = [
+    "note_id",
+    "source_hash",
+    "rule_id",
+    "rule_hash",
+    "model",
+    "port",
+    "context_window",
+];
+/// Columns every supported automatic-task table declares, in a fixed order, so
+/// the version-7 rebuild reads and rewrites exactly the same set.
+const TASK_COLUMNS: &str = "id,note_id,rule_id,rule_name,kind,target,prompt,source,source_language,source_hash,segments,model,port,context_window,status,error,result_id,created_at,updated_at";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Rule {
@@ -283,6 +306,15 @@ pub fn schedule_atomic(db: &Connection, note: &str, source: &str) -> Result<usiz
         }
     }
 }
+/// The semantic identity of a rule: the captured fields that decide what a task
+/// generates. A renamed or reordered rule keeps its identity, while changing its
+/// task, prompt or target gives it a new one.
+fn semantic_rule_hash(kind: &str, target: &str, prompt: &str) -> Result<String, String> {
+    let encoded =
+        serde_json::to_vec(&serde_json::json!({"v":1,"kind":kind,"target":target,"prompt":prompt}))
+            .map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
+}
 fn schedule(db: &Connection, note_id: &str, source: &str) -> Result<usize, String> {
     if !SOURCES.contains(&source) {
         return Err("Unsupported automatic transcription source.".into());
@@ -321,7 +353,7 @@ fn schedule(db: &Connection, note_id: &str, source: &str) -> Result<usize, Strin
     let at = now();
     let mut queued = 0;
     for rule in matching {
-        let rule_hash=format!("{:x}",Sha256::digest(serde_json::to_vec(&serde_json::json!({"v":1,"kind":rule.kind,"target":rule.target,"prompt":rule.prompt})).map_err(|e|e.to_string())?));
+        let rule_hash = semantic_rule_hash(&rule.kind, &rule.target, &rule.prompt)?;
         let duplicate:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM ai_automation_tasks WHERE note_id=?1 AND source_hash=?2 AND rule_id=?3 AND rule_hash=?4 AND model=?5 AND port=?6 AND context_window=?7)",params![note_id,source_hash,rule.id,rule_hash,settings.model,settings.port,settings.context_window],|row|row.get(0)).map_err(|e|e.to_string())?;
         if duplicate {
             continue;
@@ -470,7 +502,7 @@ pub fn prepare_next(db: &Connection) -> Result<Option<Run>, String> {
             skip(
                 &tx,
                 &pending.id,
-                "The transcript changed after this automatic task was queued. It was skipped; run the rule again on the current transcript.",
+                "The transcript changed after this automatic task was queued, so it was skipped. To use the current saved transcript, open the recording and generate the result manually under Local AI & translation.",
             )?;
             continue;
         }
@@ -570,9 +602,12 @@ pub fn finish(db: &Connection, task_id: &str, work: &ai::Work) -> Result<(), Str
             })),
         ),
     };
+    // The link is only recorded while the result it names still exists: deleting
+    // a result clears the link, and a run that finishes afterwards must not put
+    // it back.
     let changed = db
         .execute(
-            "UPDATE ai_automation_tasks SET status=?2,error=?3,result_id=?4,updated_at=?5 WHERE id=?1 AND status='running'",
+            "UPDATE ai_automation_tasks SET status=?2,error=?3,result_id=CASE WHEN EXISTS(SELECT 1 FROM ai_results r WHERE r.id=?4) THEN ?4 ELSE NULL END,updated_at=?5 WHERE id=?1 AND status='running'",
             params![task_id, status, error, work.id, now()],
         )
         .map_err(|e| e.to_string())?;
@@ -614,6 +649,15 @@ pub fn fail(
 /// Restart recovery: interrupted work becomes failed and retryable, while
 /// pending queued tasks stay durable for the scheduler.
 pub fn recover(db: &Connection) -> Result<(), String> {
+    // A crash after the runner's final result checkpoint but before the task was
+    // recorded leaves a finished result linked to a running task. That run did
+    // complete, so its link finishes the task instead of reporting finished work
+    // as interrupted and retryable.
+    db.execute(
+        "UPDATE ai_automation_tasks SET status='done',error=NULL,updated_at=?1 WHERE status='running' AND result_id IS NOT NULL AND EXISTS(SELECT 1 FROM ai_results r WHERE r.id=ai_automation_tasks.result_id AND r.status='done')",
+        [now()],
+    )
+    .map_err(|e| e.to_string())?;
     // Generic AI recovery runs first. Restore automatic provenance on its
     // interrupted result, including when the last chunk checkpoint was untitled.
     db.execute("UPDATE ai_results SET phase='Automatic '||(SELECT t.rule_name FROM ai_automation_tasks t WHERE t.result_id=ai_results.id AND t.status='running' LIMIT 1)||' · Interrupted' WHERE status='failed' AND phase='Interrupted' AND id IN (SELECT result_id FROM ai_automation_tasks WHERE status='running')",[]).map_err(|e|e.to_string())?;
@@ -622,6 +666,154 @@ pub fn recover(db: &Connection) -> Result<(), String> {
         [now()],
     )
     .map_err(|e| e.to_string())?;
+    // A link whose result no longer exists can neither be reviewed nor retried,
+    // so it is cleared instead of being shown as saved work.
+    reconcile_result_links(db)
+}
+/// Clear task links whose result is gone. Deleting a result clears the link
+/// through the schema trigger; this repairs libraries written before that
+/// trigger and links left behind by a result deleted outside the app.
+fn reconcile_result_links(db: &Connection) -> Result<(), String> {
+    db.execute(
+        "UPDATE ai_automation_tasks SET result_id=NULL WHERE result_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM ai_results r WHERE r.id=ai_automation_tasks.result_id)",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+/// Bring automatic local AI storage to the version-7 shape.
+///
+/// Development builds stamped two different task tables as version 6: one
+/// without `rule_hash` and with `UNIQUE(note_id,source_hash,rule_id,model,port,context_window)`,
+/// and one that added `rule_hash` to that key. The table is inspected rather
+/// than assumed, so either shape upgrades. Rows keep their captured snapshot,
+/// status, timestamps and result link, and gain the semantic rule hash the
+/// scheduler computes, so migrated work is still recognised as already
+/// scheduled instead of being generated twice.
+pub fn upgrade(db: &Connection) -> Result<(), String> {
+    // Every statement is `IF NOT EXISTS`, so this also creates storage a damaged
+    // or older library is missing, including the result-link cleanup trigger.
+    db.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+    if tasks_need_rebuild(db)? {
+        rebuild_tasks(db)?;
+    }
+    reconcile_result_links(db)
+}
+/// True when the task table is not the current shape: its unique key does not
+/// include the semantic rule hash, or a row's hash was never recorded.
+fn tasks_need_rebuild(db: &Connection) -> Result<bool, String> {
+    let exists: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_automation_tasks')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !exists {
+        // The schema batch above just created the current table.
+        return Ok(false);
+    }
+    if !has_semantic_unique_key(db)? {
+        return Ok(true);
+    }
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM ai_automation_tasks WHERE rule_hash='')",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+/// True when the table's own unique key is
+/// `(note_id,source_hash,rule_id,rule_hash,model,port,context_window)`. The
+/// primary key is skipped: only a `UNIQUE` constraint describes the schedule
+/// identity.
+fn has_semantic_unique_key(db: &Connection) -> Result<bool, String> {
+    let mut statement = db
+        .prepare("PRAGMA index_list(ai_automation_tasks)")
+        .map_err(|e| e.to_string())?;
+    let declared: Vec<(String, String)> = statement
+        .query_map([], |row| Ok((row.get(1)?, row.get(3)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    for (index, origin) in declared {
+        if origin != "u" {
+            continue;
+        }
+        let columns = index_columns(db, &index)?;
+        if columns.len() == TASK_UNIQUE.len()
+            && columns
+                .iter()
+                .zip(TASK_UNIQUE.iter())
+                .all(|(column, expected)| column.as_deref() == Some(*expected))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+/// Column names of one index, in index order. An expression index reports a null
+/// name, which never matches a declared column.
+fn index_columns(db: &Connection, index: &str) -> Result<Vec<Option<String>>, String> {
+    let mut statement = db
+        .prepare(&format!("PRAGMA index_info({index})"))
+        .map_err(|e| e.to_string())?;
+    let names = statement
+        .query_map([], |row| row.get(2))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string());
+    names
+}
+/// Replace the task table with the current definition and copy every row into it
+/// with the semantic rule hash its captured rule fields imply.
+///
+/// The old table is renamed aside while the schema batch creates the replacement.
+/// Its indexes and the triggers that name it are dropped first, because renaming
+/// a table rewrites whatever still points at the old name.
+fn rebuild_tasks(db: &Connection) -> Result<(), String> {
+    db.execute_batch(
+        "DROP TRIGGER IF EXISTS ai_automation_note_cleanup;
+         DROP TRIGGER IF EXISTS ai_automation_result_cleanup;
+         DROP INDEX IF EXISTS ai_automation_tasks_pending;
+         DROP INDEX IF EXISTS ai_automation_tasks_note;
+         ALTER TABLE ai_automation_tasks RENAME TO ai_automation_tasks_previous;",
+    )
+    .map_err(|e| e.to_string())?;
+    db.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+    copy_tasks(db)?;
+    db.execute_batch("DROP TABLE ai_automation_tasks_previous;")
+        .map_err(|e| e.to_string())
+}
+/// Copy every task row across the rebuild. The captured rule fields decide the
+/// recorded hash, so a row keeps deduplicating against the same rule afterwards.
+fn copy_tasks(db: &Connection) -> Result<(), String> {
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT {TASK_COLUMNS} FROM ai_automation_tasks_previous ORDER BY rowid"
+        ))
+        .map_err(|e| e.to_string())?;
+    let columns = statement.column_count();
+    let mut rows = statement.query([]).map_err(|e| e.to_string())?;
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let kind: String = row.get(4).map_err(|e| e.to_string())?;
+        let target: String = row.get(5).map_err(|e| e.to_string())?;
+        let prompt: String = row.get(6).map_err(|e| e.to_string())?;
+        let mut values = (0..columns)
+            .map(|index| row.get::<_, Value>(index))
+            .collect::<Result<Vec<Value>, _>>()
+            .map_err(|e| e.to_string())?;
+        values.push(Value::Text(semantic_rule_hash(&kind, &target, &prompt)?));
+        // A rebuild cannot create duplicates: the previous unique key is a
+        // subset of this one, so no two rows can collide here.
+        db.execute(
+            &format!(
+                "INSERT INTO ai_automation_tasks({TASK_COLUMNS},rule_hash) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)"
+            ),
+            params_from_iter(values),
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 pub fn has_queued(db: &Connection) -> Result<bool, String> {
@@ -660,7 +852,7 @@ pub fn action(db: &Connection, id: &str, action: &str) -> Result<(), String> {
             }
             let current_hash = ai::hash(&library::get(db, &note_id)?.segments)?;
             if current_hash != source_hash {
-                return Err("This task captured an older transcript. Retry is refused; run the rule again on the current transcript so the result is clearly based on what you see.".into());
+                return Err("This task captured an older transcript, so retrying it would not match what you see. Open the recording and generate the result manually under Local AI & translation from the current saved transcript.".into());
             }
             let bytes:i64=db.query_row("SELECT length(CAST(segments AS BLOB))+length(CAST(prompt AS BLOB)) FROM ai_automation_tasks WHERE id=?1",[id],|row|row.get(0)).map_err(|e|e.to_string())?;
             pending_capacity(db, bytes)?;
@@ -1124,6 +1316,143 @@ mod tests {
             "We agreed to ship on Friday."
         );
     }
+    /// Complete a running task's result the way the runner does, without
+    /// recording it on the task yet.
+    fn checkpoint_done(db: &Connection, run: &Run) -> ai::Work {
+        let mut work = run.work.clone();
+        work.status = "done".into();
+        work.phase = format!("Automatic {} · Complete", run.rule_name);
+        work.content = "Decision: Friday".into();
+        ai::checkpoint(db, &work).unwrap();
+        work
+    }
+
+    fn task_with(db: &Connection, id: &str) -> Task {
+        tasks(db)
+            .unwrap()
+            .into_iter()
+            .find(|task| task.id == id)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_result_finished_before_the_task_was_recorded_recovers_as_done() {
+        let db = fixture();
+        let first = sample("Summary", "summary", true, &["single"]);
+        let second = sample("Actions", "actions", true, &["single"]);
+        configure(&db, vec![first, second]).unwrap();
+        assert_eq!(schedule(&db, "source", "single").unwrap(), 2);
+        let run = prepare_next(&db).unwrap().unwrap();
+        // The crash window: the runner checkpointed the finished result, and the
+        // process stopped before the task recorded it.
+        let work = checkpoint_done(&db, &run);
+        // A second task that really was interrupted: its result never finished.
+        let pending = prepare_next(&db).unwrap().unwrap();
+
+        crate::ai::recover(&db).unwrap();
+        recover(&db).unwrap();
+
+        let recovered = task_with(&db, &run.task_id);
+        assert_eq!(recovered.status, "done");
+        assert!(recovered.error.is_none());
+        assert_eq!(recovered.result_id.as_deref(), Some(work.id.as_str()));
+        assert_eq!(ai::get(&db, &work.id).unwrap().status, "done");
+        assert_eq!(
+            ai::get(&db, &work.id).unwrap().phase,
+            "Automatic Summary · Complete"
+        );
+        // Genuinely interrupted work keeps its interrupted result and provenance.
+        let interrupted = task_with(&db, &pending.task_id);
+        assert_eq!(interrupted.status, "failed");
+        assert!(interrupted
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("interrupted"));
+        let interrupted_result = ai::get(&db, &pending.work.id).unwrap();
+        assert_eq!(interrupted_result.status, "failed");
+        assert_eq!(interrupted_result.phase, "Automatic Actions · Interrupted");
+        assert_eq!(
+            interrupted.result_id.as_deref(),
+            Some(pending.work.id.as_str())
+        );
+        assert!(!has_queued(&db).unwrap());
+    }
+
+    #[test]
+    fn deleting_a_result_clears_the_task_link_and_keeps_the_finished_task() {
+        let db = fixture();
+        configure(&db, vec![sample("Summary", "summary", true, &["single"])]).unwrap();
+        schedule(&db, "source", "single").unwrap();
+        let run = prepare_next(&db).unwrap().unwrap();
+        let work = checkpoint_done(&db, &run);
+        finish(&db, &run.task_id, &work).unwrap();
+        assert_eq!(
+            task_with(&db, &run.task_id).result_id.as_deref(),
+            Some(work.id.as_str())
+        );
+
+        // `ai_delete` removes only the result row.
+        db.execute("DELETE FROM ai_results WHERE id=?1", [&work.id])
+            .unwrap();
+        let task = task_with(&db, &run.task_id);
+        assert_eq!(task.status, "done");
+        assert!(
+            task.result_id.is_none(),
+            "the deleted result releases the task link"
+        );
+        assert!(ai::get(&db, &work.id).is_err());
+
+        // Recovery leaves the finished task and the cleared link alone.
+        recover(&db).unwrap();
+        let task = task_with(&db, &run.task_id);
+        assert_eq!(task.status, "done");
+        assert!(task.result_id.is_none());
+    }
+
+    #[test]
+    fn a_result_deleted_while_its_task_runs_is_not_linked_back() {
+        let db = fixture();
+        configure(&db, vec![sample("Summary", "summary", true, &["single"])]).unwrap();
+        schedule(&db, "source", "single").unwrap();
+        let run = prepare_next(&db).unwrap().unwrap();
+        db.execute("DELETE FROM ai_results WHERE id=?1", [&run.work.id])
+            .unwrap();
+        let work = checkpoint_done(&db, &run);
+        finish(&db, &run.task_id, &work).unwrap();
+        let task = task_with(&db, &run.task_id);
+        assert_eq!(task.status, "done");
+        assert!(
+            task.result_id.is_none(),
+            "a deleted result is never linked back in"
+        );
+    }
+
+    #[test]
+    fn recover_clears_a_link_left_by_a_library_without_the_cleanup_trigger() {
+        let db = fixture();
+        configure(&db, vec![sample("Summary", "summary", true, &["single"])]).unwrap();
+        schedule(&db, "source", "single").unwrap();
+        let run = prepare_next(&db).unwrap().unwrap();
+        let work = checkpoint_done(&db, &run);
+        finish(&db, &run.task_id, &work).unwrap();
+        // The development version-6 schema had no cleanup trigger, so a deleted
+        // result left the link behind.
+        db.execute("DROP TRIGGER ai_automation_result_cleanup", [])
+            .unwrap();
+        db.execute("DELETE FROM ai_results WHERE id=?1", [&work.id])
+            .unwrap();
+        assert_eq!(
+            task_with(&db, &run.task_id).result_id.as_deref(),
+            Some(work.id.as_str())
+        );
+
+        recover(&db).unwrap();
+        let task = task_with(&db, &run.task_id);
+        assert_eq!(task.status, "done");
+        assert!(task.result_id.is_none());
+    }
+
     #[test]
     fn failed_and_cancelled_results_are_visible_and_never_retry_automatically() {
         let db = fixture();
