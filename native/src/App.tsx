@@ -387,7 +387,7 @@ export default function App() {
       <label className="sidebar-source">Recording source<select aria-label="Recording source" value={source} disabled={locked} onChange={e => setSource(e.target.value)}>
         <option value="microphone">Microphone</option><option value="system" disabled={!captureSupport.system}>Application / system audio (macOS 13+)</option><option value="mixed" disabled={!captureSupport.mixed}>Microphone + application audio (macOS 15+)</option>
       </select></label>
-      {source !== 'microphone' && <Disclosure className="sidebar-panel" summary="System audio & permissions" open>
+      {source !== 'microphone' && <Disclosure key={source} className="sidebar-panel" summary="System audio & permissions" open>
         <select aria-label="Application to capture" value={application} disabled={locked} onChange={e => setApplication(Number(e.target.value))}><option value={0}>All system audio (excluding Golos)</option>{applications.map(app => <option key={app.pid} value={app.pid}>{app.name}</option>)}</select>
         <button className="secondary" disabled={locked} onClick={() => { void perform('Loading applications', async () => { const info = await api.captureInfo(true); if (Array.isArray(info)) setApplications(info); }); }}>Refresh applications / grant access</button>
         <p className="muted">Allow Golos Audio Capture in System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording. Mixed mode also needs Microphone access. Restart Golos after changing permission. Use headphones to avoid microphone echo.</p>

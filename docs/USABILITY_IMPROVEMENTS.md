@@ -100,6 +100,11 @@ paragraph estimates, not word alignment. Merge with next requires matching speak
 labels and retains the outer timestamp bounds. Paragraph playback highlighting is
 preserved.
 
+Exports, find-and-replace and speaker detection live in sections that open in the
+normal document flow; see `docs/UI_LAYOUT.md`. Closing a section keeps its
+contents, so a search query, a replacement text and a speaker count survive
+reopening it. Recording, importing, playback, editing and saving stay visible.
+
 ## Exports and portable backups
 
 TXT and SRT remain. VTT exports escape markup and use valid cue timestamps. DOCX
@@ -145,20 +150,23 @@ GOLOS_TEST_MODEL=/path/ggml-small-q5_1.bin GOLOS_TEST_AUDIO=/path/jfk.wav \
 ```
 
 The developer-only browser fixture is `/tests/ui.html` on `npm run native:dev`.
-It uses Tauri's mock IPC and is not a production build entry. Four real Chromium
-browser tests exercise navigation/draft retention, editing/export controls,
-rename/organization at the minimum window size, model-download error recovery,
-and mixed-source recording controls. Rendered screenshots were inspected. This
-caught and fixed sidebar overflow from long source names; model errors are also
-kept in view. These browser checks still use mocked native commands.
+It uses Tauri's mock IPC and is not a production build entry. Thirteen real
+Chromium browser tests exercise navigation/draft retention, editing/export
+controls, rename/organization at the minimum window size, model-download error
+recovery, mixed-source recording controls, and the workspace action sections and
+their geometry at 760×560 and 1180×780. Rendered screenshots were inspected.
+This caught and fixed sidebar overflow from long source names; model errors are
+also kept in view. These browser checks still use mocked native commands.
 
 Run them with `npx playwright install chromium` followed by `npm run test:ui`.
 The test runner starts a separate local Vite server on port 1421 and writes
 screenshots/results to the operating system's temporary directory under
-`golos-usability-browser/`. CI installs Chromium and runs the same suite. T3's
-collaborative preview timed out, so this verification used standalone headless
-Chromium instead. Microphone, system audio, native dialogs and inference are not
-exercised by browser tests.
+`golos-usability-browser/`. Set `GOLOS_UI_PORT` to run a checkout on its own
+loopback port; an explicitly requested port is never reused, so a suite cannot
+silently run against another checkout's dev server. CI installs Chromium and runs
+the same suite. T3's collaborative preview timed out, so this verification used
+standalone headless Chromium instead. Microphone, system audio, native dialogs and
+inference are not exercised by browser tests.
 
 Still required on physical macOS devices before release:
 - Fresh allow/deny/recovery prompts for both microphone and system audio, including

@@ -219,6 +219,11 @@ it('reveals system audio permissions as soon as a system source is chosen', asyn
   expect(screen.getByRole('button', { name: 'Refresh applications / grant access' })).toBeTruthy();
   expect(screen.getByText(/Allow Golos Audio Capture in System Settings/)).toBeTruthy();
   expect(screen.getByRole('combobox', { name: 'Application to capture' })).toBeTruthy();
+  // A different system source brings the permission steps back into view.
+  toggleSection('System audio & permissions');
+  expect(section('System audio & permissions').open).toBe(false);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recording source' }), { target: { value: 'mixed' } });
+  expect(section('System audio & permissions').open).toBe(true);
 });
 
 it('opens recording actions inside the library row and closes them with Escape', async () => {
