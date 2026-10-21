@@ -175,3 +175,12 @@ disabled; a pointer-based follow-up failed in the UI tool with
 `noWindowsAvailable` while the app process remained alive. No import or scheduler
 success is claimed from this attempt. A loopback AI stub was prepared, but no
 generation request reached it; it provides no real-inference evidence.
+
+Subsequent native watched-folder validation found and fixed a retained database
+mutex during candidate selection. After the fix, the packaged Tauri scheduler
+imported public audio, ran real Whisper Small, persisted the expected AI-service
+absence failure, and completed a separate automatic result for a second fixture
+through a labelled loopback stub. This closes that scheduler happy path and the
+service-absence persistence check; it does not establish real AI inference, UI
+event delivery, cancellation/fairness or hardware behavior. See the precise
+[native regression evidence](FOLDER_AUTOMATION.md#native-scheduler-regression-october-21).
