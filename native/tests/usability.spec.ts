@@ -497,6 +497,7 @@ test('the dictation review keeps the original text, retries and inserts only on 
 
 test('dictation settings are compact, grouped and save on this device', async ({ page }) => {
   await page.goto('/tests/ui.html');
+  await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Global dictation…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Dictation', exact: true });
   await expect(dialog).toBeVisible();
@@ -505,4 +506,21 @@ test('dictation settings are compact, grouped and save on this device', async ({
   await dialog.getByRole('textbox', { name: 'Dictation shortcut', exact: true }).fill('Cmd+Shift+D');
   await dialog.getByRole('button', { name: 'Save dictation settings', exact: true }).click();
   await expect(dialog.getByText('Dictation settings saved on this device.', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 760, height: 560 });
+  await dialog.locator('summary', { hasText: 'Local processing (optional)' }).click();
+  await dialog.getByRole('button', { name: 'Add app override', exact: true }).click();
+  const bundle = dialog.getByRole('textbox', { name: 'Bundle ID for override 1', exact: true });
+  await bundle.pressSequentially('com.example.Notes');
+  await expect(bundle).toHaveValue('com.example.Notes');
+  await expect(bundle).toBeFocused();
+  const bounds = await dialog.boundingBox();
+  const header = await dialog.locator('.settings-header').boundingBox();
+  const footer = await dialog.locator('.settings-footer').boundingBox();
+  const body = await dialog.locator('.settings-page-content').boundingBox();
+  expect(header!.y + header!.height).toBeLessThanOrEqual(body!.y + 1);
+  expect(body!.y + body!.height).toBeLessThanOrEqual(footer!.y + 1);
+  expect(footer!.y + footer!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height - 0.5);
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(dialog.getByRole('button', { name: 'Save dictation settings', exact: true })).toBeInViewport();
+
 });

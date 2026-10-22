@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '../App';
 import Overlay from '../Overlay';
+import DictationSettings from '../DictationSettings';
 import type { DictationStatus } from '../api';
 
 const fixture = vi.hoisted(() => {
@@ -71,7 +72,7 @@ vi.mock('../api', () => ({
     dictationDismiss: async () => baseStatus(),
     dictationDiscard: async () => baseStatus(),
     dictationPermissions: async () => { fixture.permissions.push('check'); return { accessibility: true, postEvents: true }; },
-    dictationRequestPermission: async () => { fixture.permissions.push('request'); return { accessibility: true, postEvents: true }; },
+    dictationRequestPermission: async (kind: string) => { fixture.permissions.push(kind); return { accessibility: true, postEvents: true }; },
     dictationOpenPermissionSettings: async () => { fixture.permissions.push('settings'); },
     dictationHideOverlay: async () => {},
   },
@@ -164,4 +165,23 @@ it('a background dictation keeps the selected recording and the unsaved draft', 
   });
   expect((screen.getByRole('textbox', { name: 'Transcript at 0:00' }) as HTMLTextAreaElement).value).toBe('My unsaved draft');
   expect(screen.getByRole('heading', { name: 'One' })).toBeTruthy();
+});
+
+
+it('keeps the per-app override input mounted and requests both insertion permissions explicitly', async () => {
+  render(<DictationSettings open status={baseStatus()} onStatus={() => {}} onError={() => {}} nativeAvailable onClose={() => {}}/>);
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Dictation shortcut' })).toBeTruthy());
+  fireEvent.click(screen.getByText('Local processing (optional)', { selector: 'summary' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add app override' }));
+  const bundle = screen.getByRole('textbox', { name: 'Bundle ID for override 1' });
+  bundle.focus();
+  fireEvent.change(bundle, { target: { value: 'com.example' } });
+  expect(screen.getByRole('textbox', { name: 'Bundle ID for override 1' })).toBe(bundle);
+  expect(document.activeElement).toBe(bundle);
+  expect(fixture.permissions).toEqual([]);
+  fireEvent.click(screen.getByText('Text insertion permissions', { selector: 'summary' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Request Accessibility access' }));
+  await waitFor(() => expect(fixture.permissions).toEqual(['accessibility']));
+  fireEvent.click(screen.getByRole('button', { name: 'Request keyboard-event access' }));
+  await waitFor(() => expect(fixture.permissions).toEqual(['accessibility', 'postEvents']));
 });

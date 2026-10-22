@@ -1352,7 +1352,19 @@ pub fn run() {
             );
             // The platform adapter is injected. Without one the runtime still
             // records and transcribes, but it never claims insertion support.
-            let dictation = Arc::new(DictationRuntime::new(app.handle().clone(), None));
+            let platform: Option<Arc<dyn dictation::Platform>> = {
+                #[cfg(target_os = "macos")]
+                {
+                    Some(Arc::new(dictation::platform::MacPlatform::new(
+                        app.handle().clone(),
+                    )))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    None
+                }
+            };
+            let dictation = Arc::new(DictationRuntime::new(app.handle().clone(), platform));
             app.manage(AppState {
                 root,
                 db: Mutex::new(db),
@@ -1669,16 +1681,7 @@ mod tests {
     fn batch_test_state(root: &Path) -> AppState {
         let db = Connection::open_in_memory().unwrap();
         library::init(&db, Path::new("in-memory")).unwrap();
-        AppState {
-            root: root.to_path_buf(),
-            db: Mutex::new(db),
-            busy: Arc::new(AtomicBool::new(false)),
-            cancelled: Arc::new(AtomicBool::new(false)),
-            recording: Mutex::new(None),
-            automation_label: Mutex::new(None),
-            automation_paused: AtomicBool::new(false),
-            batch_drop: batch_drop::DropStore::new(),
-        }
+        test_state(root.to_path_buf(), db)
     }
 
     fn write_batch_wav(path: &Path) {

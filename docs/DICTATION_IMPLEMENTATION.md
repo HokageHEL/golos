@@ -1,10 +1,10 @@
 # Native global recording and offline dictation implementation contract
 
-Status: **implementation in progress, not a supported feature claim**. The Rust
-runtime, the settings, the overlay presentation and the user interface exist,
-but the native platform adapter is not wired into this build and no
-device-verified behaviour is claimed. The parity matrix remains open, and the
-macOS application bundle has not been built with the adapter in place.
+Status: **integrated implementation; device validation remains open**. The Rust
+runtime, settings, overlay, review UI and native macOS platform adapter are wired
+together. This does not establish native shortcut, capture, permission, target
+focus, paste or clipboard-restoration behavior on a device. The parity matrix
+and device matrix remain open.
 
 ## What this build contains
 
@@ -158,17 +158,17 @@ Raw recording/transcription remains available without an account or network.
 
 ## Integration notes
 
-- The native adapter is injected where the runtime is created:
+- On macOS the native adapter is injected where the runtime is created:
   `DictationRuntime::new(app.handle().clone(), Some(Arc::new(MacPlatform::new(app.handle().clone()))))`.
-  Without it the runtime stays fully usable for recording, transcription and
-  copying, and reports that insertion is unavailable.
-- The overlay window is declared in `tauri.conf.json` with the label `overlay`
-  and the URL `index.html?overlay=1`. Its capability file allows the core
+  Other targets receive no adapter and report insertion as unavailable; no
+  Windows, Linux or mobile dictation support is claimed.
+- The overlay window is created lazily with the label `overlay` and the URL
+  `index.html?overlay=1`. Its capability file allows the core
   default set plus `core:window:allow-hide`; it grants no shortcut
   registration and no clipboard permission.
 - The dictation settings live in their own dialog component
-  (`DictationSettings.tsx`) and are opened from the sidebar entry
-  "Global dictation…". Moving that entry into the shared settings dialog is a
+  (`DictationSettings.tsx`) and are opened from **More tools → Global dictation…**.
+  The dialog uses the shared fixed header/footer shell and in-flow grouped sections. Moving that entry into the shared settings dialog is a
   navigation change only: the component takes `open`, `status`, `onStatus`,
   `onError`, `nativeAvailable` and `onClose`.
 - The main window never selects a dictated recording and never replaces the
@@ -206,3 +206,38 @@ AXSelectedText is documented non-writable; do not build the default insertion
 path around undocumented success in an individual app. Read-only application
 activity is at most a meeting prompt hint, not proof of a meeting and never
 permission to start recording automatically.
+
+
+## Integration checks — October 22, 2026
+
+The runtime and native adapter were integrated with the current submenu, batch
+drop and export-layout branches. The shared recording owner, one-shot drop store
+and test fixtures coexist; window-close protection applies to the main window,
+while hiding/closing the button-only overlay leaves its Rust job alive.
+
+Integration fixes add separate explicit requests for Accessibility and keyboard
+event access, stable per-app override inputs while bundle IDs are edited, shared
+theme colors and fixed settings header/footer controls. No request runs just by
+opening settings. The new DOM regression checks both permission command kinds
+and input identity/focus; a mocked browser flow types an app ID character by
+character and checks dialog containment at 760 × 560.
+
+Rust: 184 tests passed, nine opt-in checks skipped, formatting and all-target
+Clippy with warnings denied passed. These include isolated named-pasteboard
+AppKit tests, which do not read or write the user's general clipboard. The full
+19-flow browser suite passed with mocked native IPC before adding the final
+permission/input regression assertions. Real microphone, global shortcut/TCC,
+target app insertion, clipboard restore timing, 30-minute capture and Whisper
+end-to-end behavior remain unverified for this combined dictation build.
+
+The integrated macOS debug app built successfully (91.19 MiB). After the native
+build finished, all 108 frontend tests passed with one worker, and the targeted
+minimum-window dictation-settings flow passed with the final input/permission
+assertions. Two earlier runs under concurrent compilation hit existing async-test
+time limits; no timeout or assertion was weakened. Lint and both TypeScript checks
+passed. This is compilation/mocked-test evidence, not device validation.
+
+Integration follow-up still needed: the global recording surface does not yet
+show captured elapsed time or react to an engine-driven stop before the user
+presses Stop. The engine still enforces the audio cap; global timer/stopped-state
+visibility must be completed and tested before claiming the workflow complete.

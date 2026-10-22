@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type DictationAppOverride, type DictationSettings, type DictationStatus, type Language } from './api';
 import './dictation.css';
+import Disclosure from './Disclosure';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -81,20 +82,21 @@ export default function DictationSettings({ open, onClose, status, onStatus, onE
     }
   }
 
-  return <dialog ref={dialog} className="settings-dialog dictation-settings" aria-labelledby="dictation-settings-title"
+  return <dialog ref={dialog} className="settings-dialog settings-workspace-dialog dictation-settings" aria-labelledby="dictation-settings-title"
     onCancel={event => { event.preventDefault(); onClose(); }}
     onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="settings-content">
+    <div className="settings-content settings-workspace">
       <header className="settings-header">
         <div><div className="eyebrow">GLOBAL DICTATION</div><h1 id="dictation-settings-title">Dictation</h1></div>
         <button type="button" className="secondary settings-close" aria-label="Close dictation settings" onClick={onClose} autoFocus>✕</button>
       </header>
+      <div className="settings-page-content batch-page-content">
+      <p>Global dictation currently uses the microphone on macOS. Recording and transcription stay local, with a 30-minute limit. System or mixed sources remain available in the main recorder.</p>
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice success" role="status">{message}</div>}
       {status?.shortcutError && <div className="notice error" role="alert">{status.shortcutError}</div>}
 
-      <details className="dictation-settings-section" open>
-        <summary>Shortcut</summary>
+      <Disclosure className="dictation-settings-section" summary="Shortcut" open>
         <div className="dictation-settings-body">
           <label className="dictation-settings-row">
             <input type="checkbox" checked={settings.enabled} disabled={!nativeAvailable}
@@ -130,10 +132,9 @@ export default function DictationSettings({ open, onClose, status, onStatus, onE
             </select>
           </label>
         </div>
-      </details>
+      </Disclosure>
 
-      <details className="dictation-settings-section">
-        <summary>Overlay and clipboard</summary>
+      <Disclosure className="dictation-settings-section" summary="Overlay and clipboard">
         <div className="dictation-settings-body">
           <label className="dictation-settings-row">
             <input type="checkbox" checked={settings.showOverlay}
@@ -155,10 +156,9 @@ export default function DictationSettings({ open, onClose, status, onStatus, onE
             With restoration off, the dictated text stays on the clipboard until you replace it.
           </p>
         </div>
-      </details>
+      </Disclosure>
 
-      <details className="dictation-settings-section">
-        <summary>Local processing (optional)</summary>
+      <Disclosure className="dictation-settings-section" summary="Local processing (optional)">
         <div className="dictation-settings-body">
           <label className="dictation-settings-row">
             <input type="checkbox" checked={settings.aiEnabled}
@@ -183,7 +183,7 @@ export default function DictationSettings({ open, onClose, status, onStatus, onE
             Processing runs on the local model you configured in Settings. The original transcript is always kept separately.
           </p>
           <div className="dictation-settings-hint">Per-app overrides</div>
-          {settings.appOverrides.map((item, index) => <div className="dictation-override-row" key={`${item.bundleId}-${index}`}>
+          {settings.appOverrides.map((item, index) => <div className="dictation-override-row" key={index}>
             <input type="text" value={item.bundleId} placeholder="com.example.App"
               aria-label={`Bundle ID for override ${index + 1}`}
               onChange={event => updateOverride(index, { bundleId: event.target.value })}/>
@@ -202,16 +202,19 @@ export default function DictationSettings({ open, onClose, status, onStatus, onE
             Overrides match one bundle ID exactly. A prompt is plain text: it is never executed and never uploaded.
           </p>
         </div>
-      </details>
+      </Disclosure>
 
-      <details className="dictation-settings-section">
-        <summary>Text insertion permissions</summary>
+      <Disclosure className="dictation-settings-section" summary="Text insertion permissions">
         <div className="dictation-settings-body">
           <div className="dictation-permissions">
             <button type="button" className="secondary" onClick={() => void (async () => {
               try { await api.dictationRequestPermission('accessibility'); setMessage('Requested accessibility access. Approving it never inserts text by itself.'); onStatus(await api.dictationStatus()); }
               catch (e) { setError(errorText(e)); }
-            })()}>Request access</button>
+            })()}>Request Accessibility access</button>
+            <button type="button" className="secondary" onClick={() => void (async () => {
+              try { await api.dictationRequestPermission('postEvents'); setMessage('Requested keyboard-event access. Approving it never inserts text by itself.'); onStatus(await api.dictationStatus()); }
+              catch (e) { setError(errorText(e)); }
+            })()}>Request keyboard-event access</button>
             <button type="button" className="secondary" onClick={() => void (async () => {
               try { await api.dictationOpenPermissionSettings('accessibility'); }
               catch (e) { setError(errorText(e)); }
@@ -219,19 +222,20 @@ export default function DictationSettings({ open, onClose, status, onStatus, onE
             <button type="button" className="secondary" onClick={() => void permissions()}>Check again</button>
           </div>
           <p className="dictation-settings-hint">
-            Recording, transcription and copying work without this permission. Only the Insert button needs it.
+            Recording, transcription and copying work without insertion permissions. Insert needs both Accessibility and keyboard-event access. If access is denied, open System Settings → Privacy & Security → Accessibility, allow Golos, then restart Golos and check again.
           </p>
         </div>
-      </details>
+      </Disclosure>
 
-      <div className="dictation-settings-actions">
+      </div>
+      <footer className="settings-footer dictation-settings-actions">
         <button type="button" className="secondary" onClick={onClose}>Close</button>
         <button type="button" className="secondary" onClick={() => void (async () => {
           try { onStatus(await api.dictationStart()); setMessage('Dictation started. The overlay shows the recording controls.'); }
           catch (e) { setError(errorText(e)); }
         })()}>Start dictation now</button>
         <button type="button" className="primary" onClick={() => void save()}>Save dictation settings</button>
-      </div>
+      </footer>
     </div>
   </dialog>;
 }

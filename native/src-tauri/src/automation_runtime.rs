@@ -230,10 +230,7 @@ use rusqlite::OptionalExtension;
 mod tests {
     use super::*;
     use crate::{ai, ai_automation::Rule, library, library::Segment};
-    use std::{
-        fs,
-        sync::{atomic::AtomicBool, Arc, Mutex},
-    };
+    use std::fs;
 
     #[test]
     fn watched_candidate_releases_lock_before_import_and_keeps_watch_rule_scope() {
@@ -285,16 +282,7 @@ mod tests {
             }],
         )
         .unwrap();
-        let state = AppState {
-            root: root.clone(),
-            db: Mutex::new(db),
-            busy: Arc::new(AtomicBool::new(false)),
-            cancelled: Arc::new(AtomicBool::new(false)),
-            recording: Mutex::new(None),
-            automation_label: Mutex::new(None),
-            automation_paused: AtomicBool::new(false),
-            batch_drop: crate::batch_drop::DropStore::new(),
-        };
+        let state = crate::test_state(root.clone(), db);
         watch::observe(
             &state.db().unwrap(),
             &folder,

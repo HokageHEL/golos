@@ -1581,6 +1581,7 @@ mod tests {
             recording: Mutex::new(None),
             automation_label: Mutex::new(None),
             automation_paused: AtomicBool::new(false),
+            batch_drop: crate::batch_drop::DropStore::new(),
             dictation,
         };
         Fixture {
@@ -2011,6 +2012,7 @@ mod tests {
             recording: Mutex::new(None),
             automation_label: Mutex::new(None),
             automation_paused: AtomicBool::new(false),
+            batch_drop: crate::batch_drop::DropStore::new(),
             dictation,
         };
         state.dictation.start(&state).unwrap();
