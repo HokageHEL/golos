@@ -126,24 +126,21 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
             }
             watch::observe(&db, folder, &entries, now(), false)?;
         }
-        if let Some(entry) = next_watched_candidate(&state, folder, now())? {
-            let Ok(_operation) = Operation::begin(app, "Importing watched audio") else {
+        // Selection and import share one path with the regression coverage, so
+        // the library mutex cannot be held across the import again.
+        let (outcome, operation) = import_watched_folder(&state, folder, now(), || {
+            Operation::begin(app, "Importing watched audio")
+        })?;
+        match outcome {
+            WatchedOutcome::NoCandidate => {}
+            WatchedOutcome::Busy => return Ok(()),
+            WatchedOutcome::Imported | WatchedOutcome::Duplicate | WatchedOutcome::Failed(_) => {
+                let _ = app.emit("queue-changed", ());
+                // The shared operation is released after the queue event, like
+                // the previous inline import path.
+                drop(operation);
                 return Ok(());
-            };
-            let result = import_watched_candidate(&state, folder, &entry);
-            if let Err(error) = result {
-                if !state.cancelled.load(Ordering::SeqCst) {
-                    watch::status(
-                        &*state.db()?,
-                        &folder.id,
-                        &entry.name,
-                        "failed",
-                        Some(&error),
-                    )?;
-                }
             }
-            let _ = app.emit("queue-changed", ());
-            return Ok(());
         }
     }
     if !ai_first && process_automatic_ai(app)? {
@@ -152,9 +149,71 @@ fn tick(app: &tauri::AppHandle) -> Result<(), String> {
 
     Ok(())
 }
+/// What one watched-folder import attempt did.
+#[derive(Debug, PartialEq)]
+enum WatchedOutcome {
+    /// No stable candidate was waiting in the folder.
+    NoCandidate,
+    /// Another native operation already held the shared busy guard.
+    Busy,
+    /// A new recording, queue entry and watch provenance were committed.
+    Imported,
+    /// The same content was already imported for this folder.
+    Duplicate,
+    /// The import failed; the watched file is marked failed.
+    Failed(String),
+}
+
+/// Select a stable watched candidate and import it as one step.
+///
+/// The scheduler tick and the regression coverage both call this function, so
+/// candidate selection cannot borrow the library mutex across the import that
+/// follows it. `begin` claims the shared native operation exactly where the
+/// scheduler claimed it before: after a candidate exists and before any
+/// snapshot, decode or database work. The claimed guard is returned so the
+/// caller keeps holding it until the import's events are emitted.
+fn import_watched_folder<O>(
+    state: &AppState,
+    folder: &automation::WatchFolder,
+    at: i64,
+    begin: impl FnOnce() -> Result<O, String>,
+) -> Result<(WatchedOutcome, Option<O>), String> {
+    let Some(entry) = next_watched_candidate(state, folder, at)? else {
+        return Ok((WatchedOutcome::NoCandidate, None));
+    };
+    let Ok(operation) = begin() else {
+        return Ok((WatchedOutcome::Busy, None));
+    };
+    // The import must not start while the library mutex is held. A guard kept
+    // across candidate selection deadlocks the first database read, so the
+    // regression coverage checks this inside the shared path.
+    #[cfg(test)]
+    assert!(
+        state.db.try_lock().is_ok(),
+        "Watched import ran while the library mutex was held"
+    );
+    let outcome = match import_watched_candidate(state, folder, &entry) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if !state.cancelled.load(Ordering::SeqCst) {
+                watch::status(
+                    &*state.db()?,
+                    &folder.id,
+                    &entry.name,
+                    "failed",
+                    Some(&error),
+                )?;
+            }
+            WatchedOutcome::Failed(error)
+        }
+    };
+    Ok((outcome, Some(operation)))
+}
+
 /// Return an owned candidate, releasing the database mutex before the caller's
-/// `if let` body starts. A mutex guard borrowed in that scrutinee would otherwise
-/// survive the whole import and deadlock on its first subsequent database read.
+/// import body starts. A mutex guard borrowed in a candidate scrutinee would
+/// otherwise survive the whole import and deadlock on its first subsequent
+/// database read.
 fn next_watched_candidate(
     state: &AppState,
     folder: &automation::WatchFolder,
@@ -171,11 +230,11 @@ fn import_watched_candidate(
     state: &AppState,
     folder: &automation::WatchFolder,
     entry: &watch::Entry,
-) -> Result<(), String> {
+) -> Result<WatchedOutcome, String> {
     let snapshot = watch::snapshot(folder, entry, &state.root, &state.cancelled)?;
     if watch::duplicate(&*state.db()?, &folder.id, &snapshot.digest)? {
         watch::status(&*state.db()?, &folder.id, &entry.name, "duplicate", None)?;
-        return Ok(());
+        return Ok(WatchedOutcome::Duplicate);
     }
     let title = Path::new(&entry.name)
         .file_stem()
@@ -200,7 +259,7 @@ fn import_watched_candidate(
         .map_err(|e| e.to_string())?;
         watch::status(db, &folder.id, &entry.name, "imported", None)
     })?;
-    Ok(())
+    Ok(WatchedOutcome::Imported)
 }
 
 /// Run one queued automatic task. The operation guard serializes it with
@@ -240,7 +299,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("golos-watch-runtime-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("audio")).unwrap();
-        let watched = root.join("public-input");
+        let watched = root.join("isolated-input");
         fs::create_dir(&watched).unwrap();
         let watched = watched.canonicalize().unwrap();
         let source = watched.join("Fixture.wav");
@@ -272,17 +331,30 @@ mod tests {
             },
         )
         .unwrap();
+        // A watch-scoped rule and a batch-scoped rule: only the watch rule may
+        // be queued for a watched import.
         ai_automation::configure(
             &db,
-            vec![Rule {
-                id: uuid::Uuid::new_v4().to_string(),
-                name: "Watch summary".into(),
-                enabled: true,
-                kind: "summary".into(),
-                target: String::new(),
-                prompt: String::new(),
-                sources: vec!["watch".into()],
-            }],
+            vec![
+                Rule {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name: "Watch summary".into(),
+                    enabled: true,
+                    kind: "summary".into(),
+                    target: String::new(),
+                    prompt: String::new(),
+                    sources: vec!["watch".into()],
+                },
+                Rule {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name: "Batch summary".into(),
+                    enabled: true,
+                    kind: "summary".into(),
+                    target: String::new(),
+                    prompt: String::new(),
+                    sources: vec!["batch".into()],
+                },
+            ],
         )
         .unwrap();
         let state = AppState {
@@ -303,19 +375,58 @@ mod tests {
             false,
         )
         .unwrap();
-        if let Some(entry) = next_watched_candidate(&state, &folder, watch::STABLE_MS).unwrap() {
-            // This must succeed inside the if-let body, before any importer
-            // re-enters the database. The original scrutinee retained its guard.
-            assert!(
-                state.db.try_lock().is_ok(),
-                "Candidate selection retained the library lock"
-            );
-            import_watched_candidate(&state, &folder, &entry).unwrap();
-            // Reprocessing the same content deduplicates without another note.
-            import_watched_candidate(&state, &folder, &entry).unwrap();
-        } else {
-            panic!("Stable fixture was not selected");
+        // The scheduler and this test share one select/import path. The import
+        // must start with the library mutex released: the original inline
+        // candidate scrutinee kept its guard and deadlocked on the first read.
+        let (outcome, operation) = import_watched_folder(&state, &folder, watch::STABLE_MS, || {
+            state.claim_automation("Importing watched audio")
+        })
+        .unwrap();
+        assert_eq!(outcome, WatchedOutcome::Imported);
+        drop(operation);
+        {
+            let db = state.db().unwrap();
+            let status: String = db
+                .query_row(
+                    "SELECT status FROM watch_files WHERE folder_id=?1 AND name=?2",
+                    params![folder.id, "Fixture.wav"],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(status, "imported");
         }
+        // The same content observed again deduplicates instead of publishing a
+        // second recording.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&source, &original).unwrap();
+        watch::observe(
+            &state.db().unwrap(),
+            &folder,
+            &watch::entries(&folder).unwrap(),
+            0,
+            false,
+        )
+        .unwrap();
+        let (outcome, operation) = import_watched_folder(&state, &folder, watch::STABLE_MS, || {
+            state.claim_automation("Importing watched audio")
+        })
+        .unwrap();
+        assert_eq!(outcome, WatchedOutcome::Duplicate);
+        drop(operation);
+        {
+            let db = state.db().unwrap();
+            let status: String = db
+                .query_row(
+                    "SELECT status FROM watch_files WHERE folder_id=?1 AND name=?2",
+                    params![folder.id, "Fixture.wav"],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(status, "duplicate");
+            assert_eq!(library::list(&db).unwrap().len(), 1);
+        }
+        // The staged snapshot is always cleaned up, including the duplicate.
+        assert_eq!(fs::read_dir(root.join("incoming")).unwrap().count(), 0);
         let db = state.db().unwrap();
         let notes = library::list(&db).unwrap();
         assert_eq!(notes.len(), 1);
@@ -334,15 +445,17 @@ mod tests {
                 start_ms: 0,
                 end_ms: 1000,
                 speaker: None,
-                text: "Public fixture text".into()
+                text: "Isolated fixture text".into()
             }]),
             false
         )
         .unwrap()
         .is_none());
         let tasks = ai_automation::tasks(&db).unwrap();
+        // Only the watch-scoped rule is queued for a watched import.
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].source, "watch");
+        assert_eq!(tasks[0].rule_name, "Watch summary");
         assert_eq!(tasks[0].status, "queued");
         assert_eq!(fs::read(&source).unwrap(), original);
         assert_eq!(fs::read_dir(root.join("audio")).unwrap().count(), 1);
