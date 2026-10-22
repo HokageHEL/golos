@@ -124,3 +124,22 @@ adding speaker text, avoiding label-only cues. All 87 frontend tests, the target
 mocked export browser flow, lint/native TypeScript and a fresh macOS debug bundle
 passed after this fix. The full 15-flow browser suite passed before that narrow
 serializer correction; the targeted export flow passed again afterwards.
+
+## Packaged native rendering check — October 22, 2026
+
+A separate `Golos Export Review.app` identifier and app-data override isolated the
+QA library from the user's recordings. The fixture contained generated one-second
+tone audio and two synthetic, labelled paragraphs inserted into that QA library;
+no microphone or inference ran. In the packaged WKWebView at 1180 × 780, library
+search/open, Export and Export options expansion, enabling customization and
+turning timestamps off worked through native accessibility controls. The expanded
+panel and playback/editor remained in document flow without visual overlap.
+
+The DOCX button opened the native save panel. An intervening UI change prevented
+verification of the destination and resulting file, so this is rendering/control
+evidence only: native file export and external document consumers remain open
+gates. Minimum-window geometry remains covered by mocked Chromium rather than
+this native run. No OS permission or other application's clipboard was requested.
+
+After integrating the UI keyboard/focus polish, all 102 frontend tests and all 15
+mocked-native Chromium flows passed together; lint and native TypeScript passed.
