@@ -116,3 +116,11 @@ closing/reopening Export. Both TypeScript checks and ESLint passed. Rust had
 145 passing tests and eight opt-in skips; formatting and all-target Clippy with
 warnings denied passed. The unsigned arm64 macOS debug app built (87.45 MiB).
 These checks do not close external document/subtitle consumer or native device gates.
+
+After merging main's library benchmark, Rust validation remained green with 145
+passing tests and nine opt-in skips. A follow-up regression covers empty speech
+with a nonempty speaker label: custom SRT/VTT exports omit the paragraph before
+adding speaker text, avoiding label-only cues. All 87 frontend tests, the targeted
+mocked export browser flow, lint/native TypeScript and a fresh macOS debug bundle
+passed after this fix. The full 15-flow browser suite passed before that narrow
+serializer correction; the targeted export flow passed again afterwards.

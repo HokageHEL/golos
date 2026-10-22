@@ -153,3 +153,20 @@ test('Unicode-aware wrapping keeps grapheme clusters and chunks long tokens', ()
   expect(combining).toEqual(['e\u0301e\u0301', 'e\u0301']);
   expect(wrapSubtitleText('Привіт світе', 7)).toEqual(['Привіт', 'світе']);
 });
+
+
+test('custom subtitle exports omit empty speech even when a speaker label exists', () => {
+  const input: Segment[] = [
+    { startMs: 0, endMs: 1000, speaker: 'Silent speaker', text: ' \n\t' },
+    { startMs: 1000, endMs: 2000, speaker: 'Alice', text: 'Spoken text' },
+  ];
+  const options = { offsetMs: 0, maxLineLength: 32 };
+  for (const format of ['srt', 'vtt'] as const) {
+    const output = exportDocument('Title', input, format, { subtitles: options });
+    expect(output.match(/-->/g)).toHaveLength(1);
+    expect(output).not.toContain('Silent speaker');
+    expect(output).toContain('Alice: Spoken text');
+  }
+  expect(toVtt(input, options)).not.toContain('Silent speaker');
+  expect(input[0].speaker).toBe('Silent speaker');
+});

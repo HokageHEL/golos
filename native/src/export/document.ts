@@ -74,7 +74,7 @@ export function exportDocument(
   if (format === 'txt') return layout ? readableText(segments, layout) : exportWithSpeakers(segments, format);
   if (format === 'srt') {
     if (!subtitles) return exportWithSpeakers(segments, format);
-    const labeled = segments.map(segment => ({
+    const labeled = segments.filter(segment => segment.text.trim()).map(segment => ({
       ...segment,
       text: segment.speaker ? `${displaySpeaker(segment.speaker)}: ${segment.text}` : segment.text,
     }));

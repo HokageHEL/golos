@@ -16,7 +16,7 @@ export function toVtt(segments: Segment[], options?: SubtitleOptions): string {
       return `${formatSrtTime(s.startMs).replace(',', '.')} --> ${formatSrtTime(s.endMs).replace(',', '.')}\n${escape(text.replace(/\r?\n\s*\r?\n/g, '\n'))}\n`;
     }).join('\n');
   }
-  const turns = segments.map(segment => ({
+  const turns = segments.filter(segment => segment.text.trim()).map(segment => ({
     ...segment,
     text: segment.speaker ? `${displaySpeaker(segment.speaker)}: ${segment.text}` : segment.text,
   }));
