@@ -34,7 +34,7 @@ accuracy, accessibility, signing and release validation are separate gates.
 | Multi-track podcast transcription | Gap | Named per-speaker inputs, common offsets, overlapping speech preserved, source playback; validate different lengths/sample rates. |
 | Local speaker detection / rename / paragraph assignments | Implemented | Real multi-language diarization accuracy remains unmeasured. |
 | Speaker merge, saved names, colors and shortcuts | Partial | Renaming to same label can merge; add explicit merge, reusable name suggestions/colors and keyboard assignment. |
-| Library history, rename, folders/tags, title/text search | Implemented | Paginated FTS queries exist; add representative large-library benchmarks. |
+| Library history, rename, folders/tags, title/text search | Implemented | Paginated FTS queries validated with 10,000 synthetic recordings / 80,000 paragraphs; [database benchmark](LIBRARY_SCALE.md). Native UI, cold-cache and larger-library validation remain. |
 | Playback, speeds, timestamp seeking, paragraph highlight | Implemented | Native playback/keyboard/accessibility device QA. Word alignment remains explicitly deferred. |
 | Editor undo/redo, find/replace, split/merge | Implemented | Keep timestamp validity, draft protection and speakers. More export layout customization is still needed. |
 | Favorites/bookmarks / review flags | Gap | Persist paragraph bookmarks and navigable filtered view without losing edits. |
