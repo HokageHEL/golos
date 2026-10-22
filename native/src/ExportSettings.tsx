@@ -25,7 +25,7 @@ export default function ExportSettings({ value, disabled, onChange }: Props) {
         </fieldset>
         <fieldset disabled={customDisabled}>
           <legend>Subtitles: SRT, VTT</legend>
-          <label>Timestamp offset (milliseconds)<input type="number" step="1" aria-label="Subtitle timestamp offset" value={value.offsetMs} onChange={event => onChange({ offsetMs: Number(event.target.value) })}/></label>
+          <label>Timestamp offset (milliseconds)<input type="text" inputMode="text" maxLength={32} aria-label="Subtitle timestamp offset" value={value.offsetText} onChange={event => onChange({ offsetText: event.target.value })}/></label>
           <label>Line width<select aria-label="Subtitle line width" value={value.maxLineLength} onChange={event => onChange({ maxLineLength: Number(event.target.value) })}>
             <option value={0}>No wrapping</option>
             <option value={32}>32 characters</option>

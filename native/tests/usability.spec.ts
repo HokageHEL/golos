@@ -192,7 +192,7 @@ test('manual export layout options reach mock IPC without changing saved data', 
   expect(text?.content).toBe('A saved transcript for library search and editing.\nThe next paragraph keeps its timestamp.');
   expect(text?.content).not.toContain('00:00:00.000');
 
-  await options.getByRole('spinbutton', { name: 'Subtitle timestamp offset', exact: true }).fill('500');
+  await options.getByRole('textbox', { name: 'Subtitle timestamp offset', exact: true }).fill('500');
   await options.getByRole('combobox', { name: 'Subtitle line width', exact: true }).selectOption('32');
   await page.getByRole('button', { name: 'Export VTT', exact: true }).click();
   await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
@@ -523,4 +523,35 @@ test('dictation settings are compact, grouped and save on this device', async ({
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await expect(dialog.getByRole('button', { name: 'Save dictation settings', exact: true })).toBeInViewport();
 
+});
+
+
+test('typed signed subtitle offsets keep their sign and reject incomplete or negative cue times', async ({ page }) => {
+  await openSection(page, 'Export');
+  await page.getByText('Export options', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Customize export layout', exact: true }).check();
+  const offset = page.getByRole('textbox', { name: 'Subtitle timestamp offset', exact: true });
+  await offset.fill('');
+  await offset.pressSequentially('-');
+  await expect(offset).toHaveValue('-');
+  await page.getByRole('button', { name: 'Export SRT', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Subtitle timestamp offset' })).toContainText('whole, finite');
+  await offset.fill('');
+  await offset.pressSequentially('-2000');
+  await expect(offset).toHaveValue('-2000');
+  await offset.press('Escape');
+  await expect(offset).toBeVisible();
+  await page.getByRole('button', { name: 'Export SRT', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Subtitle timestamp offset' })).toContainText('negative cue times');
+  expect(await page.evaluate(() => (window as Window & { __lastTextExport?: unknown }).__lastTextExport)).toBeUndefined();
+  // Removing the first cue makes the same negative offset valid for the
+  // remaining paragraph. Saved speaker metadata must not revive empty speech.
+  await page.getByRole('textbox', { name: 'Transcript at 0:00', exact: true }).fill('');
+  await page.getByRole('button', { name: 'Save edits', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save edits', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Export SRT', exact: true }).click();
+  await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
+  const saved = await page.evaluate(() => (window as Window & { __lastTextExport?: { content: string } }).__lastTextExport);
+  expect(saved?.content).toContain('00:00:08,000 --> 00:00:18,000');
+  expect(saved?.content.match(/-->/g)).toHaveLength(1);
 });

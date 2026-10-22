@@ -81,8 +81,8 @@ must not be used to market “all MacWhisper features” prematurely.
 - [Speaker recognition](https://docs.macwhisper.com/article/32-automatic-speaker-recognition-in-macwhisper).
 - [Local and remote AI providers](https://docs.macwhisper.com/article/58-setting-up-ai-providers-in-macwhisper).
 - [Integrations](https://docs.macwhisper.com/article/53-integrating-macwhisper-with-other-services).
-- [Command-line tool](https://docs.macwhisper.com/): follow the current CLI article
-  from the official support index (export formats, layout, batch and model options).
+- [Official command-line reference](https://docs.macwhisper.com/article/57-macwhisper-command-line-tool):
+  local app socket, model listing/selection, batch inputs, layout and format options.
 - [Managed deployment](https://docs.macwhisper.com/article/27-deploying-macwhisper-with-mdm).
 
 Do not copy competitor pricing or license restrictions into Golos. Engine/model
@@ -109,3 +109,13 @@ The durable batch milestone merged in [PR #6](https://github.com/HokageHEL/golos
 Manual local AI milestone validation: 112 Rust default tests (seven opt-in skips), 51 frontend tests, 10 mocked-native Chromium flows, separately executed real local Ollama and Whisper translation-task smoke tests, strict checks and an unsigned arm64 macOS app build. See [full evidence and limitations](LOCAL_AI.md). Full parity and native hardware validation remain open; automatic AI processing is documented in the following milestone.
 
 Automatic local AI milestone validation: 133 Rust tests (eight opt-in skips), 63 frontend tests, 11 mocked-native Chromium flows, real Whisper-to-local-AI component integration with backup restore, collaborative preview rule creation, strict checks and an unsigned arm64 macOS app build. See [automatic AI evidence](AUTOMATIC_AI.md). Native scheduler/device and quality gates remain open.
+
+
+CLI reference refreshed October 22, 2026 against the official command-line
+article. Golos still has no CLI implementation. The local equivalent must cover
+model listing/selection and per-run overrides, language/speaker options, serial
+file/folder batches, structured/text/subtitle output, progress separated from
+stdout, cancellation, optional history persistence, and collision-safe output.
+MacWhisper documents Avid/timebase controls too; those remain explicit format
+gaps. Cloud options and online media remain excluded. This reference refresh
+does not validate or claim implementation of any CLI feature in Golos.

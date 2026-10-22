@@ -241,3 +241,9 @@ Integration follow-up still needed: the global recording surface does not yet
 show captured elapsed time or react to an engine-driven stop before the user
 presses Stop. The engine still enforces the audio cap; global timer/stopped-state
 visibility must be completed and tested before claiming the workflow complete.
+
+After integrating the signed-offset export fix, the combined branch passed 110
+frontend tests, all 20 mocked browser flows, 185 Rust tests (nine opt-in skips),
+lint, both TypeScript checks, formatting and all-target Clippy. This merge adds
+no recording or paste behavior; the timer/engine-stop visibility follow-up and
+native hardware gates above remain open.

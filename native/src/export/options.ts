@@ -15,7 +15,10 @@ export type SubtitleOptions = {
   maxLineLength: number;
 };
 
-export type ExportOptionsState = TranscriptLayoutOptions & SubtitleOptions & {
+export type ExportOptionsState = TranscriptLayoutOptions & {
+  /** Unparsed draft keeps incomplete signed input intact until export. */
+  offsetText: string;
+  maxLineLength: number;
   /** Defaults off so existing exports and every non-manual flow stay unchanged. */
   custom: boolean;
 };
@@ -34,7 +37,8 @@ export const DEFAULT_SUBTITLE_OPTIONS: SubtitleOptions = {
 export const DEFAULT_EXPORT_OPTIONS: ExportOptionsState = {
   custom: false,
   ...DEFAULT_TRANSCRIPT_LAYOUT,
-  ...DEFAULT_SUBTITLE_OPTIONS,
+  offsetText: String(DEFAULT_SUBTITLE_OPTIONS.offsetMs),
+  maxLineLength: DEFAULT_SUBTITLE_OPTIONS.maxLineLength,
 };
 
 /** SRT/VTT timestamp fields are HH:MM:SS,mmm (two-digit hours). */
@@ -67,4 +71,14 @@ export function validateSubtitleOptions(options: SubtitleOptions): SubtitleOptio
 /** Only the three layout fields cross into the native DOCX command. */
 export function docxLayoutOptions(options: TranscriptLayoutOptions): TranscriptLayoutOptions {
   return validateTranscriptLayout(options);
+}
+
+
+/** Parse the editor draft only when exporting, never while a sign is typed. */
+export function parseSubtitleOptions(draft: Pick<ExportOptionsState, 'offsetText' | 'maxLineLength'>): SubtitleOptions {
+  const text = draft.offsetText.trim();
+  if (!/^[+-]?\d+$/.test(text)) {
+    throw new Error('Subtitle timestamp offset must be a whole, finite number of milliseconds.');
+  }
+  return validateSubtitleOptions({ offsetMs: Number(text), maxLineLength: draft.maxLineLength });
 }

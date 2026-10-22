@@ -8,8 +8,10 @@ structured data, audio exports or project backups.
 
 Open **Export → Export options** above playback in a recording. The
 controls are off by default and are not persisted; restarting Golos restores the
-historical output. Export buttons remain disabled while the draft has unsaved
-changes, so these options cannot be used to bypass draft protection.
+historical output. Transcript-file and project-backup export buttons remain disabled while the
+draft has unsaved changes. Saved audio can still be exported, and Copy transcript
+can copy the draft with an unsaved-edits notice. Layout options cannot bypass
+transcript draft protection.
 
 ## Readable formats: TXT, Markdown, HTML and DOCX
 
@@ -22,7 +24,9 @@ When **Customize export layout** is enabled:
 - **Paragraph grouping** keeps one saved segment per block. **Adjacent same
   speaker** combines directly adjacent segments only when both have the same
   non-null speaker. A speaker change, an unassigned segment or the end of the
-  transcript closes the group. Merged blocks use the first start and latest end,
+  transcript closes the group. Readable formats retain empty saved paragraphs
+  (including their optional timestamp) for review; subtitle exports omit empty
+  speech instead. Merged blocks use the first start and latest end,
   so overlapping speech is not lost. Original segment text, order and metadata
   are never modified.
 
@@ -37,7 +41,9 @@ Subtitle options are separate from readable-format layout:
 
 - **Timestamp offset (milliseconds)** is added to every cue uniformly. A
   negative offset can trim leading silence. Offsets must be whole finite
-  milliseconds. A result with a negative time, a non-finite/unsafe integer, a
+  milliseconds. The field preserves raw signed input while typing, including an
+  incomplete minus sign; parsing and validation happen when exporting. Empty or
+  incomplete input is rejected rather than converted to zero. A result with a negative time, a non-finite/unsafe integer, a
   time beyond `99:59:59.999`, or a cue with no positive duration is rejected
   with an error. Golos does not clamp, repair or invent times.
 - **Line width** wraps text inside a cue at 32, 42 or 50 grapheme clusters. The
@@ -46,7 +52,7 @@ Subtitle options are separate from readable-format layout:
   chunked at grapheme boundaries. It never adds cue breaks or word-level
   timestamps.
 
-SRT and VTT remain one cue per non-empty saved segment. Uniform offsets preserve
+With customization enabled, SRT/VTT emit one cue per non-empty saved segment. Uniform offsets preserve
 the saved order, and overlapping cues are kept rather than merged, clamped or
 silently removed. Empty paragraphs are omitted instead of producing invalid
 empty cues. Invalid saved order or zero-duration cues produce an error rather
@@ -143,3 +149,31 @@ this native run. No OS permission or other application's clipboard was requested
 
 After integrating the UI keyboard/focus polish, all 102 frontend tests and all 15
 mocked-native Chromium flows passed together; lint and native TypeScript passed.
+
+
+## Export review follow-up — October 22, 2026
+
+The independent review reproduced a signed-offset control defect: the numeric
+input converted an incomplete minus sign to zero. The field now stores a raw
+text draft and parses only on export, rejecting blank, incomplete, fractional,
+non-finite and unsafe values. A real-browser keystroke regression checks the
+minus sign, incomplete-input rejection, negative-cue rejection, no export on
+error, and a valid -2000 ms shift once an empty leading paragraph is omitted.
+Escape in the field keeps its panel and draft.
+
+Readable exports intentionally retain empty saved paragraphs for review; custom
+subtitles omit empty speech. TS and Rust tests pin that choice. Custom DOCX
+timestamp spacing matches TXT, while legacy/default DOCX remains unchanged.
+
+All 104 frontend tests and 16 mocked-native Chromium flows passed. ESLint, both
+TypeScript checks, formatting and all-target Clippy with warnings denied passed.
+Rust: 146 tests passed, nine opt-in skips. The unsigned arm64 macOS debug bundle
+built successfully (87.45 MiB). External consumers, native file-save behavior and
+capture hardware remain separate gates.
+
+The isolated packaged WKWebView build was then checked through native controls:
+entering `-2000` retained that signed value, and SRT export showed the expected
+negative-cue validation message for the zero-start synthetic fixture, with no
+save panel opened. This validates native field entry and pre-export validation,
+not successful native file output. The QA app used its separate generated-audio
+library and was closed afterwards. No capture or insertion permission was used.
