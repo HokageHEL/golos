@@ -402,9 +402,19 @@ async fn stop_recording(
             return Ok(None);
         }
         let recording = slot.as_mut().ok_or("No recording is active.")?;
+        // A shared recording-state event so both windows agree on the state of
+        // the single recording session.
+        let _ = app.emit(
+            "recording-state",
+            serde_json::json!({"owner": "main", "phase": "saving"}),
+        );
         let result = save_recording(&state, recording);
         if result.is_ok() {
             slot.take();
+            let _ = app.emit(
+                "recording-state",
+                serde_json::json!({"owner": "main", "phase": "idle"}),
+            );
         }
         // On failure the source and busy guard remain available for retry.
         result.map(Some)
@@ -1367,7 +1377,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            tauri::WindowEvent::CloseRequested { api, .. } => {
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                 if let Some(state) = window.app_handle().try_state::<AppState>() {
                     if state.busy.load(Ordering::SeqCst) {
                         api.prevent_close();

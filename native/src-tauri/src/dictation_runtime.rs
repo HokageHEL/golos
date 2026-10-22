@@ -639,6 +639,11 @@ impl DictationRuntime {
             }
         }
         self.persist(state);
+        // The library list refreshes, but the new recording is never selected
+        // and the editor draft is never replaced.
+        if let Some(app) = &self.app {
+            let _ = app.emit("queue-changed", ());
+        }
         self.emit_state();
         let language = self.settings().language;
         let note_id = saved.note_id.clone();
