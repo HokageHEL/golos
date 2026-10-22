@@ -100,9 +100,10 @@ export default function BatchQueue({ languages, modelReady, busy, backgroundBusy
 
   const pending = jobs.filter(job => job.status === 'queued');
   const running = jobs.find(job => job.status === 'running');
-  return <dialog ref={dialog} className="settings-dialog batch-dialog" aria-labelledby="batch-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    <div className="settings-content">
+  return <dialog ref={dialog} className="settings-dialog batch-dialog settings-workspace-dialog" aria-labelledby="batch-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
+    <div className="settings-content settings-workspace">
       <header className="settings-header"><div><div className="eyebrow">ON THIS DEVICE</div><h1 id="batch-title">Batch transcription</h1></div><button className="secondary" disabled={!!busy} onClick={onClose} aria-label="Close batch queue" autoFocus>✕</button></header>
+      <div className="settings-page-content batch-page-content">
       <p>Import up to 100 files at a time. Each recording keeps the 30-minute / 512-MiB limit. Jobs are saved locally and run one at a time. Existing transcripts are never replaced. Open this dialog first, then drop local audio files anywhere in this window. Dropped files are only previewed until you explicitly add them.</p>
       {(error || localError) && <div className="notice error" role="alert">{error || localError}</div>}
       {drop && <section className="notice batch-drop-preview" aria-label="Dropped files ready to add">
@@ -127,6 +128,7 @@ export default function BatchQueue({ languages, modelReady, busy, backgroundBusy
       <ul className="batch-jobs" aria-label="Transcription jobs">{jobs.map(job => <li key={job.id}><div><strong>{job.title}</strong><span>{formatClock(job.durationSeconds * 1000)} · {job.language} · {job.status}</span>{job.error && <p className="error-text">{job.error}</p>}</div><div className="actions">{['failed', 'cancelled'].includes(job.status) && <button className="secondary" disabled={!!busy} onClick={() => { void operation('Retrying job', () => api.jobAction(job.id, 'retry')); }}>Retry {job.title}</button>}<button className="text-button" disabled={!!busy || job.status === 'running'} onClick={() => { void operation('Removing queue job', () => api.jobAction(job.id, 'remove')); }}>Remove {job.title} from queue</button></div></li>)}</ul>
       {!jobs.length && <p className="muted">No jobs yet. Add files here or queue a ready recording from the library.</p>}
       <p className="muted">Removing a job keeps its library recording and source file. Results appear in the library. Speaker detection can be run after transcription.</p>
+      </div>
     </div>
   </dialog>;
 }

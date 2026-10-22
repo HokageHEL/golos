@@ -5,7 +5,7 @@ native window drop and keep up to 1,000 pending jobs in its SQLite library. Each
 30-minute / 512-MiB source limit. Recording, storage and inference remain local;
 no account, cloud service or upload is involved. Pricing remains undecided.
 
-Open **Batch transcription** in the sidebar, choose the audio language and select
+Open **More tools → Batch transcription** in the sidebar, choose the audio language and select
 **Add files to queue**. Each successfully decoded file becomes a separate ready
 recording with a queued job. Unsupported/corrupt/oversized files are reported
 individually; other files continue. Source files are never modified. Cancelled
@@ -115,3 +115,13 @@ formatting and all-target Clippy with warnings denied passed. The Playwright
 batch flow rendered the preview and imported through mocked IPC. A packaged macOS
 app build and a real Finder/WebKit drag on a physical device were **not** run in
 this checkout, so native permission, sandbox and platform claims are unchanged.
+
+Integration validation on October 22, 2026: 73 frontend tests and 14 mocked-IPC
+Chromium flows passed, along with ESLint and both TypeScript checks. The batch
+dialog uses the shared fixed-header settings shell; a 100-file preview at
+760 × 560 scrolls within its content area while the close control stays visible.
+The unsigned macOS debug app bundle built successfully (87.41 MiB). This build
+and browser layout check do not validate real Finder drops, OS permissions or
+microphone/system-audio hardware.
+Rust validation also passed: 141 tests, eight opt-in checks skipped, formatting
+and all-target Clippy with warnings denied.

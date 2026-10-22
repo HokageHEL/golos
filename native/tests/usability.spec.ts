@@ -191,6 +191,7 @@ test('batch import reports each failure, retains pending jobs and removes jobs w
 
 
 test('mocked native drop previews names, discards explicitly and imports only after Add', async ({ page }, info) => {
+  await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();
   const queue = page.getByRole('dialog', { name: 'Batch transcription', exact: true });
   // Explicitly mocked native drag/drop event: no Finder, WebKit drag or file read.
@@ -214,8 +215,20 @@ test('mocked native drop previews names, discards explicitly and imports only af
   await expect(queue.getByText('broken-drop.mp3: Mocked decode failure', { exact: true })).toBeVisible();
   await expect(queue.getByText('Mock dropped interview A', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 760, height: 560 });
+  await page.evaluate(async () => {
+    const bridge = window as unknown as { mockNativeBatchDrop: (id: string, names: string[]) => Promise<void> };
+    await bridge.mockNativeBatchDrop('large-preview', Array.from({ length: 100 }, (_, index) => `Public fixture ${index}.wav`));
+  });
+  await queue.getByText('Public fixture 99.wav', { exact: true }).scrollIntoViewIfNeeded();
+  const bounds = await queue.boundingBox();
+  const header = await queue.locator('.settings-header').boundingBox();
+  const content = await queue.locator('.settings-page-content').boundingBox();
+  expect(header!.y).toBeGreaterThanOrEqual(bounds!.y);
+  expect(header!.y + header!.height).toBeLessThanOrEqual(content!.y + 1);
+  expect(content!.y + content!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height - 0.5);
+  await expect(queue.getByRole('button', { name: 'Close batch queue', exact: true })).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath('batch-drop-import.png'), fullPage: true });
+  await page.screenshot({ path: info.outputPath('batch-drop-import.png'), fullPage: false });
 });
 
 
