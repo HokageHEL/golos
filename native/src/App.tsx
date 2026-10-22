@@ -18,7 +18,7 @@ import AutomationSettings from './AutomationSettings';
 import LocalAi from './LocalAi';
 import { change, undo, redo, replaceAll, splitParagraph, mergeParagraph, type History } from './editing';
 import { exportDocument, type DocumentExportOptions } from './export/document';
-import { DEFAULT_EXPORT_OPTIONS, validateSubtitleOptions, validateTranscriptLayout, type ExportOptionsState } from './export/options';
+import { DEFAULT_EXPORT_OPTIONS, parseSubtitleOptions, validateTranscriptLayout, type ExportOptionsState } from './export/options';
 import ExportSettings from './ExportSettings';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 import { findTranscriptMatches, type TranscriptMatch } from './review';
@@ -410,7 +410,7 @@ export default function App() {
     await perform('Exporting transcript', async () => {
       const options: DocumentExportOptions | undefined = exportOptions.custom && format !== 'csv' && format !== 'json'
         ? format === 'srt' || format === 'vtt'
-          ? { subtitles: validateSubtitleOptions(exportOptions) }
+          ? { subtitles: parseSubtitleOptions(exportOptions) }
           : { layout: validateTranscriptLayout(exportOptions) }
         : undefined;
       const content = exportDocument(active?.title ?? 'Transcript', draft, format, options);

@@ -3,7 +3,7 @@ import { exportDocument } from '../document';
 import { toSrt } from '../srt';
 import { toVtt } from '../vtt';
 import { graphemes, wrapSubtitleText } from '../subtitles';
-import { MAX_SUBTITLE_MS } from '../options';
+import { MAX_SUBTITLE_MS, parseSubtitleOptions } from '../options';
 import type { Segment } from '../../transcript/types';
 
 const segments: Segment[] = [
@@ -169,4 +169,22 @@ test('custom subtitle exports omit empty speech even when a speaker label exists
   }
   expect(toVtt(input, options)).not.toContain('Silent speaker');
   expect(input[0].speaker).toBe('Silent speaker');
+});
+
+
+test('raw signed subtitle drafts are parsed only on export and never coerced to zero', () => {
+  expect(parseSubtitleOptions({ offsetText: '-2000', maxLineLength: 32 })).toEqual({ offsetMs: -2000, maxLineLength: 32 });
+  expect(parseSubtitleOptions({ offsetText: ' +002 ', maxLineLength: 0 }).offsetMs).toBe(2);
+  for (const offsetText of ['', '-', '+', '1.5', '1e3', 'Infinity', 'NaN', '9007199254740992']) {
+    expect(() => parseSubtitleOptions({ offsetText, maxLineLength: 0 })).toThrow(/whole, finite/);
+  }
+});
+
+test('readable exports retain empty saved paragraphs for review while custom subtitles omit them', () => {
+  const empty: Segment[] = [{ startMs: 2000, endMs: 3000, speaker: null, text: '   ' }];
+  const layout = { includeTimestamps: true, includeSpeakers: true, grouping: 'paragraph' as const };
+  for (const format of ['txt', 'md', 'html'] as const) {
+    expect(exportDocument('Review', empty, format, { layout })).toContain('00:00:02');
+  }
+  expect(exportDocument('Review', empty, 'srt', { subtitles: { offsetMs: 0, maxLineLength: 0 } })).toBe('');
 });

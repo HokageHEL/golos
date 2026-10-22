@@ -172,7 +172,7 @@ it('rejects an unsafe subtitle offset in the manual flow with a clear error', as
   await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
   fireEvent.click(screen.getByText('Export options'));
   fireEvent.click(screen.getByRole('checkbox', { name: 'Customize export layout' }));
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'Subtitle timestamp offset' }), { target: { value: '-2000' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Subtitle timestamp offset' }), { target: { value: '-2000' } });
   fireEvent.click(screen.getByRole('button', { name: 'Export SRT' }));
   await screen.findByText(/negative cue times/);
   expect(fixture.exports).not.toHaveBeenCalled();

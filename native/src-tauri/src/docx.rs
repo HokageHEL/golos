@@ -125,7 +125,7 @@ pub fn export_layout(path: &Path, note: &Note, options: Options) -> Result<(), S
         let mut text = String::new();
         if options.include_timestamps {
             text.push_str(&format!(
-                "[{}–{}] ",
+                "[{} – {}] ",
                 format_time(block.start_ms),
                 format_time(block.end_ms)
             ));
@@ -306,8 +306,33 @@ mod tests {
         )
         .unwrap();
         let xml = read_xml(&path);
-        assert!(xml.contains("[00:00:00.000–00:00:02.000] Speaker 1: "));
-        assert!(xml.contains("[00:00:02.000–00:00:03.000] Bob: Third"));
+        assert!(xml.contains("[00:00:00.000 – 00:00:02.000] Speaker 1: "));
+        assert!(xml.contains("[00:00:02.000 – 00:00:03.000] Bob: Third"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn readable_docx_keeps_empty_saved_paragraphs_for_review() {
+        let path = temp_path("empty-review");
+        let mut note = fixture_note("Review");
+        note.segments = vec![crate::library::Segment {
+            start_ms: 2000,
+            end_ms: 3000,
+            speaker: None,
+            text: "   ".into(),
+        }];
+        export_layout(
+            &path,
+            &note,
+            Options {
+                include_timestamps: true,
+                include_speakers: true,
+                grouping: "paragraph".into(),
+            },
+        )
+        .unwrap();
+        let xml = read_xml(&path);
+        assert!(xml.contains("[00:00:02.000 – 00:00:03.000]    "));
         std::fs::remove_file(path).unwrap();
     }
 
