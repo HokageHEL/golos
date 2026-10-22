@@ -1099,9 +1099,17 @@ async fn export_transcript(
 }
 
 #[tauri::command]
-async fn export_saved(app: tauri::AppHandle, id: String, format: String) -> Result<bool, String> {
+async fn export_saved(
+    app: tauri::AppHandle,
+    id: String,
+    format: String,
+    options: Option<docx::Options>,
+) -> Result<bool, String> {
     if !["docx", "wav", "golos"].contains(&format.as_str()) {
         return Err("Unsupported export.".into());
+    }
+    if format != "docx" && options.is_some() {
+        return Err("Layout options apply only to manual DOCX exports.".into());
     }
     let guard = app.state::<AppState>().claim()?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -1132,7 +1140,10 @@ async fn export_saved(app: tauri::AppHandle, id: String, format: String) -> Resu
         let pending = target.with_file_name(format!(".golos-export-{}", uuid::Uuid::new_v4()));
         let result = (|| {
             match format.as_str() {
-                "docx" => docx::export(&pending, &note)?,
+                "docx" => match options {
+                    Some(options) => docx::export_layout(&pending, &note, options)?,
+                    None => docx::export(&pending, &note)?,
+                },
                 "golos" => project::export(
                     &pending,
                     audio.as_ref().ok_or("Audio is unavailable.")?,

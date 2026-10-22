@@ -142,6 +142,44 @@ it('exports structured formats and copies the current draft without silently sav
 });
 
 
+it('applies explicit manual export layout and DOCX options without saving the draft', async () => {
+  fixture.exports.mockClear();
+  fixture.exports.mockResolvedValue(true);
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  fireEvent.click(screen.getByRole('button', { name: 'Export DOCX' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('0', 'docx'));
+  fixture.exports.mockClear();
+  fireEvent.click(screen.getByText('Export options'));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Customize export layout' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Include timestamps' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Include speaker labels' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Paragraph grouping' }), { target: { value: 'same-speaker' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Export TXT' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('txt', 'Original saved text'));
+  fireEvent.click(screen.getByRole('button', { name: 'Export DOCX' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('0', 'docx', {
+    includeTimestamps: false,
+    includeSpeakers: false,
+    grouping: 'same-speaker',
+  }));
+  expect(fixture.saves).not.toHaveBeenCalled();
+});
+
+it('rejects an unsafe subtitle offset in the manual flow with a clear error', async () => {
+  fixture.exports.mockClear();
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  fireEvent.click(screen.getByText('Export options'));
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Customize export layout' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Subtitle timestamp offset' }), { target: { value: '-2000' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Export SRT' }));
+  await screen.findByText(/negative cue times/);
+  expect(fixture.exports).not.toHaveBeenCalled();
+  expect(fixture.saves).not.toHaveBeenCalled();
+});
+
+
 it('offers engine languages beyond English and Ukrainian and forwards the selected code', async () => {
   const previousStatus = fixture.notes[0].status;
   fixture.notes[0].status = 'ready';

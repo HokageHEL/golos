@@ -168,6 +168,51 @@ test('structured export selection and copying an unsaved draft work in the brows
 });
 
 
+test('manual export layout options reach mock IPC without changing saved data', async ({ page }) => {
+  // Real browser controls with mocked native IPC: no OS dialog or file write.
+  await openSection(page, 'Export');
+  await page.getByText('Export options', { exact: true }).click();
+  const options = page.locator('details.export-options');
+  await options.getByRole('checkbox', { name: 'Customize export layout', exact: true }).check();
+  await options.getByRole('checkbox', { name: 'Include timestamps', exact: true }).uncheck();
+  await options.getByRole('checkbox', { name: 'Include speaker labels', exact: true }).uncheck();
+  await options.getByRole('combobox', { name: 'Paragraph grouping', exact: true }).selectOption('same-speaker');
+  await page.setViewportSize({ width: 760, height: 560 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const exportBottom = await page.locator('.export-panel').evaluate(element => element.getBoundingClientRect().bottom);
+  const playerTop = await page.locator('.audio-player').evaluate(element => element.getBoundingClientRect().top);
+  expect(exportBottom).toBeLessThanOrEqual(playerTop);
+  await page.locator('.export-panel > summary').click();
+  await page.locator('.export-panel > summary').click();
+  await expect(options.getByRole('combobox', { name: 'Paragraph grouping', exact: true })).toHaveValue('same-speaker');
+  await page.getByRole('button', { name: 'Export TXT', exact: true }).click();
+  await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
+  const text = await page.evaluate(() => (window as Window & { __lastTextExport?: { format: string; content: string } }).__lastTextExport);
+  expect(text?.format).toBe('txt');
+  expect(text?.content).toBe('A saved transcript for library search and editing.\nThe next paragraph keeps its timestamp.');
+  expect(text?.content).not.toContain('00:00:00.000');
+
+  await options.getByRole('textbox', { name: 'Subtitle timestamp offset', exact: true }).fill('500');
+  await options.getByRole('combobox', { name: 'Subtitle line width', exact: true }).selectOption('32');
+  await page.getByRole('button', { name: 'Export VTT', exact: true }).click();
+  await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
+  const vtt = await page.evaluate(() => (window as Window & { __lastTextExport?: { format: string; content: string } }).__lastTextExport);
+  expect(vtt?.format).toBe('vtt');
+  expect(vtt?.content).toContain('00:00:00.500 --> 00:00:10.500');
+  expect(vtt?.content).toContain('00:00:10.500 --> 00:00:20.500');
+  expect(vtt?.content.match(/-->/g)).toHaveLength(2);
+
+  await page.getByRole('button', { name: 'Export DOCX', exact: true }).click();
+  await expect(page.getByText('Exported.', { exact: true })).toBeVisible();
+  const docx = await page.evaluate(() => (window as Window & { __lastSavedExport?: { format: string; options: unknown } }).__lastSavedExport);
+  expect(docx).toEqual({
+    format: 'docx',
+    options: { includeTimestamps: false, includeSpeakers: false, grouping: 'same-speaker' },
+  });
+  await expect(page.getByRole('textbox', { name: 'Transcript at 0:00', exact: true })).toHaveValue('A saved transcript for library search and editing.');
+});
+
+
 test('batch import reports each failure, retains pending jobs and removes jobs without deleting recordings', async ({ page }, info) => {
   await openSection(page, 'More tools');
   await page.getByRole('button', { name: 'Batch transcription', exact: true }).click();
@@ -415,4 +460,35 @@ test('settings submenus keep navigation and footer clear at minimum and full win
     await page.screenshot({ path: info.outputPath(`automation-dark-${size.width}.png`), fullPage: true });
     await automation.getByRole('button', { name: 'Close automation settings', exact: true }).click();
   }
+});
+
+
+test('typed signed subtitle offsets keep their sign and reject incomplete or negative cue times', async ({ page }) => {
+  await openSection(page, 'Export');
+  await page.getByText('Export options', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Customize export layout', exact: true }).check();
+  const offset = page.getByRole('textbox', { name: 'Subtitle timestamp offset', exact: true });
+  await offset.fill('');
+  await offset.pressSequentially('-');
+  await expect(offset).toHaveValue('-');
+  await page.getByRole('button', { name: 'Export SRT', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Subtitle timestamp offset' })).toContainText('whole, finite');
+  await offset.fill('');
+  await offset.pressSequentially('-2000');
+  await expect(offset).toHaveValue('-2000');
+  await offset.press('Escape');
+  await expect(offset).toBeVisible();
+  await page.getByRole('button', { name: 'Export SRT', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Subtitle timestamp offset' })).toContainText('negative cue times');
+  expect(await page.evaluate(() => (window as Window & { __lastTextExport?: unknown }).__lastTextExport)).toBeUndefined();
+  // Removing the first cue makes the same negative offset valid for the
+  // remaining paragraph. Saved speaker metadata must not revive empty speech.
+  await page.getByRole('textbox', { name: 'Transcript at 0:00', exact: true }).fill('');
+  await page.getByRole('button', { name: 'Save edits', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save edits', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Export SRT', exact: true }).click();
+  await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
+  const saved = await page.evaluate(() => (window as Window & { __lastTextExport?: { content: string } }).__lastTextExport);
+  expect(saved?.content).toContain('00:00:08,000 --> 00:00:18,000');
+  expect(saved?.content.match(/-->/g)).toHaveLength(1);
 });

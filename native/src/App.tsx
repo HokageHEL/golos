@@ -17,7 +17,9 @@ import BatchQueue from './BatchQueue';
 import AutomationSettings from './AutomationSettings';
 import LocalAi from './LocalAi';
 import { change, undo, redo, replaceAll, splitParagraph, mergeParagraph, type History } from './editing';
-import { exportDocument } from './export/document';
+import { exportDocument, type DocumentExportOptions } from './export/document';
+import { DEFAULT_EXPORT_OPTIONS, parseSubtitleOptions, validateTranscriptLayout, type ExportOptionsState } from './export/options';
+import ExportSettings from './ExportSettings';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 import { findTranscriptMatches, type TranscriptMatch } from './review';
 
@@ -61,6 +63,7 @@ export default function App() {
   const [language, setLanguage] = useState('auto');
   const [languages, setLanguages] = useState<Language[]>([]);
   const [extraFormat, setExtraFormat] = useState<TextExportFormat>('md');
+  const [exportOptions, setExportOptions] = useState<ExportOptionsState>(DEFAULT_EXPORT_OPTIONS);
   const [downloadProgress, setDownloadProgress] = useState<{ received: number; total: number; phase: string } | null>(null);
   const [progress, setProgress] = useState(0);
   const [speakerCount, setSpeakerCount] = useState('auto');
@@ -386,7 +389,16 @@ export default function App() {
   }
   async function exportSaved(format: 'docx' | 'wav' | 'golos') {
     if (!active) return;
-    await perform('Exporting recording', async () => { if (await api.exportSaved(active.id, format)) setMessage('Exported.'); });
+    await perform('Exporting recording', async () => {
+      // Capture, audio and project backups never receive layout options.
+      const options = format === 'docx' && exportOptions.custom
+        ? validateTranscriptLayout(exportOptions)
+        : undefined;
+      const exported = options
+        ? await api.exportSaved(active.id, format, options)
+        : await api.exportSaved(active.id, format);
+      if (exported) setMessage('Exported.');
+    });
   }
   async function importProject() {
     await perform('Importing project', async () => {
@@ -396,7 +408,12 @@ export default function App() {
   }
   async function exportTranscript(format: TextExportFormat) {
     await perform('Exporting transcript', async () => {
-      const content = exportDocument(active?.title ?? 'Transcript', draft, format);
+      const options: DocumentExportOptions | undefined = exportOptions.custom && format !== 'csv' && format !== 'json'
+        ? format === 'srt' || format === 'vtt'
+          ? { subtitles: parseSubtitleOptions(exportOptions) }
+          : { layout: validateTranscriptLayout(exportOptions) }
+        : undefined;
+      const content = exportDocument(active?.title ?? 'Transcript', draft, format, options);
       if (await api.export(format, content)) setMessage('Transcript exported.');
     });
   }
@@ -522,6 +539,7 @@ export default function App() {
                   <p className="muted">Audio and project backups keep the recording exactly as it is stored on this device.</p>
                 </div>
               </div>
+            <ExportSettings value={exportOptions} disabled={locked} onChange={patch => setExportOptions(current => ({ ...current, ...patch }))}/>
             </Disclosure>
           </div>
           {nativeAvailable && confirmDelete?.id !== active.id && <AudioPlayer

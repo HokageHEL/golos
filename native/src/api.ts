@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Segment } from './transcript/types';
+import type { TranscriptLayoutOptions } from './export/options';
 
 export type Note = {
   id: string; title: string; createdAt: number; durationSeconds: number;
@@ -9,6 +10,8 @@ export type Note = {
 export type RecordingStatus = { elapsedSeconds: number; stopped: boolean; paused: boolean; error: string | null };
 export type Setup = { modelReady: boolean; modelName: string | null; dataDirectory: string; diarizationReady: boolean };
 export type TextExportFormat = 'txt' | 'srt' | 'vtt' | 'md' | 'html' | 'csv' | 'json';
+/** Layout choices accepted only by a manual DOCX export. */
+export type DocxExportOptions = TranscriptLayoutOptions;
 export type Language = { code: string; name: string };
 export type Job = { id: number; noteId: string; title: string; durationSeconds: number; language: string; status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; error: string | null };
 export type BatchImportResult = { notes: Note[]; failures: string[]; cancelled: boolean; duplicates: number };
@@ -75,7 +78,7 @@ export const api = {
   save: (id: string, segments: Segment[]) => invoke<void>('save_note', { id, segments }),
   delete: (id: string) => invoke<void>('delete_note', { id }),
   export: (format: TextExportFormat, content: string) => invoke<boolean>('export_transcript', { format, content }),
-  exportSaved: (id: string, format: 'docx' | 'wav' | 'golos') => invoke<boolean>('export_saved', { id, format }),
+  exportSaved: (id: string, format: 'docx' | 'wav' | 'golos', options?: DocxExportOptions) => invoke<boolean>('export_saved', options ? { id, format, options } : { id, format }),
   importProject: () => invoke<Note | null>('import_project'),
   // Returns the local path of the recording's normalized audio after Rust has
   // checked that the note exists and authorized only that file for playback.

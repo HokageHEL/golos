@@ -41,7 +41,7 @@ accuracy, accessibility, signing and release validation are separate gates.
 | TXT / SRT / VTT / DOCX / saved WAV / portable projects | Implemented | External Word/Pages/LibreOffice and subtitle consumer validation remains. |
 | Markdown / HTML / CSV / JSON / copy transcript | Implemented in current milestone | Escaped local exports with exact paragraph timestamps, labels and Unicode; JSON does not invent word timings. HTML is printable, not a native PDF exporter. |
 | PDF / DOTE / Avid timecode export | Gap | Real formats with documented schema/timebase; native PDF must render correctly without network. |
-| Export layouts / timestamp offset / line wrapping | Gap | Explicit options, nonnegative ordered cues, speaker grouping and width tests; do not imply word timing. |
+| Export layouts / timestamp offset / line wrapping | Implemented for manual transcript/DOCX exports; external-app/device QA open | TXT/Markdown/HTML/DOCX can show or hide timestamps and speaker labels and combine adjacent same-speaker segments. Manual SRT/VTT exports accept a validated millisecond offset and Unicode-aware line width. Cues stay one per saved segment, ordered, non-empty and overlap-preserving, with no invented word times or cue splitting. Defaults, automatic/AI exports, CSV/JSON and backups are unchanged. See [export layouts](EXPORT_LAYOUTS.md). |
 | Local video import and inline video/subtitles | Partial | MP4 audio decoding exists; MOV format support and retained video playback with synchronized subtitle overlay still needed. |
 | Local summaries / action points / prompts / transcript chat | Implemented manual workflow; partial parity | Local Ollama only, explicit setup, cancellation, separate saved results and captured sources, chunked long inputs, explicit budget errors. Small-model hallucinations observed; groundedness evaluation and other local provider support remain. |
 | Automatic AI cleanup / summaries after transcription | Implemented core workflow; native scheduler/quality gates open | Opt-in scoped rules, separate results, durable snapshots/deduplication, pause/retry/recovery and provenance. Includes explicit-target translation and custom prompts; no auto-overwrite or auto-export of AI results. See [automatic AI](AUTOMATIC_AI.md). |
@@ -81,8 +81,8 @@ must not be used to market “all MacWhisper features” prematurely.
 - [Speaker recognition](https://docs.macwhisper.com/article/32-automatic-speaker-recognition-in-macwhisper).
 - [Local and remote AI providers](https://docs.macwhisper.com/article/58-setting-up-ai-providers-in-macwhisper).
 - [Integrations](https://docs.macwhisper.com/article/53-integrating-macwhisper-with-other-services).
-- [Command-line tool](https://docs.macwhisper.com/): follow the current CLI article
-  from the official support index (export formats, layout, batch and model options).
+- [Official command-line reference](https://docs.macwhisper.com/article/57-macwhisper-command-line-tool):
+  local app socket, model listing/selection, batch inputs, layout and format options.
 - [Managed deployment](https://docs.macwhisper.com/article/27-deploying-macwhisper-with-mdm).
 
 Do not copy competitor pricing or license restrictions into Golos. Engine/model
@@ -109,3 +109,13 @@ The durable batch milestone merged in [PR #6](https://github.com/HokageHEL/golos
 Manual local AI milestone validation: 112 Rust default tests (seven opt-in skips), 51 frontend tests, 10 mocked-native Chromium flows, separately executed real local Ollama and Whisper translation-task smoke tests, strict checks and an unsigned arm64 macOS app build. See [full evidence and limitations](LOCAL_AI.md). Full parity and native hardware validation remain open; automatic AI processing is documented in the following milestone.
 
 Automatic local AI milestone validation: 133 Rust tests (eight opt-in skips), 63 frontend tests, 11 mocked-native Chromium flows, real Whisper-to-local-AI component integration with backup restore, collaborative preview rule creation, strict checks and an unsigned arm64 macOS app build. See [automatic AI evidence](AUTOMATIC_AI.md). Native scheduler/device and quality gates remain open.
+
+
+CLI reference refreshed October 22, 2026 against the official command-line
+article. Golos still has no CLI implementation. The local equivalent must cover
+model listing/selection and per-run overrides, language/speaker options, serial
+file/folder batches, structured/text/subtitle output, progress separated from
+stdout, cancellation, optional history persistence, and collision-safe output.
+MacWhisper documents Avid/timebase controls too; those remain explicit format
+gaps. Cloud options and online media remain excluded. This reference refresh
+does not validate or claim implementation of any CLI feature in Golos.
