@@ -72,3 +72,34 @@ it('keeps unsaved folder, export, rule and model choices across submenu switches
   expect(fixture.add).not.toHaveBeenCalled();
   expect(fixture.configure).not.toHaveBeenCalled();
 },10000);
+
+it('closes the recent detected files panel with Escape instead of the whole dialog',async()=>{
+  const onClose=vi.fn();
+  render(<AutomationSettings {...props()} onClose={onClose}/>);
+  await screen.findByText('/local/interviews');
+  const trigger=screen.getByText('Recent detected files (up to 200)',{selector:'summary'});
+  const panel=trigger.closest('details') as HTMLDetailsElement;
+  panel.open=true;
+  // The key is consumed by the panel, so the dialog cannot be dismissed and
+  // unsaved rule or export drafts are not thrown away.
+  expect(fireEvent.keyDown(trigger,{key:'Escape'})).toBe(false);
+  expect(panel.open).toBe(false);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(trigger);
+});
+
+it('keeps every navigation target mounted before the automatic AI status arrives',()=>{
+  render(<AutomationSettings {...props()}/>);
+  const navigation=screen.getByRole('navigation',{name:'Automation sections'});
+  const targets=[...navigation.querySelectorAll('[aria-controls]')].map(button=>button.getAttribute('aria-controls'));
+  expect(targets).toEqual(['settings-page-folders','settings-page-exports','settings-page-ai-rules','settings-page-ai-model','settings-page-ai-tasks']);
+  targets.forEach(target=>expect(document.getElementById(target as string)).toBeTruthy());
+});
+
+it('announces the automation pages without calling them settings',async()=>{
+  render(<AutomationSettings {...props()}/>);
+  await screen.findByText('/local/interviews');
+  const navigation=screen.getByRole('navigation',{name:'Automation sections'});
+  expect(navigation.querySelector('[role="status"]')?.textContent).toBe('Watched folders automation');
+});
+

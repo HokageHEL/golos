@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type AutomationView, type Language } from './api';
 import AiAutomation from './AiAutomation';
+import Disclosure from './Disclosure';
 import SettingsNavigation from './SettingsNavigation';
 type Props={ languages: Language[]; busy: string | null; background: string | null; onOperation: (label: string, task: () => Promise<void>) => Promise<void>; onClose: () => void };
 const formats=['txt','srt','vtt','md','html','csv','json','docx'];
@@ -33,7 +34,7 @@ export default function AutomationSettings({languages,busy,background,onOperatio
     <div className="settings-content settings-workspace">
       <header className="settings-header"><div><div className="eyebrow">LOCAL WORKFLOWS</div><h1 id="automation-title">Folders &amp; automation</h1></div><button className="secondary" aria-label="Close automation settings" disabled={!!busy} onClick={onClose} autoFocus>✕</button></header>
       <div className="settings-workspace-body">
-      <SettingsNavigation label="Automation sections" selected={page} onSelect={setPage} pages={[
+      <SettingsNavigation label="Automation sections" section="automation" selected={page} onSelect={setPage} pages={[
         {id:'folders',label:'Watched folders',hint:'Import & transcribe'},
         {id:'exports',label:'Local exports',hint:'Saved transcripts'},
         {id:'ai-rules',label:'AI rules',hint:'Opt-in processing'},
@@ -47,7 +48,7 @@ export default function AutomationSettings({languages,busy,background,onOperatio
         <p className="muted">Automatic transcription needs an installed model. Otherwise imported files wait in the batch queue for Start / resume. Turn off automatic transcription to review the queue first.</p>
         <ul className="batch-jobs">{view?.folders.map(folder=><li key={folder.id}><div><strong>{folder.path}</strong><span>{folder.enabled?'Watching':'Paused'} · {folder.language} · {folder.autoTranscribe?'Automatic transcription':'Queue for review'}</span>{folder.error&&<p className="error-text">{folder.error}</p>}</div><div className="actions"><button className="secondary" disabled={!!busy} onClick={()=>{void control(()=>api.watchAction(folder.id,folder.enabled?'pause':'resume'));}}>{folder.enabled?'Pause':'Resume'} folder</button><button className="secondary" disabled={!!busy} onClick={()=>{void control(()=>api.watchAction(folder.id,folder.autoTranscribe?'manual':'auto'));}}>{folder.autoTranscribe?'Queue for review':'Transcribe automatically'}</button><button className="secondary" disabled={locked} onClick={()=>{void control(()=>api.watchAction(folder.id,'retry'));}}>Retry failed imports</button><button className="text-button" disabled={!!busy} onClick={()=>{void control(()=>api.watchAction(folder.id,'remove'));}}>Stop watching folder</button></div></li>)}</ul>
         {!view?.folders.length&&<p className="muted">No watched folders selected.</p>}
-        <details><summary>Recent detected files (up to 200)</summary><ul className="batch-jobs">{view?.files.map(file=><li key={`${file.folderId}:${file.name}`}><div><strong>{file.name}</strong><span>{file.status}</span>{file.error&&<p className="error-text">{file.error}</p>}</div></li>)}</ul></details>
+        <Disclosure className="settings-disclosure" summary="Recent detected files (up to 200)"><ul className="batch-jobs">{view?.files.map(file=><li key={`${file.folderId}:${file.name}`}><div><strong>{file.name}</strong><span>{file.status}</span>{file.error&&<p className="error-text">{file.error}</p>}</div></li>)}</ul></Disclosure>
       </section>
       <section id="settings-page-exports" hidden={page!=='exports'} className="settings-section" aria-labelledby="local-exports-title"><h2 id="local-exports-title">Local export automation</h2><p>Choose an output folder and one or more formats. Completed transcripts can export automatically. Existing files are never overwritten; export errors can be retried without running transcription again.</p><p className="automation-path">{view?.settings.exportDirectory??'No output folder selected'}</p><button className="secondary" disabled={locked} onClick={()=>{void action('Choosing export folder',async()=>{await api.chooseExportFolder();});}}>Choose export folder</button>
         <fieldset className="export-formats"><legend>Export formats</legend>{formats.map(format=><label key={format}><input type="checkbox" checked={selected.includes(format)} disabled={locked} onChange={event=>setSelected(current=>event.target.checked?[...current,format]:current.filter(item=>item!==format))}/>{format.toUpperCase()}</label>)}</fieldset>
