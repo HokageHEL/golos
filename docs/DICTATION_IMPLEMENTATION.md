@@ -1,10 +1,51 @@
 # Native global recording and offline dictation implementation contract
 
-Status: **implementation in progress, not a supported feature claim**. The pure
-Rust state/safety contract in `dictation.rs` does not register a shortcut, show an
-overlay, capture a target, access the clipboard or insert text. Native adapters,
-orchestration, settings, UI and real-device verification must follow. The parity
-matrix remains open.
+Status: **implementation in progress, not a supported feature claim**. The Rust
+runtime, the settings, the overlay presentation and the user interface exist,
+but the native platform adapter is not wired into this build and no
+device-verified behaviour is claimed. The parity matrix remains open, and the
+macOS application bundle has not been built with the adapter in place.
+
+## What this build contains
+
+- `dictation.rs` — the pure state, target, clipboard and latch contract.
+- `dictation_settings.rs` — the opt-in settings, their bounded validation, the
+  per-app processing overrides and the interrupted-job storage. Schema 8 adds
+  both tables; the migration preserves every existing note, transcript, local
+  AI result and automation row.
+- `dictation_shortcut.rs` — the shortcut registration lifecycle. A new
+  validated shortcut is registered before the old one is removed, a failed
+  candidate leaves the working shortcut in place, and a startup failure stays
+  visible in Settings instead of pretending the feature is armed.
+- `dictation_runtime.rs` — the Rust-owned runtime. It owns the single recording
+  session, the serialized pipeline and the explicit review step. The main
+  window and the dictation share one recording owner, so neither can stop or
+  discard the other's capture.
+- `dictation_overlay.rs` — the overlay presentation through the public
+  `orderFrontRegardless` path, so the overlay never becomes the key window.
+- `dictation_commands.rs` — the command surface. Every command that can block
+  (target capture, microphone, save, transcription, local model, native paste)
+  runs on a worker thread, never on the webview thread.
+- `Overlay.tsx`, `DictationPanel.tsx`, `DictationSettings.tsx` — the button-only
+  overlay, the focusable review in the main window, and the grouped settings
+  dialog.
+
+## Contract amendments
+
+- The runtime accepts an injected `Arc<dyn dictation::Platform>`. While no
+  adapter is supplied, the runtime records, transcribes and copies, reports
+  `insertionSupported: false`, and refuses every insert with a clear message.
+  It never pretends a native capability.
+- The native adapter is called from worker threads. `capture_target` and
+  `insert` must not run on the main thread; the commands already guarantee it.
+- The adapter reports `ClipboardOutcome::TranscriptRetained` while a clipboard
+  restoration is still pending. The interface reports the outcome exactly as
+  the adapter saw it and never claims that the previous clipboard content was
+  restored before it was.
+- Global dictation uses the microphone source only. The main window keeps the
+  system and mixed capture sources. Parity for other sources is not claimed.
+- A restored job is review-only: it keeps the saved text, never a target lease,
+  and can never insert.
 
 ## Product invariants
 
@@ -114,6 +155,25 @@ keeps saved recordings/results and releases native target/clipboard leases.
 Permission recovery offers explicit request, Open Settings and Check again, with
 copy-only fallback. Changes in permissions never trigger a deferred insertion.
 Raw recording/transcription remains available without an account or network.
+
+## Integration notes
+
+- The native adapter is injected where the runtime is created:
+  `DictationRuntime::new(app.handle().clone(), Some(Arc::new(MacPlatform::new(app.handle().clone()))))`.
+  Without it the runtime stays fully usable for recording, transcription and
+  copying, and reports that insertion is unavailable.
+- The overlay window is declared in `tauri.conf.json` with the label `overlay`
+  and the URL `index.html?overlay=1`. Its capability file allows the core
+  default set plus `core:window:allow-hide`; it grants no shortcut
+  registration and no clipboard permission.
+- The dictation settings live in their own dialog component
+  (`DictationSettings.tsx`) and are opened from the sidebar entry
+  "Global dictation…". Moving that entry into the shared settings dialog is a
+  navigation change only: the component takes `open`, `status`, `onStatus`,
+  `onError`, `nativeAvailable` and `onClose`.
+- The main window never selects a dictated recording and never replaces the
+  editor draft. The review panel is separate from the library list, and the
+  dictated note is added to the library as its own entry.
 
 ## Validation still required
 

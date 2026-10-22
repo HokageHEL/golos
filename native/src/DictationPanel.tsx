@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { api, dictationPhaseLabel, type DictationStatus } from './api';
 import './dictation.css';
 
@@ -16,6 +16,16 @@ const PHASE_HELP: Record<string, string> = {
   failed: 'The dictation stopped. The saved recording is kept for a retry.',
 };
 
+// The clipboard outcome is reported exactly as the native adapter saw it. A
+// pending restoration is never reported as "restored".
+const CLIPBOARD_HELP: Record<string, string> = {
+  unchanged: 'The clipboard was not changed.',
+  restored: 'The previous clipboard content was restored.',
+  keptNewerContent: 'A newer clipboard copy was kept, so the previous content was not restored.',
+  transcriptRetained: 'The dictated text stays on the clipboard until you replace it.',
+  restoreFailed: 'The clipboard could not be restored.',
+};
+
 type Props = {
   status: DictationStatus;
   onStatus: (status: DictationStatus) => void;
@@ -29,11 +39,12 @@ type Props = {
  * selection and never replaces the unsaved editor draft.
  */
 export default function DictationPanel({ status, onStatus, onError, onOpenSettings }: Props) {
-  const [text, setText] = useState(status.previewText);
+  // The editable text is derived from the job: a draft only survives while it
+  // still belongs to the preview it was started from.
+  const [draft, setDraft] = useState<{ base: string; value: string } | null>(null);
+  const text = draft && draft.base === status.previewText ? draft.value : status.previewText;
   const [message, setMessage] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-
-  useEffect(() => { setText(status.previewText); }, [status.previewText]);
 
   async function run(work: () => Promise<DictationStatus | void>) {
     onError(null);
@@ -83,6 +94,8 @@ export default function DictationPanel({ status, onStatus, onError, onOpenSettin
     <p className="dictation-panel-note">{PHASE_HELP[status.phase] ?? 'The dictation is idle.'}</p>
     {status.error && <p className="dictation-panel-error" role="alert">{status.error}</p>}
     {status.warning && <p className="dictation-panel-note" role="status">{status.warning}</p>}
+    {status.pasteMessage && <p className="dictation-panel-message" role="status">{status.pasteMessage}</p>}
+    {status.clipboard && <p className="dictation-panel-note">{CLIPBOARD_HELP[status.clipboard] ?? status.clipboard}</p>}
     {message && <p className="dictation-panel-message" role="status">{message}</p>}
 
     {status.noteId && <div className="dictation-panel-texts">
@@ -100,7 +113,7 @@ export default function DictationPanel({ status, onStatus, onError, onOpenSettin
       <label>
         Text to insert
         <textarea value={text} maxLength={200000} spellCheck={false}
-          onChange={event => setText(event.target.value)}
+          onChange={event => setDraft({ base: status.previewText, value: event.target.value })}
           onBlur={() => { if (text !== status.previewText) void run(() => api.dictationPreviewText(text)); }}
           aria-label="Text to insert"/>
       </label>

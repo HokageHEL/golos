@@ -322,7 +322,17 @@ impl DictationRuntime {
     fn emit_state(&self) {
         let status = self.status();
         if let Some(app) = &self.app {
-            let _ = app.emit("dictation-state", status);
+            let _ = app.emit("dictation-state", status.clone());
+            // A shared recording-state event so both windows agree on which
+            // workflow owns the single recording session.
+            let _ = app.emit(
+                "recording-state",
+                serde_json::json!({
+                    "owner": "dictation",
+                    "phase": status.phase,
+                    "jobId": status.note_id,
+                }),
+            );
         }
     }
 
@@ -424,7 +434,16 @@ impl DictationRuntime {
     /// Start a dictation capture. The native target is captured before the
     /// overlay is presented, so the overlay never steals focus from the app
     /// the user is dictating into.
+    /// The feature is macOS only. Other targets report a clear error instead
+    /// of pretending a native capability exists.
+    pub fn supported() -> bool {
+        cfg!(target_os = "macos")
+    }
+
     pub fn start(&self, state: &AppState) -> Result<(), String> {
+        if !Self::supported() {
+            return Err("Global dictation is available only on macOS.".into());
+        }
         {
             let runtime = self.lock();
             if let Some(job) = runtime.job.as_ref() {

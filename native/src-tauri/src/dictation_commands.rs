@@ -1,11 +1,12 @@
 //! Tauri commands for the global dictation feature.
 //!
 //! The commands are thin: they validate input, hand the request to the Rust
-//! runtime and return the current state. No command registers a shortcut, runs
-//! a microphone or writes to the clipboard on its own.
-use crate::dictation::{
-    InsertOutcome, PermissionKind, Permissions,
-};
+//! runtime and return the current state. Every command that can block — the
+//! native target capture, the microphone, the save, the transcription, the
+//! local model and the native paste — runs on a worker thread, never on the
+//! webview thread. No command registers a shortcut, runs a microphone or
+//! writes to the clipboard on its own.
+use crate::dictation::{InsertOutcome, PermissionKind, Permissions};
 use crate::dictation_runtime::Status;
 use crate::dictation_settings::Settings;
 use crate::AppState;
@@ -31,10 +32,18 @@ pub(crate) fn dictation_configure(
     state.dictation.configure(&state, settings)
 }
 
+/// Start a dictation capture. The native target capture and the microphone
+/// setup run on a worker, never on the webview thread.
 #[tauri::command]
-pub(crate) fn dictation_start(state: State<AppState>) -> Result<Status, String> {
-    state.dictation.start(&state)?;
-    Ok(state.dictation.status())
+pub(crate) async fn dictation_start(app: tauri::AppHandle) -> Result<Status, String> {
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        state.dictation.start(&state)?;
+        Ok::<Status, String>(state.dictation.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Stop and save. The save, transcription and optional processing run on a
@@ -53,30 +62,62 @@ pub(crate) async fn dictation_stop(app: tauri::AppHandle) -> Result<Status, Stri
 }
 
 #[tauri::command]
-pub(crate) fn dictation_pause(
-    state: State<AppState>,
+pub(crate) async fn dictation_pause(
+    app: tauri::AppHandle,
     paused: bool,
 ) -> Result<Status, String> {
-    state.dictation.pause(&state, paused)?;
-    Ok(state.dictation.status())
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        state.dictation.pause(&state, paused)?;
+        Ok::<Status, String>(state.dictation.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// Retry a failed save. The captured source and the operation guard are kept.
 #[tauri::command]
-pub(crate) fn dictation_retry_save(state: State<AppState>) -> Result<Status, String> {
-    state.dictation.retry_save(&state)?;
-    Ok(state.dictation.status())
+pub(crate) async fn dictation_retry_save(app: tauri::AppHandle) -> Result<Status, String> {
+    let runtime = app.state::<AppState>().dictation.clone();
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        runtime.retry_save(&state)?;
+        Ok::<Status, String>(runtime.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// Retry a failed transcription from the saved recording.
 #[tauri::command]
-pub(crate) fn dictation_retry_transcribe(state: State<AppState>) -> Result<Status, String> {
-    state.dictation.retry_transcribe(&state)?;
-    Ok(state.dictation.status())
+pub(crate) async fn dictation_retry_transcribe(
+    app: tauri::AppHandle,
+) -> Result<Status, String> {
+    let runtime = app.state::<AppState>().dictation.clone();
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        runtime.retry_transcribe(&state)?;
+        Ok::<Status, String>(runtime.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
+/// Retry the optional local processing from the saved transcript.
 #[tauri::command]
-pub(crate) fn dictation_retry_process(state: State<AppState>) -> Result<Status, String> {
-    state.dictation.retry_process(&state)?;
-    Ok(state.dictation.status())
+pub(crate) async fn dictation_retry_process(app: tauri::AppHandle) -> Result<Status, String> {
+    let runtime = app.state::<AppState>().dictation.clone();
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        runtime.retry_process(&state)?;
+        Ok::<Status, String>(runtime.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Store the reviewed text. It stays in the job and is never inserted
@@ -90,13 +131,20 @@ pub(crate) fn dictation_preview_text(
     Ok(state.dictation.status())
 }
 
-/// Ask the native adapter for one single-use paste. The result reports
+/// Ask the native adapter for one single-use paste. The request runs on a
+/// worker, because the adapter blocks on AppKit work. The result reports
 /// "paste requested", never "inserted".
 #[tauri::command]
-pub(crate) fn dictation_insert(
-    state: State<AppState>,
+pub(crate) async fn dictation_insert(
+    app: tauri::AppHandle,
 ) -> Result<InsertOutcome, String> {
-    state.dictation.insert(&state)
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        state.dictation.insert(&state)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -107,9 +155,15 @@ pub(crate) fn dictation_dismiss(state: State<AppState>) -> Result<Status, String
 
 /// Explicitly discard the captured audio. The UI asks for confirmation first.
 #[tauri::command]
-pub(crate) fn dictation_discard(state: State<AppState>) -> Result<Status, String> {
-    state.dictation.discard(&state)?;
-    Ok(state.dictation.status())
+pub(crate) async fn dictation_discard(app: tauri::AppHandle) -> Result<Status, String> {
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = worker.state::<AppState>();
+        state.dictation.discard(&state)?;
+        Ok::<Status, String>(state.dictation.status())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

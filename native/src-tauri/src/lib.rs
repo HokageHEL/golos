@@ -331,6 +331,12 @@ async fn start_recording(
             owner: RecordingOwner::Main,
             job_id: None,
         });
+        // A shared recording-state event so both windows agree on which
+        // workflow owns the single recording session.
+        let _ = app.emit(
+            "recording-state",
+            serde_json::json!({"owner": "main", "phase": "recording"}),
+        );
         Ok(())
     })
     .await

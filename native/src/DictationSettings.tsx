@@ -111,6 +111,9 @@ export default function DictationSettings({ open, onClose, status, onStatus, onE
             One real key with Command, Control or Option, for example Command+Shift+Space.
             A shortcut that the system already uses is refused and the working one stays.
           </p>
+          {status?.shortcutDisplay && <p className="dictation-settings-hint">
+            Active shortcut: {status.shortcutDisplay}
+          </p>}
           <fieldset className="dictation-settings-row">
             <legend className="sr-only">Shortcut mode</legend>
             <label><input type="radio" name="dictation-mode" checked={settings.mode === 'toggle'}
