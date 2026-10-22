@@ -163,7 +163,10 @@ subsequent UI automation lost its app connection. This is an unresolved native
 validation finding, not proof of a decoder or permission failure. Foregrounding
 the model picker resolved an earlier disabled-button observation; no picker or
 dialog-layout workaround was retained. Real microphone/system capture, permission
-recovery and native import-to-automatic-result behavior remain unvalidated.
+recovery and native import-to-automatic-result behavior remained unvalidated in
+that attempt; the later native scheduler run described below exercised watched
+import, real Whisper Small and a labelled loopback stub, but still no real AI
+inference.
 
 The October 21 unsigned arm64 macOS debug build passed (87.07 MiB). In a fresh,
 isolated packaged app, real guided Whisper Small download cancellation, retry,
@@ -177,10 +180,11 @@ success is claimed from this attempt. A loopback AI stub was prepared, but no
 generation request reached it; it provides no real-inference evidence.
 
 Subsequent native watched-folder validation found and fixed a retained database
-mutex during candidate selection. After the fix, the packaged Tauri scheduler
-imported public audio, ran real Whisper Small, persisted the expected AI-service
-absence failure, and completed a separate automatic result for a second fixture
-through a labelled loopback stub. This closes that scheduler happy path and the
-service-absence persistence check; it does not establish real AI inference, UI
-event delivery, cancellation/fairness or hardware behavior. See the precise
-[native regression evidence](FOLDER_AUTOMATION.md#native-scheduler-regression-october-21).
+mutex during candidate selection. The fix now shares one select/import path
+between the scheduler tick and its regression test. After the fix, the packaged
+Tauri scheduler imported public audio, ran real Whisper Small, persisted the
+expected AI-service absence failure, and completed a separate automatic result
+for a second fixture through a labelled loopback stub. This closes that scheduler
+happy path and the service-absence persistence check; it does not establish real
+AI inference, UI event delivery, cancellation/fairness or hardware behavior. See
+the precise [native regression evidence](FOLDER_AUTOMATION.md#native-scheduler-regression-october-21).
