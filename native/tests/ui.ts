@@ -1,6 +1,7 @@
 // Development-only fixture; Vite's production entry does not import this module.
 // No file access, recording hardware or inference is exercised by this fixture.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
+import { emit } from '@tauri-apps/api/event';
 import type { AiAutomationRule, AiAutomationTask, AiWork, AutomationView, Note } from '../src/api';
 const notes = ['Research interview', 'Weekly planning'].map<Note>((title, i) => ({
   id: String(i), title, createdAt: 1792400000, durationSeconds: 60, status: 'done',
@@ -78,8 +79,17 @@ mockIPC((command, payload = {}) => {
       const created = ['Mock interview A', 'Mock interview B'].map((title, index) => ({ ...notes[0], id: `batch-${index}`, title, status: 'ready' as const, segments: [] }));
       notes.push(...created);
       queueJobs.push(...created.map((note, index) => ({ id: index + 1, noteId: note.id, title: note.title, durationSeconds: note.durationSeconds, language: String(args.language), status: 'queued', error: null })));
-      return { notes: created, failures: ['broken.mp3: Mocked decode failure'], cancelled: false };
+      return { notes: created, failures: ['broken.mp3: Mocked decode failure'], cancelled: false, duplicates: 0 };
     }
+    case 'import_dropped_batch': {
+      // The mocked native drop event already delivered names; this command only
+      // returns the result of importing the one-shot grant.
+      const created = ['Mock dropped interview A', 'Mock dropped interview B'].map((title, index) => ({ ...notes[0], id: `drop-${index}`, title, status: 'ready' as const, segments: [] }));
+      notes.push(...created);
+      queueJobs.push(...created.map((note, index) => ({ id: index + 20, noteId: note.id, title: note.title, durationSeconds: note.durationSeconds, language: String(args.language), status: 'queued', error: null })));
+      return { notes: created, failures: ['broken-drop.mp3: Mocked decode failure'], cancelled: false, duplicates: 1 };
+    }
+    case 'discard_dropped_batch': return;
     case 'job_action': {
       if (args.action === 'remove') queueJobs = queueJobs.filter(job => job.id !== args.id);
       else queueJobs = queueJobs.map(job => job.id === args.id ? { ...job, status: 'queued', error: null } : job);
@@ -109,5 +119,10 @@ mockIPC((command, payload = {}) => {
     default: return;
   }
 }, { shouldMockEvents: true });
+// Test-only bridge that simulates what the Rust window event emits after Finder
+// hands real native paths to a one-shot grant. No filesystem access occurs.
+Object.assign(window, {
+  mockNativeBatchDrop: (id: string, names: string[]) => emit('batch-drop', { id, names }),
+});
 Object.defineProperty(window, 'isTauri', { value: true });
 await import('../src/main');

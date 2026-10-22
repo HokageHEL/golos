@@ -1222,6 +1222,7 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 .settings-workspace > .settings-footer { flex-shrink: 0; padding: 14px 24px; background: var(--surface); }
 .automation-footer > div { display: grid; gap: 4px; min-width: 0; }
 .automation-footer > button { flex-shrink: 0; }
+.batch-page-content { flex: 1; }
 @media (max-width: 650px) {
   .settings-workspace-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .settings-navigation { flex-direction: row; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }

@@ -11,6 +11,9 @@ export type Setup = { modelReady: boolean; modelName: string | null; dataDirecto
 export type TextExportFormat = 'txt' | 'srt' | 'vtt' | 'md' | 'html' | 'csv' | 'json';
 export type Language = { code: string; name: string };
 export type Job = { id: number; noteId: string; title: string; durationSeconds: number; language: string; status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; error: string | null };
+export type BatchImportResult = { notes: Note[]; failures: string[]; cancelled: boolean; duplicates: number };
+// Dropped paths stay native; the dialog receives only a one-shot grant id and names.
+export type BatchDropPreview = { id: string; names: string[] };
 export type AutomationView = {
   settings: { paused: boolean; exportEnabled: boolean; exportDirectory: string | null; exportFormats: string[] };
   folders: { id: string; path: string; enabled: boolean; autoTranscribe: boolean; language: string; error: string | null }[];
@@ -56,7 +59,9 @@ export const api = {
   recordingStatus: () => invoke<RecordingStatus>('recording_status'),
   stopRecording: (discard: boolean) => invoke<{ note: Note; warning: string | null } | null>('stop_recording', { discard }),
   importAudio: () => invoke<Note | null>('import_audio'),
-  importBatch: (language: string) => invoke<{ notes: Note[]; failures: string[]; cancelled: boolean }>('import_batch', { language }),
+  importBatch: (language: string) => invoke<BatchImportResult>('import_batch', { language }),
+  importDroppedBatch: (dropId: string, language: string) => invoke<BatchImportResult>('import_dropped_batch', { dropId, language }),
+  discardDroppedBatch: (dropId: string) => invoke<void>('discard_dropped_batch', { dropId }),
   jobs: () => invoke<Job[]>('list_jobs'),
   queue: (id: string, language: string) => invoke<void>('queue_note', { id, language }),
   jobAction: (id: number, action: 'retry' | 'remove') => invoke<void>('job_action', { id, action }),
