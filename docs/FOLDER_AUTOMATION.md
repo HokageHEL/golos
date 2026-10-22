@@ -157,11 +157,15 @@ volume-failure, accessibility, signed-distribution or hardware gates above.
 A packaged-app run exposed a lock-lifetime bug that the component test missed:
 selecting a stable file borrowed a database mutex guard in an `if let` expression.
 The guard survived into the import body, which then waited for the same lock.
-Candidate selection now returns an owned entry from a separate function and
-releases the lock before import begins. The regression test checks lock release
-inside the caller's branch, real snapshot/normalization/publication, content
-deduplication, unchanged source audio, queue provenance and watch-scoped automatic
-AI scheduling after synthetic ASR output. It makes no inference/hardware claim.
+Candidate selection and import now run in one shared function that the scheduler
+tick and the regression test both call, so the guard cannot be borrowed across the
+import again, and that shared path asserts the library mutex is free at the moment
+the import starts. The regression test covers real snapshot/normalization/
+publication, the `imported` and then `duplicate` watch-file status for identical
+content, an empty staging directory, unchanged source audio, queue provenance and
+watch-scoped automatic AI scheduling after synthetic ASR output, with a batch-only
+rule configured beside the watch rule so that only the watch rule is queued. It
+makes no inference/hardware claim.
 
 The fixed unsigned arm64 macOS app was then run with an isolated identifier and
 temporary library. A folder was selected through the native picker and populated
@@ -170,10 +174,15 @@ real Whisper Small saved both transcripts. With no local AI service, a scoped
 summary task failed with the expected recovery error. A second file completed
 automatic processing through a labelled loopback HTTP stub, saving a separate
 result with automatic provenance and preserving the original transcript. The stub
-performed no AI inference. Results were checked in the public QA database and
+performed no AI inference. Results were checked in the isolated QA library and
 service request log; UI attachment after relaunch failed with `cgWindowNotFound`,
 so result navigation/event delivery, pause/close, fairness and permission recovery
 remain open. Real microphone/system audio was not tested.
 
-All 134 Rust tests passed (eight opt-in skips), formatting and strict all-target
-Clippy passed, and the unsigned macOS app built (87.07 MiB).
+At commit `42bfa51`, the exact tree used for the packaged-app run above, all 134
+Rust tests passed (eight opt-in skips), formatting and strict all-target Clippy
+passed, and the unsigned macOS app built (87.07 MiB). These counts are
+commit-specific: `main` carries one additional ignored synthetic
+10,000-recording library benchmark, so its opt-in skip count is nine, while the
+shared select/import follow-up keeps 134 passing tests with eight opt-in skips
+and builds an unsigned arm64 macOS debug app (87.16 MiB).
