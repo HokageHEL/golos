@@ -628,6 +628,20 @@ impl DictationRuntime {
         Ok(saved)
     }
 
+    /// The configured dictation language, checked against the languages the
+    /// local engine supports.
+    fn transcribe_language(&self) -> Result<String, String> {
+        let language = self.settings().language;
+        if language != "auto"
+            && !crate::languages::available()
+                .iter()
+                .any(|item| item.code == language)
+        {
+            return Err("Choose a supported dictation language.".into());
+        }
+        Ok(language)
+    }
+
     fn after_save(&self, state: &AppState, saved: SavedCapture) {
         {
             let mut runtime = self.lock();
@@ -645,7 +659,22 @@ impl DictationRuntime {
             let _ = app.emit("queue-changed", ());
         }
         self.emit_state();
-        let language = self.settings().language;
+        let language = match self.transcribe_language() {
+            Ok(language) => language,
+            Err(error) => {
+                {
+                    let mut runtime = self.lock();
+                    if let Some(job) = runtime.job.as_mut() {
+                        job.phase = Phase::Failed;
+                        job.error = Some(error);
+                        job.guard = None;
+                    }
+                }
+                self.persist(state);
+                self.emit_state();
+                return;
+            }
+        };
         let note_id = saved.note_id.clone();
         if let Err(error) = self
             .pipeline
@@ -656,6 +685,9 @@ impl DictationRuntime {
                 if let Some(job) = runtime.job.as_mut() {
                     job.phase = Phase::Failed;
                     job.error = Some(format!("Transcription failed: {error}"));
+                    // The pipeline is idle again, so the rest of the app keeps
+                    // working while the saved recording waits for a retry.
+                    job.guard = None;
                 }
             }
             self.persist(state);
@@ -786,7 +818,7 @@ impl DictationRuntime {
         };
         self.persist(state);
         self.emit_state();
-        let language = self.settings().language;
+        let language = self.transcribe_language()?;
         if let Err(error) = self
             .pipeline
             .transcribe(self.app.as_ref(), state, &note_id, &language)
@@ -1610,6 +1642,8 @@ mod tests {
         assert_eq!(status.phase, Phase::Failed);
         assert!(status.can_retry_transcribe);
         assert!(status.note_id.is_some());
+        // The pipeline is free again, so the rest of the app keeps working.
+        assert!(fixture.state.claim().is_ok());
         fixture
             .state
             .dictation
