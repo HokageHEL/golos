@@ -1,3 +1,4 @@
+import Disclosure from './Disclosure';
 import type { ExportOptionsState, SpeakerGrouping } from './export/options';
 
 type Props = {
@@ -8,8 +9,7 @@ type Props = {
 
 export default function ExportSettings({ value, disabled, onChange }: Props) {
   const customDisabled = disabled || !value.custom;
-  return <details className="export-options">
-    <summary>Export options</summary>
+  return <Disclosure className="export-options" summary="Export options">
     <div className="export-options-body">
       <label className="export-custom"><input type="checkbox" checked={value.custom} disabled={disabled} onChange={event => onChange({ custom: event.target.checked })}/> Customize export layout</label>
       <p className="export-options-note">Off by default: TXT, Markdown, HTML, DOCX, SRT and VTT keep their existing output unless you turn this on. Options are not saved.</p>
@@ -37,5 +37,5 @@ export default function ExportSettings({ value, disabled, onChange }: Props) {
       </div>
       <p className="export-options-note"><strong>Applies to manual export only.</strong> CSV and JSON always retain canonical timestamps, speakers, text and segment order. Saved audio and .golos project backups are unchanged. Automatic exports and AI results keep their defaults.</p>
     </div>
-  </details>;
+  </Disclosure>;
 }

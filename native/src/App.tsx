@@ -503,6 +503,7 @@ export default function App() {
                   <p className="muted">Audio and project backups keep the recording exactly as it is stored on this device.</p>
                 </div>
               </div>
+            <ExportSettings value={exportOptions} disabled={locked} onChange={patch => setExportOptions(current => ({ ...current, ...patch }))}/>
             </Disclosure>
           </div>
           {nativeAvailable && confirmDelete?.id !== active.id && <AudioPlayer
@@ -570,7 +571,6 @@ export default function App() {
             <div className="editor-toolbar"><span>{draft.length ? 'Transcript · Click any paragraph to edit' : 'No speech detected in this recording.'}</span><div className="actions">
               {dirty && <><button className="text-button" disabled={locked} onClick={() => { setDraft(active.segments); setHistory({ past: [], present: active.segments, future: [] }); setHistoryRevision(v => v + 1); setDirty(false); }}>Discard edits</button><button className="primary" disabled={locked} onClick={save}>Save edits</button></>}
             </div></div>
-            <ExportSettings value={exportOptions} disabled={locked} onChange={patch => setExportOptions(current => ({ ...current, ...patch }))}/>
             {dirty && <p className="unsaved" role="status">Unsaved edits — kept while you browse. Save to include them in library search and exports.</p>}
             <div className="transcript">{draft.map((segment, index) => {
               const isActive = index === activeIndex;

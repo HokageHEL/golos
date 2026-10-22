@@ -170,12 +170,21 @@ test('structured export selection and copying an unsaved draft work in the brows
 
 test('manual export layout options reach mock IPC without changing saved data', async ({ page }) => {
   // Real browser controls with mocked native IPC: no OS dialog or file write.
+  await openSection(page, 'Export');
   await page.getByText('Export options', { exact: true }).click();
   const options = page.locator('details.export-options');
   await options.getByRole('checkbox', { name: 'Customize export layout', exact: true }).check();
   await options.getByRole('checkbox', { name: 'Include timestamps', exact: true }).uncheck();
   await options.getByRole('checkbox', { name: 'Include speaker labels', exact: true }).uncheck();
   await options.getByRole('combobox', { name: 'Paragraph grouping', exact: true }).selectOption('same-speaker');
+  await page.setViewportSize({ width: 760, height: 560 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const exportBottom = await page.locator('.export-panel').evaluate(element => element.getBoundingClientRect().bottom);
+  const playerTop = await page.locator('.audio-player').evaluate(element => element.getBoundingClientRect().top);
+  expect(exportBottom).toBeLessThanOrEqual(playerTop);
+  await page.locator('.export-panel > summary').click();
+  await page.locator('.export-panel > summary').click();
+  await expect(options.getByRole('combobox', { name: 'Paragraph grouping', exact: true })).toHaveValue('same-speaker');
   await page.getByRole('button', { name: 'Export TXT', exact: true }).click();
   await expect(page.getByText('Transcript exported.', { exact: true })).toBeVisible();
   const text = await page.evaluate(() => (window as Window & { __lastTextExport?: { format: string; content: string } }).__lastTextExport);

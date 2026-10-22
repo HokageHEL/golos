@@ -6,7 +6,7 @@ structured data, audio exports or project backups.
 
 ## Where the options are
 
-Open **Export options** below the editor toolbar in a completed recording. The
+Open **Export → Export options** above playback in a recording. The
 controls are off by default and are not persisted; restarting Golos restores the
 historical output. Export buttons remain disabled while the draft has unsaved
 changes, so these options cannot be used to bypass draft protection.
@@ -107,3 +107,12 @@ Run in an isolated worktree based on `9f75a09`:
 
 The browser and DOM flows do not open OS save dialogs, write native files, run
 inference or validate external Word/Pages/subtitle consumers.
+
+Integration validation on October 22, 2026: options now live inside the shared
+**Export** disclosure above playback and use the same in-flow disclosure controls.
+All 86 frontend tests and 15 mocked-native Chromium flows passed, including a
+760 × 560 no-overflow/player separation assertion and option retention across
+closing/reopening Export. Both TypeScript checks and ESLint passed. Rust had
+145 passing tests and eight opt-in skips; formatting and all-target Clippy with
+warnings denied passed. The unsigned arm64 macOS debug app built (87.45 MiB).
+These checks do not close external document/subtitle consumer or native device gates.
