@@ -27,6 +27,9 @@ vi.mock('../api', () => ({
     export: fixture.exports,
     exportSaved: fixture.exports,
     downloadModels: fixture.download, cancel: fixture.cancel,
+    pauseAutomation: async () => {},
+    aiAutomation: async () => ({ rules: [], tasks: [], model: '', label: null }),
+    aiConfiguration: async () => ({ settings: { port: 11434, model: '', contextWindow: 8192 }, results: [] }),
   },
 }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async (name: string, callback: typeof fixture.progressListener) => { if (name === 'model-download') fixture.progressListener = callback; if (name === 'automation-state') fixture.automationListener = callback as unknown as typeof fixture.automationListener; return () => {}; } }));
@@ -276,4 +279,56 @@ it('opens recording actions inside the library row and closes them with Escape',
   fireEvent.keyDown(document, { key: 'Escape' });
   await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
   expect(document.activeElement).toBe(trigger);
+});
+
+it('lets the find field clear its own query with Escape and keeps the section open', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Find & replace');
+  const field = screen.getByRole('searchbox', { name: 'Find in transcript' }) as HTMLInputElement;
+  fireEvent.change(field, { target: { value: 'saved' } });
+  expect(field.value).toBe('saved');
+  fireEvent.keyDown(field, { key: 'Escape' });
+  await waitFor(() => expect(field.value).toBe(''));
+  // The field handled the key, so the section around it stays open.
+  expect(section('Find & replace').open).toBe(true);
+});
+
+it('shows the applied filters and the match count while the sections are collapsed', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  const filters = screen.getByText('Filters', { selector: 'summary' });
+  expect(filters.getAttribute('data-state')).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recording status' }), { target: { value: 'done' } });
+  fireEvent.change(screen.getByLabelText('Filter folder'), { target: { value: 'Work' } });
+  await waitFor(() => expect(filters.getAttribute('data-state')).toBe('Transcribed · Work'));
+  toggleSection('Find & replace');
+  const find = screen.getByText('Find & replace', { selector: 'summary' });
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find in transcript' }), { target: { value: 'saved' } });
+  await waitFor(() => expect(find.getAttribute('data-state')).toBe('1 match'));
+  toggleSection('Find & replace');
+  // The count stays visible while the section is closed.
+  expect(section('Find & replace').open).toBe(false);
+  expect(find.getAttribute('data-state')).toBe('1 match');
+});
+
+it('returns focus to the trigger when the settings dialog closes', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  const trigger = screen.getByRole('button', { name: 'Settings' });
+  fireEvent.click(trigger);
+  await screen.findByRole('dialog');
+  fireEvent.click(screen.getByRole('button', { name: 'Close settings' }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+it('returns focus to the trigger when the folders and automation dialog closes', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('More tools');
+  const trigger = screen.getByRole('button', { name: 'Folders & automation' });
+  fireEvent.click(trigger);
+  await screen.findByRole('dialog');
+  fireEvent.click(screen.getByRole('button', { name: 'Close automation settings' }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
 });

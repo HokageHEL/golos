@@ -24,6 +24,8 @@ import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 import { findTranscriptMatches, type TranscriptMatch } from './review';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+// Short names for the library status filter, used in the collapsed summary.
+const statusLabels: Record<string, string> = { ready: 'Ready', done: 'Transcribed', failed: 'Retry', processing: 'Processing' };
 
 export default function App() {
   const [source, setSource] = useState('microphone');
@@ -82,6 +84,10 @@ export default function App() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [automationOpen, setAutomationOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  // The control that opened a dialog, so closing it returns the keyboard to
+  // the same place instead of leaving focus on the page body.
+  const settingsTrigger = useRef<HTMLElement | null>(null);
+  const automationTrigger = useRef<HTMLElement | null>(null);
   const [automationLabel, setAutomationLabel] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [query, setQuery] = useState('');
@@ -91,6 +97,10 @@ export default function App() {
   const matches = useMemo(() => findTranscriptMatches(draft, query), [draft, query]);
   const matchingSegments = useMemo(() => new Set(matches.map(match => match.segmentIndex)), [matches]);
   const selectedMatch = matchIndex < 0 ? -1 : Math.min(matchIndex, matches.length - 1);
+  // A collapsed disclosure still shows what it holds: the applied filters and
+  // the number of matches stay visible in the summary line.
+  const appliedFilters = [statusFilter ? statusLabels[statusFilter] ?? statusFilter : '', folderFilter.trim(), tagFilter.trim()].filter(Boolean).join(' · ');
+  const findState = query.trim() ? (matches.length ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : 'No matches') : '';
   const active = activeNote;
   const hasUnsaved = dirty || Object.keys(draftCache).length > 0;
   const locked = Boolean(busy || automationLabel) || loading || !nativeAvailable;
@@ -143,6 +153,23 @@ export default function App() {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [hasUnsaved, busy, automationLabel]);
+
+  // Closing a dialog returns focus to the control that opened it. Only the
+  // focus moves: the open transcript, its unsaved draft and the library
+  // selection are untouched.
+  useEffect(() => {
+    if (settingsOpen) return;
+    const trigger = settingsTrigger.current;
+    settingsTrigger.current = null;
+    if (trigger?.isConnected) trigger.focus();
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (automationOpen) return;
+    const trigger = automationTrigger.current;
+    automationTrigger.current = null;
+    if (trigger?.isConnected) trigger.focus();
+  }, [automationOpen]);
 
   useEffect(() => {
     if (!nativeAvailable) return;
@@ -261,6 +288,15 @@ export default function App() {
   }
   function seekTo(ms: number) {
     setSeekRequest(current => ({ ms, nonce: (current?.nonce ?? 0) + 1, play: true }));
+  }
+  // The trigger is remembered so the dialog can hand the keyboard back to it.
+  function openSettings(trigger: HTMLElement) {
+    settingsTrigger.current = trigger;
+    setSettingsOpen(true);
+  }
+  function openAutomation(trigger: HTMLElement) {
+    automationTrigger.current = trigger;
+    setAutomationOpen(true);
   }
   async function importAudio() {
     await perform('Importing recording', async () => {
@@ -411,14 +447,14 @@ export default function App() {
       </Disclosure>}
       <Disclosure className="sidebar-panel" summary="More tools">
         <button className="secondary" disabled={locked} onClick={() => setBatchOpen(true)}>Batch transcription</button>
-        <button className="secondary" disabled={!!busy || loading || !nativeAvailable} onClick={() => setAutomationOpen(true)}>Folders &amp; automation</button>
+        <button className="secondary" disabled={!!busy || loading || !nativeAvailable} onClick={event => openAutomation(event.currentTarget)}>Folders &amp; automation</button>
         <button className="secondary" disabled={locked} onClick={importProject}>Import project backup</button>
       </Disclosure>
       <div className="library-heading"><h2>Library</h2><span title="Loaded matching recordings">{notes.length}{notes.length >= 100 ? '＋' : ''}</span></div>
       <div className="sidebar-search">
         <input aria-label="Search library" type="search" placeholder="Search titles & saved transcripts" title="Search word prefixes across saved titles and transcripts" value={librarySearch} onChange={e => setLibrarySearch(e.target.value)}/>
       </div>
-      <Disclosure className="sidebar-panel" summary="Filters">
+      <Disclosure className="sidebar-panel" summary="Filters" state={appliedFilters || undefined}>
         <select aria-label="Recording status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="">All statuses</option><option value="ready">Ready to transcribe</option><option value="done">Transcribed</option><option value="failed">Needs retry</option><option value="processing">Processing</option></select>
         <input aria-label="Filter folder" placeholder="Filter by folder" value={folderFilter} onChange={e => setFolderFilter(e.target.value)}/>
         <input aria-label="Filter tag" placeholder="Filter by tag" value={tagFilter} onChange={e => setTagFilter(e.target.value)}/>
@@ -443,7 +479,7 @@ export default function App() {
         </div>)}
         {notes.length >= 100 && <button className="secondary" onClick={async () => { try { const more = await api.list({ search: librarySearch, status: statusFilter, folder: folderFilter, tag: tagFilter, offset: notes.length }); setNotes(current => [...current, ...more]); } catch (e) { setError(errorText(e)); } }}>Load more</button>}
       </nav>
-      <button className="settings-trigger" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}><span aria-hidden="true">⚙</span> Settings</button>
+      <button className="settings-trigger" aria-haspopup="dialog" onClick={event => openSettings(event.currentTarget)}><span aria-hidden="true">⚙</span> Settings</button>
       <div className="sidebar-footer"><span className="status-dot"/> Local processing <span className="version">Preview 0.1</span></div>
     </aside>
 
@@ -471,7 +507,7 @@ export default function App() {
           <h1>From spoken words<br/>to something you can keep.</h1>
           <p>Record or import audio, turn it into text, and make it your own.<br/>Your audio stays with you.</p>
           <div className="actions welcome-actions"><button className="primary" disabled={locked} onClick={startRecording}>Record your first conversation</button><button className="secondary" disabled={locked} onClick={importAudio}>Import recording</button></div>
-          <button className="secondary" disabled={locked} onClick={() => { setSettingsOpen(true); void downloadModels(); }}>Download recommended model</button>
+          <button className="secondary" disabled={locked} onClick={event => { openSettings(event.currentTarget); void downloadModels(); }}>Download recommended model</button>
           <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis/Opus), AIFF · Up to 30 minutes / 512 MiB</p>
         </section> : <section className="document">
           <div className="document-heading"><div><div className="eyebrow">RECORDING</div><h1>{active.title}</h1>
@@ -524,7 +560,7 @@ export default function App() {
           {active.status !== 'done' && <div className="transcribe-card">
             <div><h2>{active.status === 'failed' ? 'Ready for another try' : 'Ready when you are'}</h2><p>Transcription runs locally. Audio is automatically converted to the format Whisper needs.</p>
               {active.error && <p className="error-text">{active.error}</p>}</div>
-            {!loading && !setup?.modelReady && <p>Choose a model in <button className="inline-button" onClick={() => setSettingsOpen(true)}>Settings</button> to get started.</p>}
+            {!loading && !setup?.modelReady && <p>Choose a model in <button className="inline-button" onClick={event => openSettings(event.currentTarget)}>Settings</button> to get started.</p>}
             <div className="actions"><label>Audio language<select value={language} disabled={locked} onChange={e => setLanguage(e.target.value)}>
               <option value="auto">Detect automatically</option>{languages.map(item => <option key={item.code} value={item.code}>{item.name.charAt(0).toUpperCase() + item.name.slice(1)}</option>)}</select></label>
               {setup?.diarizationReady && <label className="auto-speakers"><input type="checkbox" checked={autoSpeakers} disabled={locked} onChange={e => setAutoSpeakers(e.target.checked)}/> Detect speakers after transcription</label>}
@@ -548,7 +584,7 @@ export default function App() {
               <button className="secondary" disabled={readLocked || !history.past.length} onClick={() => travelHistory('undo')}>Undo</button>
               <button className="secondary" disabled={readLocked || !history.future.length} onClick={() => travelHistory('redo')}>Redo</button>
             </div>
-            {!!draft.length && <Disclosure className="workspace-panel find-panel" summary="Find &amp; replace">
+            {!!draft.length && <Disclosure className="workspace-panel find-panel" summary="Find &amp; replace" state={findState || undefined}>
               <div className="transcript-search" role="search" aria-label="Search transcript">
                 <label className="sr-only" htmlFor="transcript-search">Find in transcript</label>
                 <input id="transcript-search" type="search" placeholder="Find in transcript…" value={query} onChange={event => {
