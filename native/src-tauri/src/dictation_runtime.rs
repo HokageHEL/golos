@@ -246,23 +246,42 @@ impl DictationRuntime {
         }
     }
 
-    /// Handle one key edge. The latch swallows OS key repeat, and the work is
-    /// enqueued on a worker instead of running on the shortcut callback thread.
-    pub fn shortcut_edge(self: &Arc<Self>, edge: KeyEdge) {
-        let (mode, phase, busy) = {
+    /// The action for one key edge. The latch swallows OS key repeat, so a
+    /// repeated key-down edge can never start a second capture or dispatch a
+    /// second paste.
+    ///
+    /// `another_operation` is true only when a *different* workflow holds the
+    /// recording session or the pipeline. The dictation's own job is not busy
+    /// with itself: its phase decides what the shortcut does.
+    pub fn shortcut_action(&self, state: &AppState, edge: KeyEdge) -> ShortcutAction {
+        let another_operation = state
+            .recording
+            .lock()
+            .ok()
+            .and_then(|slot| {
+                slot.as_ref()
+                    .map(|recording| recording.owner == RecordingOwner::Main)
+            })
+            .unwrap_or(false);
+        let (mode, phase) = {
             let runtime = self.lock();
             let phase = runtime
                 .job
                 .as_ref()
                 .map(|job| job.phase)
                 .unwrap_or(Phase::Idle);
-            (
-                runtime.settings.mode,
-                phase,
-                runtime.job.is_some() && !matches!(phase, Phase::Idle),
-            )
+            (runtime.settings.mode, phase)
         };
-        let action = self.latch.lock().unwrap().edge(edge, mode, phase, busy);
+        self.latch
+            .lock()
+            .unwrap()
+            .edge(edge, mode, phase, another_operation)
+    }
+
+    /// Handle one key edge. The latch swallows OS key repeat, and the work is
+    /// enqueued on a worker instead of running on the shortcut callback thread.
+    pub fn shortcut_edge(self: &Arc<Self>, state: &AppState, edge: KeyEdge) {
+        let action = self.shortcut_action(state, edge);
         match action {
             ShortcutAction::None => {}
             ShortcutAction::Busy => {
@@ -1570,6 +1589,135 @@ mod tests {
             pipeline,
             platform,
         }
+    }
+
+    #[test]
+    fn the_shortcut_latch_ignores_key_repeat_and_never_discards() {
+        let fixture = fixture("latch");
+        let runtime = &fixture.state.dictation;
+        // An idle runtime starts on the first press.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Pressed),
+            ShortcutAction::Start
+        );
+        // A release never discards and never stops anything.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Released),
+            ShortcutAction::None
+        );
+        runtime.start(&fixture.state).unwrap();
+        // While recording, the toggle shortcut stops and saves exactly once.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Pressed),
+            ShortcutAction::StopAndSave
+        );
+        // The OS key repeat is swallowed by the latch.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Pressed),
+            ShortcutAction::None
+        );
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Released),
+            ShortcutAction::None
+        );
+        // No edge ever offers a discard or an insert of its own: the shortcut
+        // can only start, stop and save, or show the review.
+        for edge in [KeyEdge::Pressed, KeyEdge::Released] {
+            let action = runtime.shortcut_action(&fixture.state, edge);
+            assert!(matches!(
+                action,
+                ShortcutAction::None
+                    | ShortcutAction::Start
+                    | ShortcutAction::StopAndSave
+                    | ShortcutAction::ShowReview
+                    | ShortcutAction::Busy
+            ));
+        }
+        std::fs::remove_dir_all(fixture.root).ok();
+    }
+
+    #[test]
+    fn the_hold_mode_stops_on_release_and_the_review_is_only_shown() {
+        let fixture = fixture("latch-hold");
+        let runtime = &fixture.state.dictation;
+        runtime.set_settings(crate::dictation_settings::Settings {
+            mode: crate::dictation::ShortcutMode::Hold,
+            ..crate::dictation_settings::Settings::default()
+        });
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Pressed),
+            ShortcutAction::Start
+        );
+        runtime.start(&fixture.state).unwrap();
+        // Holding stops and saves when the key is released.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Released),
+            ShortcutAction::StopAndSave
+        );
+        // A second release does nothing.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Released),
+            ShortcutAction::None
+        );
+        runtime.stop_and_run(&fixture.state).unwrap();
+        // At the review step the shortcut only shows the review again.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Pressed),
+            ShortcutAction::ShowReview
+        );
+        std::fs::remove_dir_all(fixture.root).ok();
+    }
+
+    #[test]
+    fn the_shortcut_never_touches_a_recording_owned_by_another_workflow() {
+        let fixture = fixture("latch-main-owner");
+        let runtime = &fixture.state.dictation;
+        // The main window owns the single recording session.
+        {
+            let mut slot = fixture.state.recording.lock().unwrap();
+            *slot = Some(ActiveRecording {
+                session: recording::Session::from_saved_fixture(
+                    fixture.root.join("main-fixture.wav"),
+                ),
+                _guard: Some(fixture.state.claim().unwrap()),
+                id: uuid::Uuid::new_v4().to_string(),
+                created_at: 0,
+                title: "Main recording".into(),
+                owner: RecordingOwner::Main,
+                job_id: None,
+            });
+        }
+        // The dictation shortcut reports that it is busy instead of stopping or
+        // discarding somebody else's capture.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Pressed),
+            ShortcutAction::Busy
+        );
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Released),
+            ShortcutAction::None
+        );
+        std::fs::remove_dir_all(fixture.root).ok();
+    }
+
+    #[test]
+    fn a_failed_save_makes_the_shortcut_busy_instead_of_discarding() {
+        let fixture = fixture("latch-save-failed");
+        let runtime = &fixture.state.dictation;
+        *fixture.pipeline.save_failures.lock().unwrap() = 1;
+        runtime.start(&fixture.state).unwrap();
+        runtime.stop_and_run(&fixture.state).unwrap();
+        assert_eq!(runtime.status().phase, Phase::SaveFailed);
+        // The shortcut cannot discard, insert or replace the pending review.
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Pressed),
+            ShortcutAction::Busy
+        );
+        assert_eq!(
+            runtime.shortcut_action(&fixture.state, KeyEdge::Released),
+            ShortcutAction::None
+        );
+        std::fs::remove_dir_all(fixture.root).ok();
     }
 
     #[test]
