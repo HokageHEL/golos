@@ -60,6 +60,19 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it('mounts the page regions before the status arrives', async () => {
+  let resolveStatus: (view: AiAutomationView) => void = () => {};
+  mocks.status.mockImplementation(() => new Promise<AiAutomationView>(resolve => { resolveStatus = resolve; }));
+  render(<AiAutomation {...props()}/>);
+  // The navigation points at these regions, so they exist from the first paint.
+  expect(document.getElementById('settings-page-ai-rules')).toBeTruthy();
+  expect(document.getElementById('settings-page-ai-model')).toBeTruthy();
+  expect(document.getElementById('settings-page-ai-tasks')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toBe('Loading automatic AI settings…');
+  resolveStatus({ rules: [], tasks: [], model: '', label: null });
+  await screen.findByText(/No rules are configured/);
+});
+
 it('defaults to off, validates opt-in choices and saves cleanup/custom rules explicitly', async () => {
   render(<AiAutomation {...props()}/>);
   await screen.findByText(/No rules are configured/);

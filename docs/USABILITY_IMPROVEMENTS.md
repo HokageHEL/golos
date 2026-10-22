@@ -103,7 +103,9 @@ preserved.
 Exports, find-and-replace and speaker detection live in sections that open in the
 normal document flow; see `docs/UI_LAYOUT.md`. Closing a section keeps its
 contents, so a search query, a replacement text and a speaker count survive
-reopening it. Recording, importing, playback, editing and saving stay visible.
+reopening it. A collapsed section keeps its state in the summary line: the
+applied filters and the number of matches stay visible. Escape inside a field
+belongs to that field, so clearing the search query does not close the section. Recording, importing, playback, editing and saving stay visible.
 
 ## Exports and portable backups
 
@@ -132,8 +134,11 @@ Newer schema versions are refused without mutation.
 
 Automated frontend checks include text editing/history, split/merge, VTT escaping,
 draft retention across search and navigation, saving restored drafts, source
-selection, pause/resume controls and discard confirmation. These tests mock native
-commands and **do not exercise recording hardware or OS permissions**.
+selection, pause/resume controls and discard confirmation. They also cover
+keyboard handling inside sections, focus returning to the control that opened a
+dialog, the state a collapsed section shows, and the page regions that stay
+mounted while their data loads. These tests mock native commands and **do not
+exercise recording hardware or OS permissions**.
 
 Rust tests cover streamed download hashes/sizes/cancellation/partial cleanup,
 preserving the working model after validation failure/cancellation, speaker-pair
@@ -159,8 +164,9 @@ This caught and fixed sidebar overflow from long source names; model errors are
 also kept in view. These browser checks still use mocked native commands.
 
 Run them with `npx playwright install chromium` followed by `npm run test:ui`.
-The test runner starts a separate local Vite server on port 1421 and writes
-screenshots/results to the operating system's temporary directory under
+The test runner starts a separate local Vite server on a per-checkout port,
+derived from the checkout path so parallel worktrees never share a port, and
+writes screenshots/results to the operating system's temporary directory under
 `golos-usability-browser/`. Set `GOLOS_UI_PORT` to run a checkout on its own
 loopback port; an explicitly requested port is never reused, so a suite cannot
 silently run against another checkout's dev server. CI installs Chromium and runs

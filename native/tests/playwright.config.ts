@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 // Parallel worktrees must never reuse another checkout's mocked IPC fixture.
-// A stable per-checkout port also keeps manual previews on 1420 independent.
+// The port is derived from the checkout path, so the browser suite also stays
+// independent of a manual preview on the default development port.
 const defaultPort = 20000 + Number.parseInt(createHash('sha256').update(process.cwd()).digest('hex').slice(0, 4), 16) % 20000;
 const port = Number(process.env.GOLOS_UI_PORT ?? defaultPort);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('GOLOS_UI_PORT must be an integer from 1024 to 65535.');

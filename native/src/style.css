@@ -84,6 +84,14 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 summary{
   cursor:pointer
 }
+/* A collapsed disclosure keeps its active state next to the label, for example
+   the applied filters or the number of matches. The label text itself is
+   unchanged, so the trigger keeps one stable name for assistive tools. */
+summary[data-state]::after{
+  content:' · ' attr(data-state);
+  color:var(--muted);
+  font-weight:500
+}
 button{
   border:0;
   border-radius:8px;
@@ -954,6 +962,18 @@ progress{
   color: var(--muted);
   font-size: 12px;
   margin-top: 6px;
+}
+/* A disclosure inside a settings page keeps the page flow and never covers
+   the rest of the section. */
+.settings-disclosure {
+  margin-top: 14px;
+}
+.settings-disclosure > summary {
+  font-size: 12px;
+  font-weight: 600;
+}
+.settings-disclosure .disclosure-body {
+  padding-top: 10px;
 }
 .theme-options {
   display: grid;
