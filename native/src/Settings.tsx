@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Setup } from './api';
 import type { Theme } from './theme';
+import SettingsNavigation from './SettingsNavigation';
 
 type Props = {
   onDownloadModels: (speakers: boolean) => void;
@@ -30,6 +31,9 @@ const themes = [
 export default function Settings({ onDownloadModels, downloadProgress, onCancelDownload, theme, onThemeChange, setup, modelDisabled, loadingModel, dirty,
   nativeAvailable, error, message, onImportModel, onImportSpeakerModels, loadingSpeakers, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const [page, setPage] = useState(() => downloadProgress || loadingModel || !setup?.modelReady ? 'model' : 'appearance');
+  useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [page]);
 
   useEffect(() => {
     const element = dialog.current;
@@ -41,18 +45,25 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
     if (error) dialog.current?.querySelector('[role="alert"]')?.scrollIntoView({ block: 'nearest' });
   }, [error]);
 
-  return <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-title"
+  return <dialog ref={dialog} className="settings-dialog settings-workspace-dialog" aria-labelledby="settings-title"
     onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="settings-content">
+    <div className="settings-content settings-workspace">
       <header className="settings-header">
         <div><div className="eyebrow">MAKE IT YOURS</div><h1 id="settings-title">Settings</h1></div>
         <button className="secondary settings-close" aria-label="Close settings" onClick={onClose} autoFocus>✕</button>
       </header>
+      <div className="settings-workspace-body">
+      <SettingsNavigation label="Settings sections" selected={page} onSelect={setPage} pages={[
+        { id: 'appearance', label: 'Appearance', hint: 'Theme' },
+        { id: 'model', label: 'Transcription', hint: 'Offline model' },
+        { id: 'speakers', label: 'Speakers', hint: 'Optional models' },
+      ]}/>
+      <div className="settings-page-content" ref={content}>
         {error && <div className="notice error" role="alert">{error}</div>}
         {message && <div className="notice success" role="status">{message}</div>}
         {downloadProgress && <div role="status"><p>{downloadProgress.phase} · {(downloadProgress.received / 1_000_000).toFixed(1)} / {(downloadProgress.total / 1_000_000).toFixed(1)} MB</p><progress value={downloadProgress.received} max={downloadProgress.total}/><button className="secondary" onClick={onCancelDownload}>Cancel download</button></div>}
 
-      <section className="settings-section" aria-labelledby="appearance-title">
+      <section id="settings-page-appearance" hidden={page !== 'appearance'} className="settings-section" aria-labelledby="appearance-title">
         <h2 id="appearance-title">Appearance</h2>
         <p id="appearance-description">Choose how Golos looks. Your preference is saved on this device.</p>
         <fieldset className="theme-options" aria-describedby="appearance-description">
@@ -69,7 +80,7 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
         </fieldset>
       </section>
 
-      <section className="settings-section" aria-labelledby="model-title">
+      <section id="settings-page-model" hidden={page !== 'model'} className="settings-section" aria-labelledby="model-title">
         <h2 id="model-title">Transcription model</h2>
         <p>Download a model once, then transcribe offline. Audio stays on your device.</p>
         <p>Multilingual Whisper Small · 190 MB download · 200 MB free disk space required. Source: whisper.cpp on Hugging Face. Verified with a pinned SHA-256.</p>
@@ -89,7 +100,7 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
         {!nativeAvailable && <p className="settings-hint">Open the desktop app to import a model.</p>}
         {dirty && <p className="settings-hint">Save or discard transcript edits before replacing the model.</p>}
       </section>
-      <section className="settings-section" aria-labelledby="speakers-title">
+      <section id="settings-page-speakers" hidden={page !== 'speakers'} className="settings-section" aria-labelledby="speakers-title">
         <h2 id="speakers-title">Offline speaker detection</h2>
         <p>{setup?.diarizationReady ? 'Ready. Detection runs after transcription; existing transcripts can use Detect speakers.' : 'Import a pyannote segmentation model and a speaker embedding model to label recurring voices. Models and audio stay on this device.'}</p>
         <p>Guided setup downloads both models from sherpa-onnx on GitHub and verifies pinned SHA-256 checksums. 47.3 MB download · 120 MB free disk space required. Optional; transcription works without these models.</p>
@@ -99,6 +110,8 @@ export default function Settings({ onDownloadModels, downloadProgress, onCancelD
           {loadingSpeakers ? 'Loading speaker models…' : setup?.diarizationReady ? 'Replace speaker models' : 'Import speaker models'}
         </button>
       </section>
+      </div>
+      </div>
       <footer className="settings-footer"><span>Preferences stay on this device.</span><button className="primary" onClick={onClose}>Done</button></footer>
     </div>
   </dialog>;

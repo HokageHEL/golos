@@ -3,13 +3,14 @@ import { afterEach,beforeEach,expect,it,vi } from 'vitest';
 import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
 import AutomationSettings from '../AutomationSettings';
 import type { AutomationView } from '../api';
-const fixture=vi.hoisted(()=>({view:null as AutomationView|null,add:vi.fn(),watch:vi.fn(),pause:vi.fn(),choose:vi.fn(),configure:vi.fn(),export:vi.fn(),retry:vi.fn()}));
-vi.mock('../api',()=>({api:{automation:async()=>structuredClone(fixture.view),addWatch:fixture.add,watchAction:fixture.watch,pauseAutomation:fixture.pause,chooseExportFolder:fixture.choose,configureExports:fixture.configure,exportQueue:fixture.export,retryExports:fixture.retry,aiAutomation:async()=>({rules:[],tasks:[],model:'',label:null}),aiConfiguration:async()=>({settings:{port:11434,model:'',contextWindow:8192},results:[]})}}));
+const fixture=vi.hoisted(()=>({view:null as AutomationView|null,add:vi.fn(),watch:vi.fn(),pause:vi.fn(),choose:vi.fn(),configure:vi.fn(),export:vi.fn(),retry:vi.fn(),aiStatus:vi.fn()}));
+vi.mock('../api',()=>({api:{automation:async()=>structuredClone(fixture.view),addWatch:fixture.add,watchAction:fixture.watch,pauseAutomation:fixture.pause,chooseExportFolder:fixture.choose,configureExports:fixture.configure,exportQueue:fixture.export,retryExports:fixture.retry,aiAutomation:fixture.aiStatus,aiConfiguration:async()=>({settings:{port:11434,model:'',contextWindow:8192},results:[]})}}));
 const props=()=>({languages:[{code:'uk',name:'ukrainian'}],busy:null,background:null,onOperation:async(_label:string,task:()=>Promise<void>)=>task(),onClose:vi.fn()});
 beforeEach(()=>{
   fixture.view={settings:{paused:false,exportEnabled:false,exportDirectory:'/local/exports',exportFormats:['txt']},folders:[{id:'folder',path:'/local/interviews',enabled:true,autoTranscribe:false,language:'uk',error:null}],files:[],exports:[],label:null};
   for(const mock of [fixture.add,fixture.watch,fixture.pause,fixture.choose,fixture.configure,fixture.retry])mock.mockReset().mockResolvedValue(true);
   fixture.export.mockReset().mockResolvedValue(2);
+  fixture.aiStatus.mockReset().mockResolvedValue({rules:[],tasks:[],model:'',label:null});
   HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.open=true;});HTMLDialogElement.prototype.close=vi.fn(function(this:HTMLDialogElement){this.open=false;});
 });
 afterEach(cleanup);
@@ -31,6 +32,7 @@ it('can pause background work and stop observing a folder without a delete comma
 });
 it('persists selected output formats and schedules saved results independently of transcription',async()=>{
   render(<AutomationSettings {...props()}/>);await screen.findByText('/local/exports');
+  fireEvent.click(screen.getByRole('button',{name:/Local exports Saved transcripts/}));
   fireEvent.click(screen.getByRole('checkbox',{name:'VTT'}));fireEvent.click(screen.getByRole('checkbox',{name:'Export automatically after transcription'}));
   fireEvent.click(screen.getByRole('button',{name:'Save export settings'}));await waitFor(()=>expect(fixture.configure).toHaveBeenCalledWith(true,['txt','vtt']));
   fireEvent.click(screen.getByRole('button',{name:'Export completed queue results'}));await screen.findByText('2 completed queue results scheduled for export using saved settings.');
@@ -42,3 +44,62 @@ it('surfaces denied directory access and keeps retry controls available',async()
   expect(await screen.findByRole('alert')).toHaveProperty('textContent','Cannot read folder. Reselect it or grant Files and Folders access.');
   expect((screen.getByRole('button',{name:'Add watched folder'}) as HTMLButtonElement).disabled).toBe(false);
 });
+
+it('keeps unsaved folder, export, rule and model choices across submenu switches and polling',async()=>{
+  render(<AutomationSettings {...props()}/>);await screen.findByText('/local/interviews');
+  fireEvent.change(screen.getByRole('combobox',{name:'New folder language'}),{target:{value:'uk'}});
+  fireEvent.click(screen.getByRole('checkbox',{name:'Include files already in the folder'}));
+  fireEvent.click(screen.getByRole('button',{name:/Local exports Saved transcripts/}));
+  expect(screen.queryByRole('button',{name:'Add watched folder'})).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox',{name:'VTT'}));
+  fireEvent.click(screen.getByRole('button',{name:/AI rules Opt-in processing/}));
+  await screen.findByRole('heading',{name:'Automatic AI rules'});
+  fireEvent.click(screen.getByRole('button',{name:'Add automatic rule'}));
+  fireEvent.change(screen.getByLabelText('Rule name'),{target:{value:'Unsaved rule draft'}});
+  fireEvent.click(screen.getByRole('button',{name:/AI model Local service/}));
+  fireEvent.change(screen.getByLabelText('Context window'),{target:{value:'16384'}});
+  const polls = fixture.aiStatus.mock.calls.length;
+  await waitFor(()=>expect(fixture.aiStatus.mock.calls.length).toBeGreaterThan(polls),{timeout:4500});
+  expect((screen.getByLabelText('Context window') as HTMLSelectElement).value).toBe('16384');
+  fireEvent.click(screen.getByRole('button',{name:/AI rules Opt-in processing/}));
+  expect((screen.getByLabelText('Rule name') as HTMLInputElement).value).toBe('Unsaved rule draft');
+  expect(screen.queryByRole('button',{name:'Save export settings'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:/Watched folders Import & transcribe/}));
+  expect((screen.getByRole('combobox',{name:'New folder language'}) as HTMLSelectElement).value).toBe('uk');
+  expect((screen.getByRole('checkbox',{name:'Include files already in the folder'}) as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:/Local exports Saved transcripts/}));
+  expect((screen.getByRole('checkbox',{name:'VTT'}) as HTMLInputElement).checked).toBe(true);
+  expect(fixture.add).not.toHaveBeenCalled();
+  expect(fixture.configure).not.toHaveBeenCalled();
+},10000);
+
+it('closes the recent detected files panel with Escape instead of the whole dialog',async()=>{
+  const onClose=vi.fn();
+  render(<AutomationSettings {...props()} onClose={onClose}/>);
+  await screen.findByText('/local/interviews');
+  const trigger=screen.getByText('Recent detected files (up to 200)',{selector:'summary'});
+  const panel=trigger.closest('details') as HTMLDetailsElement;
+  panel.open=true;
+  // The key is consumed by the panel, so the dialog cannot be dismissed and
+  // unsaved rule or export drafts are not thrown away.
+  expect(fireEvent.keyDown(trigger,{key:'Escape'})).toBe(false);
+  expect(panel.open).toBe(false);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(trigger);
+});
+
+it('keeps every navigation target mounted before the automatic AI status arrives',()=>{
+  render(<AutomationSettings {...props()}/>);
+  const navigation=screen.getByRole('navigation',{name:'Automation sections'});
+  const targets=[...navigation.querySelectorAll('[aria-controls]')].map(button=>button.getAttribute('aria-controls'));
+  expect(targets).toEqual(['settings-page-folders','settings-page-exports','settings-page-ai-rules','settings-page-ai-model','settings-page-ai-tasks']);
+  targets.forEach(target=>expect(document.getElementById(target as string)).toBeTruthy());
+});
+
+it('announces the automation pages without calling them settings',async()=>{
+  render(<AutomationSettings {...props()}/>);
+  await screen.findByText('/local/interviews');
+  const navigation=screen.getByRole('navigation',{name:'Automation sections'});
+  expect(navigation.querySelector('[role="status"]')?.textContent).toBe('Watched folders automation');
+});
+

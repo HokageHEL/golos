@@ -100,6 +100,13 @@ paragraph estimates, not word alignment. Merge with next requires matching speak
 labels and retains the outer timestamp bounds. Paragraph playback highlighting is
 preserved.
 
+Exports, find-and-replace and speaker detection live in sections that open in the
+normal document flow; see `docs/UI_LAYOUT.md`. Closing a section keeps its
+contents, so a search query, a replacement text and a speaker count survive
+reopening it. A collapsed section keeps its state in the summary line: the
+applied filters and the number of matches stay visible. Escape inside a field
+belongs to that field, so clearing the search query does not close the section. Recording, importing, playback, editing and saving stay visible.
+
 ## Exports and portable backups
 
 TXT and SRT remain. VTT exports escape markup and use valid cue timestamps. DOCX
@@ -127,8 +134,11 @@ Newer schema versions are refused without mutation.
 
 Automated frontend checks include text editing/history, split/merge, VTT escaping,
 draft retention across search and navigation, saving restored drafts, source
-selection, pause/resume controls and discard confirmation. These tests mock native
-commands and **do not exercise recording hardware or OS permissions**.
+selection, pause/resume controls and discard confirmation. They also cover
+keyboard handling inside sections, focus returning to the control that opened a
+dialog, the state a collapsed section shows, and the page regions that stay
+mounted while their data loads. These tests mock native commands and **do not
+exercise recording hardware or OS permissions**.
 
 Rust tests cover streamed download hashes/sizes/cancellation/partial cleanup,
 preserving the working model after validation failure/cancellation, speaker-pair
@@ -145,20 +155,24 @@ GOLOS_TEST_MODEL=/path/ggml-small-q5_1.bin GOLOS_TEST_AUDIO=/path/jfk.wav \
 ```
 
 The developer-only browser fixture is `/tests/ui.html` on `npm run native:dev`.
-It uses Tauri's mock IPC and is not a production build entry. Four real Chromium
-browser tests exercise navigation/draft retention, editing/export controls,
-rename/organization at the minimum window size, model-download error recovery,
-and mixed-source recording controls. Rendered screenshots were inspected. This
-caught and fixed sidebar overflow from long source names; model errors are also
-kept in view. These browser checks still use mocked native commands.
+It uses Tauri's mock IPC and is not a production build entry. Thirteen real
+Chromium browser tests exercise navigation/draft retention, editing/export
+controls, rename/organization at the minimum window size, model-download error
+recovery, mixed-source recording controls, and the workspace action sections and
+their geometry at 760×560 and 1180×780. Rendered screenshots were inspected.
+This caught and fixed sidebar overflow from long source names; model errors are
+also kept in view. These browser checks still use mocked native commands.
 
 Run them with `npx playwright install chromium` followed by `npm run test:ui`.
-The test runner starts a separate local Vite server on port 1421 and writes
-screenshots/results to the operating system's temporary directory under
-`golos-usability-browser/`. CI installs Chromium and runs the same suite. T3's
-collaborative preview timed out, so this verification used standalone headless
-Chromium instead. Microphone, system audio, native dialogs and inference are not
-exercised by browser tests.
+The test runner starts a separate local Vite server on a per-checkout port,
+derived from the checkout path so parallel worktrees never share a port, and
+writes screenshots/results to the operating system's temporary directory under
+`golos-usability-browser/`. Set `GOLOS_UI_PORT` to run a checkout on its own
+loopback port; an explicitly requested port is never reused, so a suite cannot
+silently run against another checkout's dev server. CI installs Chromium and runs
+the same suite. T3's collaborative preview timed out, so this verification used
+standalone headless Chromium instead. Microphone, system audio, native dialogs and
+inference are not exercised by browser tests.
 
 Still required on physical macOS devices before release:
 - Fresh allow/deny/recovery prompts for both microphone and system audio, including

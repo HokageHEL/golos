@@ -27,6 +27,9 @@ vi.mock('../api', () => ({
     export: fixture.exports,
     exportSaved: fixture.exports,
     downloadModels: fixture.download, cancel: fixture.cancel,
+    pauseAutomation: async () => {},
+    aiAutomation: async () => ({ rules: [], tasks: [], model: '', label: null }),
+    aiConfiguration: async () => ({ settings: { port: 11434, model: '', contextWindow: 8192 }, results: [] }),
   },
 }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async (name: string, callback: typeof fixture.progressListener) => { if (name === 'model-download') fixture.progressListener = callback; if (name === 'automation-state') fixture.automationListener = callback as unknown as typeof fixture.automationListener; return () => {}; } }));
@@ -44,6 +47,14 @@ beforeEach(() => {
   fixture.saves.mockClear(); fixture.source.mockClear(); fixture.download.mockReset(); fixture.cancel.mockReset(); fixture.progressListener = null; fixture.automationListener = null;
 });
 afterEach(cleanup);
+
+/** Opens or closes one in-flow disclosure by its summary text. */
+function toggleSection(label: string) {
+  fireEvent.click(screen.getByText(label, { selector: 'summary' }));
+}
+function section(label: string) {
+  return screen.getByText(label, { selector: 'summary' }).closest('details') as HTMLDetailsElement;
+}
 
 it('retains edits across search and navigation, and saves the restored draft', async () => {
   render(<App/>);
@@ -83,6 +94,7 @@ it('shows pause/resume and protects discard, with the chosen source passed to na
 it('supports undo/redo of text and keeps saved exports disabled for unsaved edits', async () => {
   render(<App/>);
   const editor = await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Export');
   fireEvent.change(editor, { target: { value: 'Changed' } });
   expect((screen.getByRole('button', { name: 'Export DOCX' }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -98,6 +110,7 @@ it('shows model download progress and cancellation, then retries successfully', 
   render(<App/>);
   await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
   fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('button', { name: /Transcription Offline model/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Download recommended model' }));
   await waitFor(() => expect(fixture.download).toHaveBeenCalledWith(false));
   act(() => { fixture.progressListener?.({ payload: { received: 1000000, total: 190085487, phase: 'Downloading Whisper Small' } }); });
@@ -116,6 +129,7 @@ it('exports structured formats and copies the current draft without silently sav
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } });
   render(<App/>);
   const editor = await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Export');
   fireEvent.change(screen.getByRole('combobox', { name: 'Other export format' }), { target: { value: 'json' } });
   fireEvent.click(screen.getByRole('button', { name: 'Export JSON' }));
   await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('json', expect.stringContaining('"timestampUnit": "milliseconds"')));
@@ -155,4 +169,128 @@ it('keeps draft editing usable while native automation runs and restores saving 
   await act(async()=>fixture.automationListener?.({payload:null}));
   expect((screen.getByRole('button',{name:'Save edits'}) as HTMLButtonElement).disabled).toBe(false);
   expect((editor as HTMLTextAreaElement).value).toBe('A draft edited during background transcription');
+});
+
+it('groups every export in one disclosure and keeps each export handler working', async () => {
+  fixture.exports.mockResolvedValue(true);
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  // Secondary exports stay collapsed until their section is opened.
+  expect(section('Export').open).toBe(false);
+  toggleSection('Export');
+  expect(section('Export').open).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Export TXT' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('txt', expect.stringContaining('Original saved text')));
+  fireEvent.click(screen.getByRole('button', { name: 'Export audio' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('0', 'wav'));
+  fireEvent.click(screen.getByRole('button', { name: 'Export project backup' }));
+  await waitFor(() => expect(fixture.exports).toHaveBeenCalledWith('0', 'golos'));
+  expect(screen.getByText('Exported.')).toBeTruthy();
+});
+
+it('keeps the find & replace draft when the section is closed and reopened', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Find & replace');
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find in transcript' }), { target: { value: 'saved' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Replacement text' }), { target: { value: 'reviewed' } });
+  toggleSection('Find & replace');
+  expect(section('Find & replace').open).toBe(false);
+  toggleSection('Find & replace');
+  expect(section('Find & replace').open).toBe(true);
+  expect((screen.getByRole('searchbox', { name: 'Find in transcript' }) as HTMLInputElement).value).toBe('saved');
+  expect((screen.getByRole('textbox', { name: 'Replacement text' }) as HTMLInputElement).value).toBe('reviewed');
+});
+
+it('keeps the speaker choice when the speaker section is closed and reopened', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Speaker detection');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Speakers' }), { target: { value: '3' } });
+  toggleSection('Speaker detection');
+  expect(section('Speaker detection').open).toBe(false);
+  toggleSection('Speaker detection');
+  expect((screen.getByRole('combobox', { name: 'Speakers' }) as HTMLSelectElement).value).toBe('3');
+});
+
+it('reveals system audio permissions as soon as a system source is chosen', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  expect(screen.queryByText('System audio & permissions', { selector: 'summary' })).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recording source' }), { target: { value: 'system' } });
+  expect(section('System audio & permissions').open).toBe(true);
+  expect(screen.getByRole('button', { name: 'Refresh applications / grant access' })).toBeTruthy();
+  expect(screen.getByText(/Allow Golos Audio Capture in System Settings/)).toBeTruthy();
+  expect(screen.getByRole('combobox', { name: 'Application to capture' })).toBeTruthy();
+  // A different system source brings the permission steps back into view.
+  toggleSection('System audio & permissions');
+  expect(section('System audio & permissions').open).toBe(false);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recording source' }), { target: { value: 'mixed' } });
+  expect(section('System audio & permissions').open).toBe(true);
+});
+
+it('opens recording actions inside the library row and closes them with Escape', async () => {
+  render(<App/>);
+  const trigger = await screen.findByRole('button', { name: 'Actions for One' });
+  fireEvent.click(trigger);
+  const menu = screen.getByRole('menu');
+  // The menu expands in the row, so it cannot float over the player or editor.
+  expect(menu.closest('.recording-row')).toBeTruthy();
+  expect(menu.className).toBe('recording-menu');
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  fireEvent.keyDown(document, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+  expect(document.activeElement).toBe(trigger);
+});
+
+it('lets the find field clear its own query with Escape and keeps the section open', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('Find & replace');
+  const field = screen.getByRole('searchbox', { name: 'Find in transcript' }) as HTMLInputElement;
+  fireEvent.change(field, { target: { value: 'saved' } });
+  expect(field.value).toBe('saved');
+  fireEvent.keyDown(field, { key: 'Escape' });
+  await waitFor(() => expect(field.value).toBe(''));
+  // The field handled the key, so the section around it stays open.
+  expect(section('Find & replace').open).toBe(true);
+});
+
+it('shows the applied filters and the match count while the sections are collapsed', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  const filters = screen.getByText('Filters', { selector: 'summary' });
+  expect(filters.getAttribute('data-state')).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Recording status' }), { target: { value: 'done' } });
+  fireEvent.change(screen.getByLabelText('Filter folder'), { target: { value: 'Work' } });
+  await waitFor(() => expect(filters.getAttribute('data-state')).toBe('Transcribed · Work'));
+  toggleSection('Find & replace');
+  const find = screen.getByText('Find & replace', { selector: 'summary' });
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find in transcript' }), { target: { value: 'saved' } });
+  await waitFor(() => expect(find.getAttribute('data-state')).toBe('1 match'));
+  toggleSection('Find & replace');
+  // The count stays visible while the section is closed.
+  expect(section('Find & replace').open).toBe(false);
+  expect(find.getAttribute('data-state')).toBe('1 match');
+});
+
+it('returns focus to the trigger when the settings dialog closes', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  const trigger = screen.getByRole('button', { name: 'Settings' });
+  fireEvent.click(trigger);
+  await screen.findByRole('dialog');
+  fireEvent.click(screen.getByRole('button', { name: 'Close settings' }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+it('returns focus to the trigger when the folders and automation dialog closes', async () => {
+  render(<App/>);
+  await screen.findByRole('textbox', { name: 'Transcript at 0:00' });
+  toggleSection('More tools');
+  const trigger = screen.getByRole('button', { name: 'Folders & automation' });
+  fireEvent.click(trigger);
+  await screen.findByRole('dialog');
+  fireEvent.click(screen.getByRole('button', { name: 'Close automation settings' }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
 });

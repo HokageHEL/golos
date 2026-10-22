@@ -71,15 +71,26 @@ button,select,textarea{
 }
 button{
   cursor:pointer;
-  transition:background .15s,opacity .15s
+  transition:opacity .15s
 }
 button:disabled{
   cursor:default;
   opacity:.45
 }
-button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{
+button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible,summary:focus-visible{
   outline:3px solid var(--focus);
   outline-offset:3px
+}
+summary{
+  cursor:pointer
+}
+/* A collapsed disclosure keeps its active state next to the label, for example
+   the applied filters or the number of matches. The label text itself is
+   unchanged, so the trigger keeps one stable name for assistive tools. */
+summary[data-state]::after{
+  content:' · ' attr(data-state);
+  color:var(--muted);
+  font-weight:500
 }
 button{
   border:0;
@@ -148,10 +159,6 @@ a{
 .secondary:hover:enabled{
   background:var(--surface-hover)
 }
-.import{
-  width:100%;
-  margin-bottom:35px
-}
 .library-heading{
   display:flex;
   justify-content:space-between;
@@ -172,16 +179,35 @@ a{
   overflow:auto;
   flex:1
 }
+.recording-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  border-radius:9px;
+  margin:3px 0
+}
+.recording-row.selected{
+  background:var(--selected)
+}
 .recording{
   display:block;
   width:100%;
   padding:14px 12px;
   text-align:left;
-  background:transparent;
-  margin:3px 0
+  background:transparent
 }
-.recording.selected{
-  background:var(--selected)
+.recording-actions{
+  align-self:center;
+  padding:6px 9px;
+  background:transparent;
+  color:var(--muted);
+  font-size:15px;
+  line-height:1;
+  border-radius:6px
+}
+.recording-actions:hover:enabled{
+  background:var(--surface-hover);
+  color:var(--text)
 }
 .recording-title{
   display:block;
@@ -816,15 +842,16 @@ progress{
   gap: 6px;
   font-size: 12px;
 }
+/* The recording menu expands inside its own row, so it can never cover the
+   player, the transcript or the editor. */
 .recording-menu {
-  position: fixed;
-  z-index: 100;
-  width: 216px;
+  grid-column: 1 / -1;
+  width: auto;
+  margin: 2px 0 6px;
   padding: 5px;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--surface);
-  box-shadow: 0 8px 30px #25392f24;
 }
 .recording-menu button {
   display: block;
@@ -935,6 +962,18 @@ progress{
   color: var(--muted);
   font-size: 12px;
   margin-top: 6px;
+}
+/* A disclosure inside a settings page keeps the page flow and never covers
+   the rest of the section. */
+.settings-disclosure {
+  margin-top: 14px;
+}
+.settings-disclosure > summary {
+  font-size: 12px;
+  font-weight: 600;
+}
+.settings-disclosure .disclosure-body {
+  padding-top: 10px;
 }
 .theme-options {
   display: grid;
@@ -1102,8 +1141,7 @@ input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focu
 .audio-retry { margin-top: 10px; }
 .delete-dialog { background: var(--background); }
 
-.record-trigger { margin-top: 26px; width: 100%; }
-.record-trigger + .import { margin-top: 8px; }
+.record-trigger { width: 100%; }
 .capture-card { padding: 24px; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .capture-heading { display: flex; align-items: center; gap: 10px; }
 .capture-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger-action); }
@@ -1112,9 +1150,7 @@ input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focu
 .capture-card .actions { margin-top: 16px; }
 .welcome-actions { justify-content: center; }
 
-.library-filters { display: grid; gap: 8px; padding: 0 16px 12px; }
-.library-filters input, .library-filters select { width: 100%; min-width: 0; }
-.organization { display: grid; gap: 10px; padding: 16px 0; }
+.organization { display: grid; gap: 10px; }
 .organization label { display: grid; gap: 4px; }
 .editor-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .sidebar { overflow-y: auto; }
@@ -1123,10 +1159,6 @@ input:focus-visible, .audio-player:focus-visible { outline: 3px solid var(--focu
 .editor-toolbar { flex-wrap: wrap; gap: 12px; }
 .editor-toolbar .actions { flex-wrap: wrap; }
 input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
-/* Long native source names must wrap inside the sidebar, not widen its grid. */
-.library-filters { grid-template-columns: minmax(0, 1fr); min-width: 0; }
-.library-filters > label { display: grid; gap: 6px; min-width: 0; }
-.library-filters button { white-space: normal; overflow-wrap: anywhere; }
 
 .batch-dialog { width: min(900px, calc(100vw - 32px)); }
 .batch-jobs { list-style: none; padding: 0; display: grid; gap: 12px; }
@@ -1159,3 +1191,199 @@ input { font: inherit; color: var(--text); background: var(--surface); border: 1
 
 .ai-automation .rule-enabled { display: flex; align-items: center; gap: 8px; }
 .ai-automation input[type=checkbox] { width: auto; justify-self: start; flex-shrink: 0; }
+
+/* Settings share one stable shell: navigation and controls stay reachable while
+   only the selected page scrolls. Hidden pages stay mounted to preserve drafts. */
+.settings-workspace-dialog { width: min(960px, calc(100vw - 32px)); overflow: hidden; }
+.settings-content.settings-workspace { padding: 0; display: flex; flex-direction: column; height: min(720px, calc(100dvh - 50px)); min-height: 0; overflow: hidden; }
+.settings-workspace > .settings-header { padding: 20px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.settings-workspace .settings-header h1 { font-size: clamp(24px, 3.5vw, 32px); }
+.settings-workspace .settings-header > div { min-width: 0; }
+.settings-workspace .settings-header > button { flex-shrink: 0; }
+.settings-workspace-body { display: grid; grid-template-columns: 180px minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
+.settings-navigation { display: flex; flex-direction: column; gap: 5px; padding: 16px 12px; border-right: 1px solid var(--border); overflow-y: auto; min-width: 0; background: var(--surface); }
+.settings-navigation button { display: grid; gap: 3px; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px; text-align: left; white-space: normal; overflow-wrap: anywhere; color: var(--muted); background: transparent; box-shadow: none; }
+.settings-navigation button small { font-size: 11px; font-weight: 400; }
+.settings-navigation button:hover { background: var(--background); color: var(--text); }
+.settings-navigation button[aria-current=page] { color: var(--text); border-color: var(--border); background: var(--background); }
+.settings-navigation button[aria-current=page] > span { font-weight: 700; }
+.settings-page-content { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 22px 26px; scrollbar-gutter: stable; }
+.settings-page-content .settings-section { padding: 0; border: 0; }
+.settings-page-content [hidden] { display: none !important; }
+.settings-page-content h2 { margin: 0 0 12px; font-size: 20px; }
+.settings-page-content h3 { margin: 16px 0 8px; }
+.settings-page-content .notice { margin: 0 0 16px; overflow-wrap: anywhere; }
+.settings-page-content p, .settings-page-content code { overflow-wrap: anywhere; }
+.settings-page-content .editor-tools { align-items: end; gap: 12px; }
+.settings-page-content .editor-tools > label { flex: 1 1 180px; min-width: 0; display: grid; gap: 6px; }
+.settings-page-content .editor-tools > label:has(input[type=checkbox]) { display: flex; align-items: center; }
+.settings-page-content .editor-tools input:not([type=checkbox]), .settings-page-content .editor-tools select { width: 100%; min-width: 0; }
+.settings-page-content button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.settings-workspace > .settings-footer { flex-shrink: 0; padding: 14px 24px; background: var(--surface); }
+.automation-footer > div { display: grid; gap: 4px; min-width: 0; }
+.automation-footer > button { flex-shrink: 0; }
+@media (max-width: 650px) {
+  .settings-workspace-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-navigation { flex-direction: row; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .settings-navigation button { width: auto; flex: 0 0 auto; padding: 8px 12px; }
+  .settings-navigation button small { display: none; }
+  .settings-page-content { padding: 18px; }
+  .settings-workspace > .settings-header, .settings-workspace > .settings-footer { padding: 14px 18px; }
+  .automation-footer .muted { display: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Workspace action grouping.
+
+   Secondary actions live in native disclosures that expand in the document
+   flow. Nothing is positioned over the page, so a panel can never cover the
+   player, the transcript or the editor at any window size. Record, Import,
+   playback, editing and saving stay visible; exports, find & replace, speaker
+   detection, secondary tools and library filters open when they are needed.
+   --------------------------------------------------------------------------- */
+.disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+.sidebar-actions {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 14px;
+}
+.sidebar-source {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.sidebar-source select {
+  width: 100%;
+  min-width: 0;
+}
+.sidebar-search {
+  margin-bottom: 10px;
+}
+.sidebar-search input {
+  width: 100%;
+  min-width: 0;
+}
+.sidebar-panel {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.sidebar-panel > summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sidebar-panel .disclosure-body {
+  padding-top: 10px;
+}
+.sidebar-panel button {
+  width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.sidebar-panel select,
+.sidebar-panel input {
+  width: 100%;
+  min-width: 0;
+}
+.sidebar-panel p {
+  margin: 0;
+}
+.document-actions {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.workspace-panel {
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.workspace-panel > summary {
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.workspace-panel .disclosure-body {
+  padding: 0 14px 12px;
+}
+.export-panel {
+  margin-bottom: 18px;
+}
+.export-panel .disclosure-body {
+  padding: 0 14px 14px;
+}
+.export-panel-body {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.export-group {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+.export-group h3 {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.export-group label {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.export-group select {
+  width: 100%;
+  min-width: 0;
+}
+.export-group button {
+  justify-self: start;
+}
+.export-group p {
+  margin: 0;
+}
+.export-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.find-panel,
+.speaker-panel {
+  margin: 0 0 14px;
+}
+.find-panel .editor-tools {
+  margin: 10px 0 0;
+}
+.find-panel .editor-tools input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.speaker-panel .speaker-actions {
+  margin: 0;
+}
+.speaker-panel .speaker-actions p {
+  flex: 1 1 240px;
+}
+@media (max-width: 900px) {
+  .export-panel-body {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
