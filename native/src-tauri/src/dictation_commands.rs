@@ -62,10 +62,7 @@ pub(crate) async fn dictation_stop(app: tauri::AppHandle) -> Result<Status, Stri
 }
 
 #[tauri::command]
-pub(crate) async fn dictation_pause(
-    app: tauri::AppHandle,
-    paused: bool,
-) -> Result<Status, String> {
+pub(crate) async fn dictation_pause(app: tauri::AppHandle, paused: bool) -> Result<Status, String> {
     let worker = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = worker.state::<AppState>();
@@ -92,9 +89,7 @@ pub(crate) async fn dictation_retry_save(app: tauri::AppHandle) -> Result<Status
 
 /// Retry a failed transcription from the saved recording.
 #[tauri::command]
-pub(crate) async fn dictation_retry_transcribe(
-    app: tauri::AppHandle,
-) -> Result<Status, String> {
+pub(crate) async fn dictation_retry_transcribe(app: tauri::AppHandle) -> Result<Status, String> {
     let runtime = app.state::<AppState>().dictation.clone();
     let worker = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -135,9 +130,7 @@ pub(crate) fn dictation_preview_text(
 /// worker, because the adapter blocks on AppKit work. The result reports
 /// "paste requested", never "inserted".
 #[tauri::command]
-pub(crate) async fn dictation_insert(
-    app: tauri::AppHandle,
-) -> Result<InsertOutcome, String> {
+pub(crate) async fn dictation_insert(app: tauri::AppHandle) -> Result<InsertOutcome, String> {
     let worker = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = worker.state::<AppState>();

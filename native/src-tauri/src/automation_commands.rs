@@ -191,10 +191,7 @@ pub(crate) fn retry_exports(state: State<AppState>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        path::PathBuf,
-        sync::atomic::Ordering,
-    };
+    use std::{path::PathBuf, sync::atomic::Ordering};
 
     #[test]
     fn folder_controls_only_cancel_watched_audio_work() {

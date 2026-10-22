@@ -1069,14 +1069,19 @@ mod tests {
             crate::library::get(&db, "source").unwrap().segments[0].text,
             before.segments[0].text
         );
-        assert_eq!(crate::ai::get(&db, &work.id).unwrap().source_hash, work.source_hash);
+        assert_eq!(
+            crate::ai::get(&db, &work.id).unwrap().source_hash,
+            work.source_hash
+        );
         assert!(crate::automation::settings(&db).unwrap().paused);
         // The new storage starts empty and every feature stays off.
         let settings = crate::dictation_settings::load(&db).unwrap();
         assert!(!settings.enabled);
         assert!(!settings.ai_enabled);
         assert!(settings.app_overrides.is_empty());
-        assert!(crate::dictation_settings::list_jobs(&db).unwrap().is_empty());
+        assert!(crate::dictation_settings::list_jobs(&db)
+            .unwrap()
+            .is_empty());
         // A saved job keeps no target lease or clipboard content.
         crate::dictation_settings::save_job(
             &db,

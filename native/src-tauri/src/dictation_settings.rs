@@ -103,7 +103,7 @@ impl Settings {
             if let Some(kind) = &item.ai_kind {
                 if !PROCESS_KINDS.contains(&kind.as_str()) {
                     return Err(
-                        "Per-app processing must be cleanup or a custom local prompt.".into()
+                        "Per-app processing must be cleanup or a custom local prompt.".into(),
                     );
                 }
             }
@@ -171,9 +171,11 @@ pub fn resolve_processing(settings: &Settings, bundle_id: Option<&str>) -> Proce
 /// or disabling a feature.
 pub fn load(db: &Connection) -> Result<Settings, String> {
     let json: String = db
-        .query_row("SELECT json FROM dictation_settings WHERE id=1", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT json FROM dictation_settings WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|e| format!("Could not read dictation settings: {e}"))?;
     if json.len() > 100_000 {
         return Err("Saved dictation settings are oversized. Reset them in Settings.".into());

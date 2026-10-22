@@ -241,10 +241,7 @@ impl DictationRuntime {
         {
             if let Some(app) = self.app.clone() {
                 let registrar = crate::dictation_shortcut::PluginRegistrar::new(app);
-                self.registration
-                    .lock()
-                    .unwrap()
-                    .clear(&registrar);
+                self.registration.lock().unwrap().clear(&registrar);
             }
         }
     }
@@ -254,26 +251,24 @@ impl DictationRuntime {
     pub fn shortcut_edge(self: &Arc<Self>, edge: KeyEdge) {
         let (mode, phase, busy) = {
             let runtime = self.lock();
-            let phase = runtime.job.as_ref().map(|job| job.phase).unwrap_or(Phase::Idle);
+            let phase = runtime
+                .job
+                .as_ref()
+                .map(|job| job.phase)
+                .unwrap_or(Phase::Idle);
             (
                 runtime.settings.mode,
                 phase,
                 runtime.job.is_some() && !matches!(phase, Phase::Idle),
             )
         };
-        let action = self
-            .latch
-            .lock()
-            .unwrap()
-            .edge(edge, mode, phase, busy);
+        let action = self.latch.lock().unwrap().edge(edge, mode, phase, busy);
         match action {
             ShortcutAction::None => {}
             ShortcutAction::Busy => {
                 self.set_error("Dictation is busy. Finish the current step first.");
             }
-            ShortcutAction::Start => self.spawn(|runtime, state| {
-                runtime.start(state).map(|_| ())
-            }),
+            ShortcutAction::Start => self.spawn(|runtime, state| runtime.start(state).map(|_| ())),
             ShortcutAction::StopAndSave => self.spawn(|runtime, state| runtime.stop_and_run(state)),
             ShortcutAction::ShowReview => self.spawn(|runtime, state| {
                 runtime.show_review(state);
@@ -425,8 +420,13 @@ impl DictationRuntime {
                 && !insert_dispatched,
             can_dismiss: !matches!(
                 phase,
-                Phase::Idle | Phase::Starting | Phase::Recording | Phase::Paused | Phase::Stopped
-                    | Phase::Saving | Phase::SaveFailed
+                Phase::Idle
+                    | Phase::Starting
+                    | Phase::Recording
+                    | Phase::Paused
+                    | Phase::Stopped
+                    | Phase::Saving
+                    | Phase::SaveFailed
             ),
         }
     }
@@ -642,7 +642,10 @@ impl DictationRuntime {
         self.emit_state();
         let language = self.settings().language;
         let note_id = saved.note_id.clone();
-        if let Err(error) = self.pipeline.transcribe(self.app.as_ref(), state, &note_id, &language) {
+        if let Err(error) = self
+            .pipeline
+            .transcribe(self.app.as_ref(), state, &note_id, &language)
+        {
             {
                 let mut runtime = self.lock();
                 if let Some(job) = runtime.job.as_mut() {
@@ -664,10 +667,8 @@ impl DictationRuntime {
             .as_ref()
             .and_then(|job| job.target.as_ref())
             .map(|target| target.app.bundle_id.clone());
-        let policy = dictation_settings::resolve_processing(
-            &self.settings(),
-            policy_bundle.as_deref(),
-        );
+        let policy =
+            dictation_settings::resolve_processing(&self.settings(), policy_bundle.as_deref());
         {
             let mut runtime = self.lock();
             if let Some(job) = runtime.job.as_mut() {
@@ -689,7 +690,12 @@ impl DictationRuntime {
         }
     }
 
-    fn run_processing(&self, state: &AppState, note_id: &str, policy: &dictation_settings::ProcessingPolicy) {
+    fn run_processing(
+        &self,
+        state: &AppState,
+        note_id: &str,
+        policy: &dictation_settings::ProcessingPolicy,
+    ) {
         let language = self.settings().language;
         match self.pipeline.process(
             self.app.as_ref(),
@@ -762,7 +768,10 @@ impl DictationRuntime {
         let note_id = {
             let mut runtime = self.lock();
             let job = runtime.job.as_mut().ok_or("No dictation job is active.")?;
-            let note_id = job.note_id.clone().ok_or("There is no saved recording to retry.")?;
+            let note_id = job
+                .note_id
+                .clone()
+                .ok_or("There is no saved recording to retry.")?;
             if job.guard.is_none() {
                 job.guard = Some(state.claim()?);
             }
@@ -773,7 +782,10 @@ impl DictationRuntime {
         self.persist(state);
         self.emit_state();
         let language = self.settings().language;
-        if let Err(error) = self.pipeline.transcribe(self.app.as_ref(), state, &note_id, &language) {
+        if let Err(error) = self
+            .pipeline
+            .transcribe(self.app.as_ref(), state, &note_id, &language)
+        {
             let mut runtime = self.lock();
             if let Some(job) = runtime.job.as_mut() {
                 job.phase = Phase::Failed;
@@ -794,10 +806,8 @@ impl DictationRuntime {
             .as_ref()
             .and_then(|job| job.target.as_ref())
             .map(|target| target.app.bundle_id.clone());
-        let policy = dictation_settings::resolve_processing(
-            &self.settings(),
-            policy_bundle.as_deref(),
-        );
+        let policy =
+            dictation_settings::resolve_processing(&self.settings(), policy_bundle.as_deref());
         {
             let mut runtime = self.lock();
             if let Some(job) = runtime.job.as_mut() {
@@ -825,7 +835,10 @@ impl DictationRuntime {
         let note_id = {
             let mut runtime = self.lock();
             let job = runtime.job.as_mut().ok_or("No dictation job is active.")?;
-            let note_id = job.note_id.clone().ok_or("There is no saved recording to process.")?;
+            let note_id = job
+                .note_id
+                .clone()
+                .ok_or("There is no saved recording to process.")?;
             if job.guard.is_none() {
                 job.guard = Some(state.claim()?);
             }
@@ -841,10 +854,8 @@ impl DictationRuntime {
             .as_ref()
             .and_then(|job| job.target.as_ref())
             .map(|target| target.app.bundle_id.clone());
-        let policy = dictation_settings::resolve_processing(
-            &self.settings(),
-            policy_bundle.as_deref(),
-        );
+        let policy =
+            dictation_settings::resolve_processing(&self.settings(), policy_bundle.as_deref());
         self.run_processing(state, &note_id, &policy);
         Ok(())
     }
@@ -868,7 +879,10 @@ impl DictationRuntime {
     pub fn insert(&self, state: &AppState) -> Result<InsertOutcome, String> {
         let (token, text, restore) = {
             let runtime = self.lock();
-            let job = runtime.job.as_ref().ok_or("There is no dictation to insert.")?;
+            let job = runtime
+                .job
+                .as_ref()
+                .ok_or("There is no dictation to insert.")?;
             if job.phase != Phase::Preview {
                 return Err("Review the transcript before inserting it.".into());
             }
@@ -897,12 +911,17 @@ impl DictationRuntime {
             )
         };
         let Some(platform) = self.platform.clone() else {
-            return Err("Text insertion is not available in this build. Copy the text instead.".into());
+            return Err(
+                "Text insertion is not available in this build. Copy the text instead.".into(),
+            );
         };
         let request_id = uuid::Uuid::new_v4().to_string();
         {
             let mut runtime = self.lock();
-            let job = runtime.job.as_mut().ok_or("There is no dictation to insert.")?;
+            let job = runtime
+                .job
+                .as_mut()
+                .ok_or("There is no dictation to insert.")?;
             // Mark the request as spent before dispatching, so a double click
             // can never post a second paste.
             job.insert_dispatched = true;
@@ -975,7 +994,10 @@ impl DictationRuntime {
     pub fn dismiss(&self, state: &AppState) -> Result<(), String> {
         let (token, job_id) = {
             let runtime = self.lock();
-            let job = runtime.job.as_ref().ok_or("There is no dictation to dismiss.")?;
+            let job = runtime
+                .job
+                .as_ref()
+                .ok_or("There is no dictation to dismiss.")?;
             if matches!(
                 job.phase,
                 Phase::Starting
@@ -1011,7 +1033,10 @@ impl DictationRuntime {
     pub fn discard(&self, state: &AppState) -> Result<(), String> {
         let (token, job_id) = {
             let runtime = self.lock();
-            let job = runtime.job.as_ref().ok_or("There is no dictation to discard.")?;
+            let job = runtime
+                .job
+                .as_ref()
+                .ok_or("There is no dictation to discard.")?;
             if !matches!(
                 job.phase,
                 Phase::Recording | Phase::Paused | Phase::Stopped | Phase::SaveFailed
@@ -1192,13 +1217,9 @@ impl DictationRuntime {
                 .processed_text
                 .clone()
                 .unwrap_or_else(|| row.original_text.clone()),
-            error: Some(
-                row.error
-                    .clone()
-                    .unwrap_or_else(|| {
-                        "Dictation was interrupted. Review the saved text or copy it.".to_string()
-                    }),
-            ),
+            error: Some(row.error.clone().unwrap_or_else(|| {
+                "Dictation was interrupted. Review the saved text or copy it.".to_string()
+            })),
             warning: None,
             paste_message: None,
             clipboard: None,
@@ -1483,10 +1504,8 @@ mod tests {
     }
 
     fn fixture(name: &str) -> Fixture {
-        let root = std::env::temp_dir().join(format!(
-            "golos-dictation-{name}-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("golos-dictation-{name}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("audio")).unwrap();
         let db = rusqlite::Connection::open_in_memory().unwrap();
         crate::library::init(&db, Path::new("in-memory")).unwrap();
@@ -1544,7 +1563,11 @@ mod tests {
         let fixture = fixture("save-failure");
         fixture.state.dictation.start(&fixture.state).unwrap();
         *fixture.pipeline.save_failures.lock().unwrap() = 1;
-        fixture.state.dictation.stop_and_run(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .stop_and_run(&fixture.state)
+            .unwrap();
         let status = fixture.state.dictation.status();
         assert_eq!(status.phase, Phase::SaveFailed);
         assert!(status.can_retry_save);
@@ -1573,7 +1596,11 @@ mod tests {
         let fixture = fixture("transcribe-failure");
         fixture.state.dictation.start(&fixture.state).unwrap();
         *fixture.pipeline.transcribe_failures.lock().unwrap() = 1;
-        fixture.state.dictation.stop_and_run(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .stop_and_run(&fixture.state)
+            .unwrap();
         let status = fixture.state.dictation.status();
         assert_eq!(status.phase, Phase::Failed);
         assert!(status.can_retry_transcribe);
@@ -1594,22 +1621,36 @@ mod tests {
     fn local_processing_is_separate_from_the_original_text_and_can_be_retried() {
         let fixture = fixture("processing");
         // Local processing is opt-in and off by default.
-        fixture.state.dictation.set_settings(crate::dictation_settings::Settings {
-            ai_enabled: true,
-            ..crate::dictation_settings::Settings::default()
-        });
+        fixture
+            .state
+            .dictation
+            .set_settings(crate::dictation_settings::Settings {
+                ai_enabled: true,
+                ..crate::dictation_settings::Settings::default()
+            });
         fixture.state.dictation.start(&fixture.state).unwrap();
         *fixture.pipeline.process_failures.lock().unwrap() = 1;
-        fixture.state.dictation.stop_and_run(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .stop_and_run(&fixture.state)
+            .unwrap();
         let status = fixture.state.dictation.status();
         assert_eq!(status.phase, Phase::Preview);
         assert_eq!(status.original_text, "Dictated words.");
         assert!(status.processed_text.is_none());
         assert!(status.can_retry_process);
         assert!(status.error.unwrap().contains("Local processing failed"));
-        fixture.state.dictation.retry_process(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .retry_process(&fixture.state)
+            .unwrap();
         let status = fixture.state.dictation.status();
-        assert_eq!(status.processed_text.as_deref(), Some("Cleaned dictated words."));
+        assert_eq!(
+            status.processed_text.as_deref(),
+            Some("Cleaned dictated words.")
+        );
         assert_eq!(status.processed_model.as_deref(), Some("local-model"));
         assert_eq!(status.preview_text, "Cleaned dictated words.");
         std::fs::remove_dir_all(fixture.root).ok();
@@ -1619,7 +1660,11 @@ mod tests {
     fn insertion_is_explicit_single_use_and_never_reported_as_inserted() {
         let fixture = fixture("insert");
         fixture.state.dictation.start(&fixture.state).unwrap();
-        fixture.state.dictation.stop_and_run(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .stop_and_run(&fixture.state)
+            .unwrap();
         let outcome = fixture.state.dictation.insert(&fixture.state).unwrap();
         match outcome {
             InsertOutcome::PasteRequested { message, .. } => {
@@ -1640,7 +1685,11 @@ mod tests {
     fn a_refused_insert_allows_a_fresh_request_but_an_uncertain_one_does_not() {
         let fixture = fixture("insert-refused");
         fixture.state.dictation.start(&fixture.state).unwrap();
-        fixture.state.dictation.stop_and_run(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .stop_and_run(&fixture.state)
+            .unwrap();
         *fixture.platform.refuse.lock().unwrap() = true;
         let outcome = fixture.state.dictation.insert(&fixture.state).unwrap();
         assert!(matches!(outcome, InsertOutcome::Refused { .. }));
@@ -1657,7 +1706,11 @@ mod tests {
     fn a_failed_insert_is_never_retried_automatically() {
         let fixture = fixture("insert-timeout");
         fixture.state.dictation.start(&fixture.state).unwrap();
-        fixture.state.dictation.stop_and_run(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .stop_and_run(&fixture.state)
+            .unwrap();
         *fixture.platform.fail.lock().unwrap() = true;
         assert!(fixture.state.dictation.insert(&fixture.state).is_err());
         let status = fixture.state.dictation.status();
@@ -1672,7 +1725,11 @@ mod tests {
         fixture.state.dictation.start(&fixture.state).unwrap();
         // An active capture cannot be dismissed.
         assert!(fixture.state.dictation.dismiss(&fixture.state).is_err());
-        fixture.state.dictation.stop_and_run(&fixture.state).unwrap();
+        fixture
+            .state
+            .dictation
+            .stop_and_run(&fixture.state)
+            .unwrap();
         let note_id = fixture.state.dictation.status().note_id.clone().unwrap();
         fixture.state.dictation.dismiss(&fixture.state).unwrap();
         let status = fixture.state.dictation.status();
@@ -1703,9 +1760,7 @@ mod tests {
         // The pipeline is free again.
         assert!(fixture.state.claim().is_ok());
         let db = fixture.state.db().unwrap();
-        assert!(crate::library::list(&db)
-            .unwrap()
-            .is_empty());
+        assert!(crate::library::list(&db).unwrap().is_empty());
         std::fs::remove_dir_all(fixture.root).ok();
     }
 

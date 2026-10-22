@@ -85,8 +85,9 @@ impl Registration {
     pub fn clear(&mut self, registrar: &dyn Registrar) {
         if let Some(current) = self.current.take() {
             if let Err(error) = registrar.unregister(&current) {
-                self.last_error =
-                    Some(format!("The dictation shortcut could not be removed: {error}"));
+                self.last_error = Some(format!(
+                    "The dictation shortcut could not be removed: {error}"
+                ));
             }
         }
     }
@@ -131,12 +132,10 @@ pub fn plugin_handler(app: &AppHandle, event: &ShortcutEvent) {
     let Some(state) = app.try_state::<crate::AppState>() else {
         return;
     };
-    state
-        .dictation
-        .shortcut_edge(match event.state {
-            tauri_plugin_global_shortcut::ShortcutState::Pressed => KeyEdge::Pressed,
-            tauri_plugin_global_shortcut::ShortcutState::Released => KeyEdge::Released,
-        });
+    state.dictation.shortcut_edge(match event.state {
+        tauri_plugin_global_shortcut::ShortcutState::Pressed => KeyEdge::Pressed,
+        tauri_plugin_global_shortcut::ShortcutState::Released => KeyEdge::Released,
+    });
 }
 
 #[cfg(test)]
@@ -193,10 +192,7 @@ mod tests {
                 "unregister:shift+super+Space",
             ]
         );
-        assert_eq!(
-            registration.current().unwrap().display,
-            "⌃⌥F5".to_string()
-        );
+        assert_eq!(registration.current().unwrap().display, "⌃⌥F5".to_string());
     }
 
     #[cfg(target_os = "macos")]

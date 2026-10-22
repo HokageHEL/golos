@@ -222,12 +222,7 @@ pub(crate) fn process_for_dictation(
             source_language: language.into(),
         };
         (
-            ai::create(
-                &db,
-                &request,
-                &settings.model,
-                settings.context_window,
-            )?,
+            ai::create(&db, &request, &settings.model, settings.context_window)?,
             settings.port,
         )
     };

@@ -12,8 +12,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Golos", "width": 1180, "height": 780, "minWidth": 760, "minHeight": 560 },
-      { "label": "overlay", "title": "Golos Dictation", "url": "index.html?overlay=1", "width": 380, "height": 220, "resizable": false, "decorations": false, "transparent": true, "visible": false, "focus": false, "alwaysOnTop": true, "skipTaskbar": true, "shadow": true }
+      { "label": "main", "title": "Golos", "width": 1180, "height": 780, "minWidth": 760, "minHeight": 560 }
     ],
     "security": {
       "assetProtocol": { "enable": true },

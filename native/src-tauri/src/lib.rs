@@ -35,10 +35,10 @@ mod recording;
 mod speaker_models;
 mod watch;
 
+use dictation_runtime::DictationRuntime;
 use library::{Note, Segment};
 use rusqlite::{params, Connection};
 use serde::Serialize;
-use dictation_runtime::DictationRuntime;
 use std::{
     collections::HashSet,
     fs,
@@ -1017,7 +1017,9 @@ async fn transcribe(app: tauri::AppHandle, id: String, language: String) -> Resu
         let _guard = guard;
         let state = app.state::<AppState>();
         transcribe_note(&app, &state, &id, &language)
-    }).await.map_err(|e| e.to_string())?
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The one transcription pipeline. The main window and the global dictation
@@ -1032,27 +1034,67 @@ pub(crate) fn transcribe_note(
     let path = state.audio_path(id)?;
     {
         let db = state.db()?;
-        if db.execute("UPDATE notes SET status='processing',error=NULL WHERE id=?1 AND status!='done'", [id])
-            .map_err(|e| e.to_string())? != 1 { return Err("Recording is missing or already transcribed.".into()); }
+        if db
+            .execute(
+                "UPDATE notes SET status='processing',error=NULL WHERE id=?1 AND status!='done'",
+                [id],
+            )
+            .map_err(|e| e.to_string())?
+            != 1
+        {
+            return Err("Recording is missing or already transcribed.".into());
+        }
     }
     let event_app = app.clone();
     let note_id = id.to_string();
-    let result = engine::transcribe(&state.root.join("model.bin"), &path, language,
-        state.cancelled.clone(), move |percent| {
-            let _ = event_app.emit("transcription-progress", Progress { note_id: note_id.clone(), percent });
-        });
+    let result = engine::transcribe(
+        &state.root.join("model.bin"),
+        &path,
+        language,
+        state.cancelled.clone(),
+        move |percent| {
+            let _ = event_app.emit(
+                "transcription-progress",
+                Progress {
+                    note_id: note_id.clone(),
+                    percent,
+                },
+            );
+        },
+    );
     let db = state.db()?;
     match result {
         Ok(segments) => {
             let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
-            tx.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
-                params![serde_json::to_string(&segments).map_err(|e| e.to_string())?, id]).map_err(|e| e.to_string())?;
+            tx.execute(
+                "UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
+                params![
+                    serde_json::to_string(&segments).map_err(|e| e.to_string())?,
+                    id
+                ],
+            )
+            .map_err(|e| e.to_string())?;
             let warning = ai_automation::schedule_atomic(&tx, id, "single").err();
             tx.commit().map_err(|e| e.to_string())?;
-            if let Some(error)=warning { let _=app.emit("automation-error",format!("Transcript saved; automatic local AI was not scheduled: {error}")); }
-            if let Err(error)=automation::schedule_export(&db,id) { let _=app.emit("automation-error",error); }
-            Ok(()) }
-        Err(error) => { db.execute("UPDATE notes SET status='failed',error=?1 WHERE id=?2", params![error, id]).map_err(|e| e.to_string())?; Err(error) }
+            if let Some(error) = warning {
+                let _ = app.emit(
+                    "automation-error",
+                    format!("Transcript saved; automatic local AI was not scheduled: {error}"),
+                );
+            }
+            if let Err(error) = automation::schedule_export(&db, id) {
+                let _ = app.emit("automation-error", error);
+            }
+            Ok(())
+        }
+        Err(error) => {
+            db.execute(
+                "UPDATE notes SET status='failed',error=?1 WHERE id=?2",
+                params![error, id],
+            )
+            .map_err(|e| e.to_string())?;
+            Err(error)
+        }
     }
 }
 
@@ -1452,7 +1494,6 @@ pub(crate) fn test_state(root: PathBuf, db: Connection) -> AppState {
 mod tests {
     use super::*;
     use rusqlite::Connection;
-
 
     #[test]
     fn captured_audio_survives_failed_save_then_becomes_playable_library_entry() {
