@@ -16,16 +16,16 @@ Unchecked items here are proposed work, not implemented functionality.
 - Sync is an explicit opt-in convenience, not the source of truth or an inference
   service. Start with transcript/metadata sync; audio transfer is a separate,
   consented feature. Do not upload models, raw audio, logs, or transcripts silently.
-- Keep existing Next.js/cloud billing and transcription flows independent. Store
-  purchases, diarization, summaries, and an engine rewrite are not prerequisites
+- The legacy Next.js/cloud app has been retired; keep the native app independent
+  of accounts and cloud infrastructure. Store purchases, summaries, and an engine rewrite are not prerequisites
   for this product's first cross-platform beta.
 
 ## What exists, and what does not
 
 Verified by source inspection, not newly executed device tests:
 
-- `native/` contains a React/Vite UI and Tauri/Rust application, independent of
-  the legacy Next.js frontend.
+- `native/` contains the React/Vite UI and Tauri/Rust application. The legacy
+  Next.js frontend and its service configuration have been removed.
 - `native/src-tauri/src/import.rs` decodes common audio formats (including Ogg
   Vorbis and mono/stereo Opus), downmixes and resamples to local WAV, with
   cleanup and a 30-minute/512-MiB import cap.
@@ -45,13 +45,13 @@ Verified by source inspection, not newly executed device tests:
 - Inference reads the complete normalized audio into memory. Model setup is
   manual. Local playback, seeking, and paragraph highlighting are implemented.
   Optional speaker labeling uses a separate manually imported ONNX model pair.
-  Recording, native search, and native DOCX export are absent.
+  In-transcript search includes unsaved edits and occurrence navigation. Recording,
+  library-wide search, and native DOCX export are absent.
 - Bundle configuration currently targets a macOS app. Mobile icons and a mobile
   entry point do not establish working Android/iOS projects or device validation.
-- Existing Supabase tables describe cloud transcription jobs and billing, not a
-  local-first replication protocol. Reuse authentication infrastructure only
-  after a native security review; do not sync local SQLite files or reuse job
-  records as replicated notes.
+- No native sync transport or account integration exists. Any future service
+  needs a separate local-first replication protocol; do not sync SQLite files
+  or reuse historical cloud job records as replicated notes.
 
 ## Architecture decisions
 
@@ -94,8 +94,8 @@ Verified by source inspection, not newly executed device tests:
 
 ### P0 — Reproducible baseline and platform risk spikes
 
-- Establish clean-checkout setup and CI for web/native TypeScript, existing web
-  tests, Rust tests, formatting and Clippy. Keep real-inference tests explicit and
+- Establish clean-checkout setup and CI for native TypeScript, frontend helper
+  and workflow tests, Rust tests, formatting and Clippy. Keep real-inference tests explicit and
   use public fixtures plus pinned models; no personal audio in CI.
 - Add macOS/Windows/Linux compile and packaging jobs, with per-platform bundles
   rather than the current macOS-only target. Verify clean installs on actual OSes.
@@ -180,8 +180,9 @@ without duplicated/missing chunk-boundary speech.
   Do not remove the active working model before its replacement is validated.
   Exercise existing-model replacement on Windows and termination at every install
   stage, including startup rollback/repair, instead of assuming rename portability.
-- Add playback, microphone recording with native permission handling, library
-  search and optional DOCX export by reusing pure existing transcript utilities.
+- Playback, timestamp navigation, transcript highlighting, and in-transcript
+  search are implemented. Add microphone recording with native permission
+  handling, library-wide search and optional DOCX export.
 - Add responsive layout, English/Ukrainian UI, keyboard/screen-reader workflows,
   explicit job/error states and onboarding that accurately describes model setup.
 - Evaluate acceleration behind a CPU fallback; adopt only measured improvements.
@@ -248,7 +249,10 @@ schema/protocol decisions and final integration/review with the coordinating age
 | H | Authenticated sync transport | G; privacy/key design | Isolation, reconnect and replay tests |
 | I | Localization/accessibility/mobile layout | Stable IPC | Keyboard, screen-reader and touch checks |
 
-Start implementation with **A + B**, while **F** exposes mobile risks early.
+The initial **A + B** work added desktop CI/packaging configuration and versioned
+migrations; successful remote CI and real-device runs remain separate acceptance
+evidence. Next, finish the current UI, then implement **C** and safe model setup
+from **D**, while **F** continues to expose mobile risks.
 Avoid simultaneous edits to shared IPC/schema files; each package must include
 tests and a bounded review. Do not assign agents a vague “implement all sync” task.
 

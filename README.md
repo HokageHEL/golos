@@ -38,7 +38,7 @@ desktop app with the React/Vite development server.
 transcription, and saving require the Tauri app.
 
 To transcribe, import a compatible whisper.cpp GGML `.bin` model, then import an
-audio file and choose **Transcribe offline**. The current default recommendation
+audio file and choose **Transcribe**. The current default recommendation
 is multilingual `ggml-small-q5_1.bin` (about 190 MB); `.en` models support English
 only. See the [native guide](native/README.md#first-transcription) for model sources,
 codec limitations, storage details, and real-inference test instructions.
@@ -71,8 +71,9 @@ usable offline without an account.
 
 Next work includes bounded-memory inference beyond the 30-minute cap, verified
 model downloads, device benchmarks and acceleration evaluation, microphone
-recording, search, DOCX export, Ukrainian UI, and accessibility. Playback and
-optional offline speaker detection are already implemented; see the
+recording, library-wide search, DOCX export, Ukrainian UI, and accessibility.
+Playback, in-transcript search, and optional offline speaker detection are
+already implemented; see the
 [speaker guide](native/SPEAKER_DIARIZATION.md) for setup and validation limits.
 
 See the [native roadmap](docs/NATIVE_ROADMAP.md) for detailed release criteria and

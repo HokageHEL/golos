@@ -7,6 +7,7 @@ export default function DeleteRecordingDialog({ title, busy, error, onDelete, on
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
+    (dialog?.querySelector<HTMLElement>('[autofocus]') ?? dialog?.querySelector<HTMLElement>('button'))?.focus();
     return () => dialog?.close();
   }, []);
   return <dialog ref={ref} className="delete-dialog" aria-labelledby="delete-recording-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>

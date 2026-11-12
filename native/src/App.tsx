@@ -10,9 +10,10 @@ import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';
 import DeleteRecordingDialog from './DeleteRecordingDialog';
 import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
 import { api, nativeAvailable, type Note, type Setup } from './api';
-import Settings from './Settings';
+import Settings, { type SettingsSection } from './Settings';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 import { findTranscriptMatches, type TranscriptMatch } from './review';
+import { readPreferences, savePreferences } from './preferences';
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -25,15 +26,15 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(nativeAvailable);
   const [dirty, setDirty] = useState(false);
-  const [language, setLanguage] = useState('auto');
+  const [preferences, setPreferences] = useState(readPreferences);
   const [progress, setProgress] = useState(0);
-  const [speakerCount, setSpeakerCount] = useState('auto');
   const [cancelRequested, setCancelRequested] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Note | null>(null);
   const [recordingMenu, setRecordingMenu] = useState<RecordingMenuTarget | null>(null);
-  const [autoSpeakers, setAutoSpeakers] = useState(true);
+  const { language, autoSpeakers, speakerCount } = preferences;
+  const [editSpeakers, setEditSpeakers] = useState(false);
   const closeMenu = useCallback(() => setRecordingMenu(null), []);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(nativeAvailable);
@@ -41,6 +42,7 @@ export default function App() {
   const [playheadMs, setPlayheadMs] = useState(0);
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance');
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [query, setQuery] = useState('');
   const [matchIndex, setMatchIndex] = useState(-1);
@@ -61,6 +63,12 @@ export default function App() {
     if (theme === 'system') media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
   }, [theme]);
+
+  useEffect(() => { savePreferences(preferences); }, [preferences]);
+
+  function updatePreferences(changes: Partial<typeof preferences>) {
+    setPreferences(current => ({ ...current, ...changes }));
+  }
 
   useEffect(() => {
     if (!nativeAvailable) return;
@@ -113,6 +121,9 @@ export default function App() {
     setBusy(label); setError(null); setMessage(null);
     try { await task(); } catch (e) { setError(errorText(e)); } finally { setBusy(null); }
   }
+  function openSettings(section: SettingsSection = 'appearance') {
+    setSettingsSection(section); setSettingsOpen(true);
+  }
   // Reset playback when the selected recording changes or is deleted: the
   // player is keyed per recording, so stopping and clearing the playhead here
   // also drops any highlight.
@@ -122,7 +133,7 @@ export default function App() {
   }
   function select(note: Note) {
     if (note.id !== selected) { resetPlayback(); setQuery(''); setMatchIndex(-1); setSelection(null); }
-    setSelected(note.id); setDraft(note.segments); setDirty(false); setConfirmDelete(null); setMessage(null); setError(null);
+    setEditSpeakers(false); setSelected(note.id); setDraft(note.segments); setDirty(false); setConfirmDelete(null); setMessage(null); setError(null);
   }
   function seekTo(ms: number) {
     setSeekRequest(current => ({ ms, nonce: (current?.nonce ?? 0) + 1, play: true }));
@@ -214,26 +225,26 @@ export default function App() {
   return <div className="app">
     <aside className="sidebar">
       <a className="brand" href="#">golos<span className="brand-dot">●</span></a>
-      <p className="tagline">Your words. Your device.</p>
       <button className="primary import" disabled={locked || dirty} onClick={importAudio}>＋ Import recording</button>
       <div className="library-heading"><h2>Library</h2><span>{notes.length}</span></div>
       <nav aria-label="Recordings" className="recordings">
         {loading && <p className="muted">Opening your library…</p>}
-        {!loading && !notes.length && <p className="muted empty-library">Your recordings will appear here. Everything stays on this device.</p>}
-        {notes.map(note => <button key={note.id} className={`recording ${selected === note.id ? 'selected' : ''}`}
-          disabled={locked || dirty} onClick={() => select(note)}
-          onContextMenu={event => { event.preventDefault(); if (!locked && !dirty) setRecordingMenu({ note, x: event.clientX, y: event.clientY }); }}
-          onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); const bounds = event.currentTarget.getBoundingClientRect(); setRecordingMenu({ note, x: bounds.left + 12, y: bounds.bottom }); } }}>
-          <span className="recording-title">{note.title}</span>
-          <span className="recording-meta">{formatClock(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
-        </button>)}
+        {!loading && !notes.length && <p className="muted empty-library">Your recordings will appear here.</p>}
+        {notes.map(note => <div key={note.id} className={`recording-row ${selected === note.id ? 'selected' : ''}`}>
+          <button className="recording" disabled={locked || dirty} onClick={() => select(note)}
+            onContextMenu={event => { event.preventDefault(); if (!locked && !dirty) setRecordingMenu({ note, x: event.clientX, y: event.clientY, origin: event.currentTarget }); }}
+            onKeyDown={event => { if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); const bounds = event.currentTarget.getBoundingClientRect(); setRecordingMenu({ note, x: bounds.left + 12, y: bounds.bottom, origin: event.currentTarget }); } }}>
+            <span className="recording-title">{note.title}</span>
+            <span className="recording-meta">{formatClock(note.durationSeconds * 1000)} · {note.status === 'done' ? 'Transcribed' : note.status === 'failed' ? 'Try again' : note.status === 'processing' ? 'Processing' : 'Ready'}</span>
+          </button>
+          <button className="recording-more" aria-label={`Actions for ${note.title}`} aria-haspopup="menu" aria-expanded={recordingMenu?.note.id === note.id && recordingMenu.origin.classList.contains('recording-more')} disabled={locked || dirty} onClick={event => { if (recordingMenu?.origin === event.currentTarget) { closeMenu(); return; } const bounds = event.currentTarget.getBoundingClientRect(); setRecordingMenu({ note, x: bounds.right - 216, y: bounds.bottom, origin: event.currentTarget }); }}>⋯</button>
+        </div>)}
       </nav>
-      <button className="settings-trigger" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}><span aria-hidden="true">⚙</span> Settings</button>
+      <button className="settings-trigger" aria-haspopup="dialog" onClick={() => openSettings()}><span aria-hidden="true">⚙</span> Settings</button>
       <div className="sidebar-footer"><span className="status-dot"/> Local processing <span className="version">Preview 0.1</span></div>
     </aside>
 
     <main>
-      <header className="topbar"><span>Private transcription</span><span className="pill">No account needed</span></header>
       <div className="workspace">
         {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to import files, transcribe, and save to your local library.</div>}
         {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
@@ -242,15 +253,14 @@ export default function App() {
 
         {!active ? <section className="welcome">
           <div className="wave" aria-hidden="true">{[18, 36, 60, 42, 80, 54, 30, 60, 38, 18].map((height, i) => <span key={i} style={{ height }}/>)}</div>
-          <div className="eyebrow">MAKE ROOM FOR THE CONVERSATION</div>
-          <h1>From spoken words<br/>to something you can keep.</h1>
-          <p>Import a recording, turn it into text, and make it your own.<br/>Your audio stays with you.</p>
+          <h1>Start with a recording</h1>
+          <p>Transcribe and edit on your device.</p>
           <button className="primary" disabled={locked} onClick={importAudio}>Import your first recording</button>
-          <p className="format-note">WAV, MP3, M4A/AAC, FLAC, Ogg (Vorbis/Opus), AIFF · Up to 30 minutes / 512 MiB</p>
+          <p className="format-note">Up to 30 minutes · 512 MiB</p>
         </section> : <section className="document">
-          <div className="document-heading"><div><div className="eyebrow">RECORDING</div><h1>{active.title}</h1>
-            <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {formatClock(active.durationSeconds * 1000)} · Stored locally</p></div>
-            <button className="text-button danger" disabled={locked || dirty} onClick={() => { setError(null); setConfirmDelete(active); }}>Delete</button></div>
+          <div className="document-heading"><div><h1>{active.title}</h1>
+            <p className="muted">{new Date(active.createdAt * 1000).toLocaleDateString()} · {formatClock(active.durationSeconds * 1000)}</p></div>
+            <button className="secondary document-menu-trigger" disabled={locked} aria-haspopup="menu" aria-expanded={recordingMenu?.workspace === true} onClick={event => { if (recordingMenu?.origin === event.currentTarget) { closeMenu(); return; } const bounds = event.currentTarget.getBoundingClientRect(); setRecordingMenu({ note: active, x: bounds.right - 216, y: bounds.bottom + 4, origin: event.currentTarget, workspace: true }); }}>Actions <span aria-hidden="true">▾</span></button></div>
 
           {nativeAvailable && confirmDelete?.id !== active.id && <AudioPlayer
             key={`${active.id}:${audioAttempt}`}
@@ -259,7 +269,6 @@ export default function App() {
             title={active.title}
             durationMs={active.durationSeconds * 1000}
             currentMs={playheadMs}
-            activeSegment={activeIndex === null ? null : draft[activeIndex]}
             seekRequest={seekRequest}
             loading={audioLoading}
             error={audioError}
@@ -268,13 +277,10 @@ export default function App() {
           />}
 
           {active.status !== 'done' && <div className="transcribe-card">
-            <div><h2>{active.status === 'failed' ? 'Ready for another try' : 'Ready when you are'}</h2><p>Transcription runs locally. Audio is automatically converted to the format Whisper needs.</p>
+            <div><h2>{active.status === 'failed' ? 'Ready for another try' : 'Ready to transcribe'}</h2>
               {active.error && <p className="error-text">{active.error}</p>}</div>
-            {!loading && !setup?.modelReady && <p>Choose a model in <button className="inline-button" onClick={() => setSettingsOpen(true)}>Settings</button> to get started.</p>}
-            <div className="actions"><label>Audio language<select value={language} disabled={locked} onChange={e => setLanguage(e.target.value)}>
-              <option value="auto">Detect automatically</option><option value="en">English</option><option value="uk">Ukrainian</option></select></label>
-              {setup?.diarizationReady && <label className="auto-speakers"><input type="checkbox" checked={autoSpeakers} disabled={locked} onChange={e => setAutoSpeakers(e.target.checked)}/> Detect speakers after transcription</label>}
-              <button className="primary" disabled={locked || !setup?.modelReady} onClick={transcribe}>Transcribe offline</button></div>
+            {!loading && !setup?.modelReady && <p>Choose a model in <button className="inline-button" onClick={() => openSettings('transcription')}>Settings</button> to get started.</p>}
+            <div className="actions"><button className="primary" disabled={locked || !setup?.modelReady} onClick={transcribe}>Transcribe</button><button className="text-button" onClick={() => openSettings('transcription')}>Options</button></div>
           </div>}
 
           {busy && <div className="processing" role="status"><span>{busy}{busy === 'Transcribing on your device' ? ` · ${progress}%` : '…'}</span>
@@ -282,15 +288,8 @@ export default function App() {
             {busy === 'Transcribing on your device' && <><progress value={progress} max={100}/><button className="secondary" onClick={() => { void api.cancel().catch(e => setError(errorText(e))); }}>Cancel</button></>}</div>}
 
           {active.status === 'done' && <>
-            <div className="speaker-actions"><label>Speakers<select value={speakerCount} disabled={locked || dirty} onChange={e => setSpeakerCount(e.target.value)}>
-              <option value="auto">Detect automatically</option>{[1, 2, 3, 4, 5, 6, 8, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
-              <button className="secondary" disabled={locked || dirty || !draft.length || !setup?.diarizationReady} onClick={detectSpeakers}>Detect speakers</button>
-              <p>{!setup?.diarizationReady ? 'Install separate speaker models in Settings. A Whisper model transcribes text only.' : !hasSpeakerLabels ? 'Speakers have not been detected for this transcript. Choose Detect speakers.' : 'Labels are per recording. Correct mixed-speaker paragraphs below.'}</p>
-            </div>
-            <div className="editor-toolbar"><span>{draft.length ? 'Transcript · Click any paragraph to edit' : 'No speech detected in this recording.'}</span><div className="actions">
+            <div className="editor-toolbar"><span>{draft.length ? 'Transcript' : 'No speech detected in this recording.'}</span><div className="actions">
               {dirty && <><button className="text-button" disabled={locked} onClick={() => { setDraft(active.segments); setDirty(false); }}>Discard edits</button><button className="primary" disabled={locked} onClick={save}>Save edits</button></>}
-              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('txt')}>Export TXT</button>
-              <button className="secondary" disabled={locked || dirty || !draft.length} onClick={() => exportTranscript('srt')}>Export SRT</button>
             </div></div>
             {dirty && <p className="unsaved" role="status">Unsaved edits — save or discard before opening another recording.</p>}
             {!!draft.length && <div className="transcript-search" role="search" aria-label="Search transcript">
@@ -303,7 +302,7 @@ export default function App() {
               }}/>
               <span className="search-count" role="status">{query.trim() ? matches.length
                 ? selectedMatch < 0 ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : `${selectedMatch + 1} of ${matches.length}`
-                : 'No matches' : 'Search your edits too'}</span>
+                : 'No matches' : ''}</span>
               <button className="secondary" disabled={!matches.length} aria-label="Previous match" onClick={() => navigateMatch(-1)}>↑</button>
               <button className="secondary" disabled={!matches.length} aria-label="Next match" onClick={() => navigateMatch(1)}>↓</button>
             </div>}
@@ -313,26 +312,34 @@ export default function App() {
                 <button type="button" className="timecode" disabled={!audioUrl}
                   aria-label={`Seek to ${formatClock(segment.startMs)}`}
                   onClick={() => seekTo(segment.startMs)}>{formatClock(segment.startMs)}</button>
-                <div className="segment-content"><label className="speaker-label"><span className="sr-only">Speaker</span>
+                <div className={`segment-content${hasSpeakerLabels || editSpeakers ? ' with-speaker' : ''}`}>{(hasSpeakerLabels || editSpeakers) && <label className="speaker-label"><span className="sr-only">Speaker</span>
                   <input type="text" aria-label={`Speaker at ${formatClock(segment.startMs)}`} maxLength={100} placeholder={hasSpeakerLabels ? 'Unassigned' : 'Not detected'} value={displaySpeaker(segment.speaker)} disabled={locked}
                     title={segment.speaker ? 'Rename this speaker throughout the transcript' : 'Assign a speaker to this entry'}
-                    onFocus={() => { speakerEntries.current = speakerEntryIndexes(draft, index); }}
+                    onFocus={() => { setEditSpeakers(true); speakerEntries.current = speakerEntryIndexes(draft, index); }}
                     onChange={e => { const label = e.target.value; const entries = speakerEntries.current; setDraft(current => renameSpeakerEntries(current, entries, label)); setDirty(true); }}/>
-                </label><TranscriptText selection={selection?.segmentIndex === index ? selection : null} label={`Transcript at ${formatClock(segment.startMs)}`} text={segment.text} disabled={locked}
+                </label>}<TranscriptText selection={selection?.segmentIndex === index ? selection : null} label={`Transcript at ${formatClock(segment.startMs)}`} text={segment.text} disabled={locked}
                   onChange={text => { setDraft(current => current.map((item, n) => n === index ? { ...item, text } : item)); setDirty(true); }}/></div>
               </div>;
             })}</div>
           </>}
         </section>}
-        <footer className="workspace-footer"><span>Audio is never uploaded for transcription.</span><span>Playback and speaker detection stay on your device.</span></footer>
       </div>
     </main>
-    {settingsOpen && <Settings theme={theme} onThemeChange={value => { saveTheme(value); setTheme(value); }}
+    {settingsOpen && <Settings initialSection={settingsSection} theme={theme} onThemeChange={value => { saveTheme(value); setTheme(value); }}
       setup={setup} modelDisabled={locked || dirty} loadingModel={busy === 'Loading model'} dirty={dirty}
       nativeAvailable={nativeAvailable} error={error} message={message} onImportModel={importModel}
+      language={language} onLanguageChange={value => updatePreferences({ language: value as typeof language })}
+      autoSpeakers={autoSpeakers} onAutoSpeakersChange={value => updatePreferences({ autoSpeakers: value })}
+      speakerCount={speakerCount} onSpeakerCountChange={value => updatePreferences({ speakerCount: value === 'auto' ? value : Number(value) })}
+      preferencesDisabled={Boolean(busy) || loading}
       onImportSpeakerModels={importSpeakerModels} loadingSpeakers={busy === 'Importing speaker models'}
       onClose={() => setSettingsOpen(false)}/>}
-    {recordingMenu && <RecordingMenu target={recordingMenu} onClose={closeMenu} onDelete={note => { closeMenu(); if (!locked && !dirty) { setError(null); setConfirmDelete(note); } }}/>}
+    {recordingMenu && <RecordingMenu target={recordingMenu} onClose={closeMenu}
+      canExport={active?.status === 'done' && !!draft.length && !locked && !dirty} canDetect={active?.status === 'done' && !!draft.length && !locked && !dirty} speakerReady={Boolean(setup?.diarizationReady)}
+      canEditSpeakers={active?.status === 'done' && !!draft.length && !locked} canDelete={!locked && !dirty}
+      onExport={exportTranscript} onDetect={() => { if (setup?.diarizationReady) void detectSpeakers(); else openSettings('speakers'); }}
+      onSpeakerSettings={() => openSettings('speakers')} onEditSpeakers={() => { setEditSpeakers(true); requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.speaker-label input')?.focus()); }}
+      onDelete={note => { closeMenu(); if (!locked && !dirty) { setError(null); setConfirmDelete(note); } }}/>}
     {confirmDelete && <DeleteRecordingDialog title={confirmDelete.title} busy={Boolean(busy)} error={error} onClose={() => setConfirmDelete(null)} onDelete={deleteRecording}/>}
   </div>;
 }

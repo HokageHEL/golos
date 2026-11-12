@@ -47,7 +47,7 @@ are needed for native use.
    header and loaded once before it replaces a working model. `.en` models support
    English only. Model working memory exceeds the file size, even with
    quantization, so larger models need more RAM.
-2. Open **Settings → Transcription model** and choose **Import model**. Golos copies and loads the model before activating it.
+2. Open **Settings → Transcription** and choose **Import model**. Golos copies and loads the model before activating it.
    Importing/replacing a model can take time; the previous model is retained if
    validation fails. Automatic downloads and disk-space estimates are follow-up work.
 3. Import **WAV, MP3, M4A/MP4 (AAC-LC or ALAC), raw AAC-LC, FLAC, Ogg (Vorbis
@@ -60,8 +60,8 @@ are needed for native use.
    mono/stereo (channel mapping family 0). MP4 imports its first supported audio
    track, not video. HE-AAC, DRM, video-only files, chained Ogg streams,
    mapped/multichannel Opus, and mid-file rate/layout changes are not supported.
-4. Choose auto-detection, English, or Ukrainian, then **Transcribe offline**.
-5. Edit paragraphs, save locally, and export TXT or SRT through a native save dialog.
+4. Choose auto-detection, English, or Ukrainian in **Settings → Transcription → Audio language**, then choose **Transcribe** in the recording.
+5. Edit paragraphs, save locally, then use **Actions → Export** to save TXT or SRT through a native save dialog.
 
 Listen to imported audio in the app with play/pause, seeking and speed controls.
 Transcript paragraphs highlight as they play; click a timestamp to seek and play.
@@ -70,10 +70,10 @@ and Left/Right to skip. These shortcuts do not intercept typing in editors.
 Find text with **Find in transcript**, then use the arrows or Enter / Shift+Enter
 to select occurrences. Search includes unsaved edits. Missing audio has a retry
 action and does not prevent transcript editing or export.
-Right-click a library entry for a confirmed delete action (Shift+F10 also works).
+Use a library entry's **⋯** menu for a confirmed delete action (right-click or Shift+F10 also works).
 For optional offline speaker labels, import two ONNX models from **Settings →
-Offline speaker detection**. Detection runs
-after new transcriptions by default; existing transcripts use **Detect speakers**. Review/correct labels, then save. See
+Speakers**. This section also contains automatic detection and speaker-count preferences. Detection runs
+after new transcriptions by default; existing transcripts use **Actions → Speakers → Detect speakers**. To assign labels manually, choose **Actions → Speakers → Edit speaker labels**. Review/correct labels, then save. See
 [model setup and limitations](SPEAKER_DIARIZATION.md). Speaker detection cannot
 stop mid-pass; cancellation discards the result after the current pass returns.
 
@@ -87,6 +87,11 @@ saved on this device and applied at startup; System follows changes to the
 device's color scheme. Settings also contains transcription and speaker model
 import/replacement. Appearance works in the browser preview; native model and
 recording actions require the desktop app.
+
+Audio language, automatic speaker detection, and the preferred speaker count
+are also saved on this device. If preference storage is unavailable, choices
+remain usable for the current session. Settings tabs and recording action menus
+support arrow keys, Home/End, and Escape; closing a menu returns to its opener.
 
 ## Storage and privacy
 

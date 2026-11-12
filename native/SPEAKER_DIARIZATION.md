@@ -1,6 +1,6 @@
 # Offline speaker detection
 
-After transcribing, choose **Detect speakers** to assign recurring anonymous
+After transcribing, choose **Actions → Speakers → Detect speakers** to assign recurring anonymous
 voices to paragraphs. This is a separate sherpa-onnx segmentation/embedding/
 clustering pass, not Whisper's turn markers and not real-person identification.
 No account or runtime network connection is used.
@@ -14,14 +14,14 @@ Embedding-model weights have separate terms from the inference engine; consult
 [the upstream model release](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models)
 and [NVIDIA’s TitaNet small model card](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_small) before redistribution. Golos bundles no weights.
 
-1. Choose **Import speaker models** in Golos.
+1. Open **Settings → Speakers** and choose **Import speaker models**.
 2. In the first dialog choose the extracted `model.int8.onnx` segmentation file.
 3. In the second dialog choose `nemo_en_titanet_small.onnx` (embedding).
 4. Importing models labels the currently open completed transcript. New
    transcriptions detect speakers automatically when models are installed (the
-   **Detect speakers after transcription** checkbox can disable this).
-   For other completed transcripts, select Auto or a known count, then choose
-   **Detect speakers**.
+   **Detect speakers after transcription** checkbox in Settings can disable this).
+   For other completed transcripts, select automatic detection or a known count in
+   **Settings → Speakers → Number of speakers**, then choose **Actions → Speakers → Detect speakers**.
 5. Review the labels. Editing a named Speaker field renames every entry with
    that speaker in this transcript. Clearing and retyping keeps those entries
    together while you edit. Assigning an unlabelled paragraph affects only that

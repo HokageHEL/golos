@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Segment } from './transcript/types';
 import {
   PLAYBACK_RATES,
   clampSeek,
@@ -17,8 +16,6 @@ type AudioPlayerProps = {
   durationMs: number;
   /** Playhead owned by the caller, so the transcript highlight and the player agree. */
   currentMs: number;
-  /** Segment covering the playhead, or null when the playhead is in a gap. */
-  activeSegment: Segment | null;
   /** A caller-initiated seek (for example from a transcript timestamp). */
   seekRequest: SeekRequest | null;
   loading: boolean;
@@ -40,7 +37,6 @@ export default function AudioPlayer({
   title,
   durationMs,
   currentMs,
-  activeSegment,
   seekRequest,
   loading,
   error,
@@ -239,11 +235,6 @@ export default function AudioPlayer({
           </select>
         </label>
       </div>
-      {activeSegment && (
-        <p className="audio-player-now">
-          <span className="audio-player-now-label">Now</span> {activeSegment.text}
-        </p>
-      )}
       {loading && <p className="audio-player-status" role="status">Preparing audio…</p>}
       {message && <p className="audio-player-status error-text" role="alert">{message}</p>}
       {message && <button className="secondary audio-retry" onClick={onRetry}>Retry audio</button>}

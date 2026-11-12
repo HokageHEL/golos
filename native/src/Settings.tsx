@@ -1,10 +1,21 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Setup } from './api';
 import type { Theme } from './theme';
+import './settings.css';
+
+export type SettingsSection = 'appearance' | 'transcription' | 'speakers';
 
 type Props = {
+  initialSection: SettingsSection;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  language: string;
+  onLanguageChange: (value: string) => void;
+  autoSpeakers: boolean;
+  onAutoSpeakersChange: (value: boolean) => void;
+  speakerCount: string | number;
+  onSpeakerCountChange: (value: string) => void;
+  preferencesDisabled: boolean;
   setup: Setup | null;
   modelDisabled: boolean;
   loadingModel: boolean;
@@ -19,74 +30,116 @@ type Props = {
 };
 
 const themes = [
-  { value: 'light', label: 'Light', description: 'Warm and bright' },
-  { value: 'dark', label: 'Dark', description: 'Easy on the eyes' },
-  { value: 'system', label: 'System', description: 'Follow your device' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
 ] as const;
 
-export default function Settings({ theme, onThemeChange, setup, modelDisabled, loadingModel, dirty,
-  nativeAvailable, error, message, onImportModel, onImportSpeakerModels, loadingSpeakers, onClose }: Props) {
+export default function Settings({ initialSection, theme, onThemeChange, language, onLanguageChange,
+  autoSpeakers, onAutoSpeakersChange, speakerCount, onSpeakerCountChange, preferencesDisabled,
+  setup, modelDisabled, loadingModel, dirty, nativeAvailable, error, message, onImportModel,
+  onImportSpeakerModels, loadingSpeakers, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [section, setSection] = useState<SettingsSection>(initialSection);
+  const sections = ['appearance', 'transcription', 'speakers'] as const;
 
   useEffect(() => {
     const element = dialog.current;
     element?.showModal();
+    (element?.querySelector<HTMLElement>('[autofocus]') ?? element?.querySelector<HTMLElement>('button'))?.focus();
     return () => element?.close();
   }, []);
 
   return <dialog ref={dialog} className="settings-dialog" aria-labelledby="settings-title"
-    onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    onCancel={event => { event.preventDefault(); onClose(); }}
+    onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="settings-content">
       <header className="settings-header">
-        <div><div className="eyebrow">MAKE IT YOURS</div><h1 id="settings-title">Settings</h1></div>
+        <h1 id="settings-title">Settings</h1>
         <button className="secondary settings-close" aria-label="Close settings" onClick={onClose} autoFocus>✕</button>
       </header>
 
-      <section className="settings-section" aria-labelledby="appearance-title">
-        <h2 id="appearance-title">Appearance</h2>
-        <p id="appearance-description">Choose how Golos looks. Your preference is saved on this device.</p>
-        <fieldset className="theme-options" aria-describedby="appearance-description">
-          <legend className="sr-only">Theme</legend>
+      <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+        {sections.map(value => <button key={value} type="button" role="tab" id={`settings-tab-${value}`}
+          aria-controls={`settings-panel-${value}`} aria-selected={section === value}
+          tabIndex={section === value ? 0 : -1} onClick={() => setSection(value)}
+          onKeyDown={event => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const index = sections.indexOf(value);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1
+              : (index + (event.key === 'ArrowRight' ? 1 : -1) + sections.length) % sections.length;
+            setSection(sections[next]);
+            document.getElementById(`settings-tab-${sections[next]}`)?.focus();
+          }}>{value === 'appearance' ? 'Appearance' : value === 'transcription' ? 'Transcription' : 'Speakers'}</button>)}
+      </div>
+
+      {(error || message) && <div className="settings-feedback">
+        {error && <div className="notice error" role="alert">{error}</div>}
+        {message && <div className="notice success" role="status">{message}</div>}
+      </div>}
+
+      <section className="settings-section" role="tabpanel" id="settings-panel-appearance"
+        aria-labelledby="settings-tab-appearance" hidden={section !== 'appearance'} tabIndex={0}>
+        <fieldset className="theme-options">
+          <legend className="settings-legend">Theme</legend>
           {themes.map(option => <label className="theme-option" key={option.value}>
             <input type="radio" name="theme" value={option.value} checked={theme === option.value}
               onChange={() => onThemeChange(option.value)}/>
             <span className="theme-option-body">
               <span className={`theme-preview theme-preview-${option.value}`} aria-hidden="true"><span/><span/></span>
               <span className="theme-option-label">{option.label}<span className="theme-check" aria-hidden="true">✓</span></span>
-              <span className="theme-option-description">{option.description}</span>
             </span>
           </label>)}
         </fieldset>
       </section>
 
-      <section className="settings-section" aria-labelledby="model-title">
-        <h2 id="model-title">Transcription model</h2>
-        <p>Import a model once to transcribe offline. Audio stays on your device.</p>
-        <div className="model-card">
-          <div><div className="eyebrow">OFFLINE ENGINE</div>
-            <h3>{setup?.modelReady ? setup.modelName : 'No model selected'}</h3>
-            <p>{setup?.modelReady ? 'Ready for local transcription.' : 'Choose a supported Whisper model to get started.'}</p>
+      <section className="settings-section" role="tabpanel" id="settings-panel-transcription"
+        aria-labelledby="settings-tab-transcription" hidden={section !== 'transcription'} tabIndex={0}>
+        <label className="settings-field">Audio language
+          <select value={language} disabled={preferencesDisabled} onChange={event => onLanguageChange(event.target.value)}>
+            <option value="auto">Detect automatically</option><option value="en">English</option><option value="uk">Ukrainian</option>
+          </select>
+        </label>
+        <div className="settings-model">
+          <div className="settings-model-info"><h3>Transcription model</h3>
+            <p>{setup?.modelReady ? setup.modelName : 'No model selected'}</p>
           </div>
           <button className="secondary" disabled={modelDisabled} onClick={onImportModel}>
             {loadingModel ? 'Loading model…' : setup?.modelReady ? 'Replace model' : 'Import model'}
           </button>
         </div>
-        <p className="model-guidance">Recommended: multilingual Whisper Small (<code>ggml-small-q5_1.bin</code>, about 190 MB).
-          Tiny, Base, Medium, Large, and Large V3 Turbo also work; larger models need more memory. English-only models support English audio only.</p>
-        {!nativeAvailable && <p className="settings-hint">Open the desktop app to import a model.</p>}
-        {dirty && <p className="settings-hint">Save or discard transcript edits before replacing the model.</p>}
-        {error && <div className="notice error" role="alert">{error}</div>}
-        {message && <div className="notice success" role="status">{message}</div>}
+        <details className="settings-guidance"><summary>Choosing a transcription model</summary>
+          <p>For multilingual audio, we recommend Whisper Small (<code>ggml-small-q5_1.bin</code>, about 190 MB). Tiny, Base, Medium, Large and Large V3 Turbo also work. Larger models need more memory; English-only models support English audio only.</p>
+        </details>
       </section>
-      <section className="settings-section" aria-labelledby="speakers-title">
-        <h2 id="speakers-title">Offline speaker detection</h2>
-        <p>{setup?.diarizationReady ? 'Ready. Detection runs after transcription; existing transcripts can use Detect speakers.' : 'Import a pyannote segmentation model and a speaker embedding model to label recurring voices. Models and audio stay on this device.'}</p>
-        <p>Choose pyannote <code>model.int8.onnx</code> first, then <code>nemo_en_titanet_small.onnx</code>. These are two different models.</p>
-        <button className="secondary" disabled={modelDisabled} onClick={onImportSpeakerModels}>
-          {loadingSpeakers ? 'Loading speaker models…' : setup?.diarizationReady ? 'Replace speaker models' : 'Import speaker models'}
-        </button>
+
+      <section className="settings-section" role="tabpanel" id="settings-panel-speakers"
+        aria-labelledby="settings-tab-speakers" hidden={section !== 'speakers'} tabIndex={0}>
+        <label className="settings-checkbox"><input type="checkbox" checked={autoSpeakers} disabled={preferencesDisabled}
+          onChange={event => onAutoSpeakersChange(event.target.checked)}/> Detect speakers after transcription</label>
+        <label className="settings-field">Number of speakers
+          <select value={speakerCount} disabled={preferencesDisabled} onChange={event => onSpeakerCountChange(event.target.value)}>
+            <option value="auto">Detect automatically</option>{[1, 2, 3, 4, 5, 6, 8, 10, 20].map(count => <option key={count} value={count}>{count}</option>)}
+          </select>
+        </label>
+        <div className="settings-model">
+          <div className="settings-model-info"><h3>Speaker models</h3>
+            <p>{setup?.diarizationReady ? 'Ready for speaker detection' : 'Not installed'}</p>
+          </div>
+          <button className="secondary" disabled={modelDisabled} onClick={onImportSpeakerModels}>
+            {loadingSpeakers ? 'Loading speaker models…' : setup?.diarizationReady ? 'Replace speaker models' : 'Import speaker models'}
+          </button>
+        </div>
+        <details className="settings-guidance"><summary>Choosing speaker models</summary>
+          <p>Choose two different models: pyannote <code>model.int8.onnx</code> first, then <code>nemo_en_titanet_small.onnx</code> for speaker embeddings.</p>
+        </details>
       </section>
-      <footer className="settings-footer"><span>Preferences stay on this device.</span><button className="primary" onClick={onClose}>Done</button></footer>
+      {(!nativeAvailable || dirty) && <div className="settings-hints">
+        {!nativeAvailable && <p>Open the desktop app to import models.</p>}
+        {dirty && <p>Save or discard transcript edits before replacing models.</p>}
+      </div>}
+      <footer className="settings-footer"><button className="primary" onClick={onClose}>Done</button></footer>
     </div>
   </dialog>;
 }
