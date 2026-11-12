@@ -42,8 +42,10 @@ Verified by source inspection, not newly executed device tests:
   verified pre-upgrade snapshot, and newer or malformed schemas are refused
   without modifying the file. It still has no edit revisions, outbox, tombstones,
   device identity, durable job state, or native synchronization implementation.
-- Inference reads the complete normalized audio into memory. Model setup is
-  manual. Local playback, seeking, and paragraph highlighting are implemented.
+- Inference reads the complete normalized audio into memory. Model setup supports
+  manual offline import and explicit pinned Tiny/Base/Small downloads. Copy/download
+  staging has progress, cancellation, free-space and validation checks; published
+  generations retain the previous working model. Local playback, seeking, and paragraph highlighting are implemented.
   Optional speaker labeling uses a separate manually imported ONNX model pair.
   In-transcript search includes unsaved edits and occurrence navigation. Recording,
   library-wide search, and native DOCX export are absent.
@@ -168,6 +170,15 @@ were not run because their fixtures are absent, and no device or bundle result i
 claimed. The earlier toolchain-free SQLite replay, which is non-substitute context
 rather than the test result, is recorded in `native/README.md`.
 
+**P1 progress — package C, audio operation recovery (2026-11-12).**
+Imports now stage and flush normalized WAVs in owned operation directories before
+committing the note; deletion moves audio aside before committing row removal.
+Startup completes or rolls back these operations according to the row, without a
+schema change or an arbitrary orphan-file sweep. Deterministic reopen/boundary,
+write-failure and database-failure tests pass. Physical power loss and actual
+Windows/Linux filesystem behavior remain unverified. See [local recovery](LOCAL_RECOVERY.md).
+Durable job queues, revisions/outbox and bounded-memory inference remain open.
+
 **Done when:** migration, crash/relaunch, disk-full, retry, duplicate operation,
 delete recovery and cancellation tests pass; old libraries open unchanged in
 content; a documented long-recording fixture stays within measured memory limits
@@ -175,11 +186,11 @@ without duplicated/missing chunk-boundary speech.
 
 ### P2 — Usable offline desktop beta
 
-- Add model catalog metadata, pinned hashes, staged/atomic install, free-space
-  checks, progress, cancellation and removal. Keep manual import/offline transfer.
-  Do not remove the active working model before its replacement is validated.
-  Exercise existing-model replacement on Windows and termination at every install
-  stage, including startup rollback/repair, instead of assuming rename portability.
+- The initial model catalog, pinned downloads, staged install, free-space checks,
+  progress and cancellation are implemented, alongside manual import/offline transfer.
+  Models are loaded before a unique generation is published; current and previous
+  generated copies are retained. Add removal/rollback controls and exercise
+  replacement on Windows and termination at install stages on actual platforms.
 - Playback, timestamp navigation, transcript highlighting, and in-transcript
   search are implemented. Add microphone recording with native permission
   handling, library-wide search and optional DOCX export.
@@ -292,3 +303,14 @@ real inference (its fixtures are absent) and desktop bundle builds still have no
 been run, and no CI result is recorded. Prior verification recorded in
 `NATIVE_ROADMAP.md` is historical evidence, not a substitute for P0 clean-checkout
 validation.
+
+### Current implementation verification — 2026-11-12
+
+The UI/settings, audio recovery, and initial model setup packages now pass the
+local build/typecheck/lint checks, 36 frontend tests, 75 Rust tests, formatting
+and all-target Clippy. An unsigned macOS debug bundle built successfully. The
+explicit Tiny download test verified a real pinned artifact and Whisper loading
+in temporary storage; the four opt-in Rust tests remain excluded from the default
+suite. This is not a new transcription-quality, interactive device, Windows/Linux,
+mobile, signed-release or remote-CI result. The full evidence and remaining limits
+are recorded in [the native roadmap](NATIVE_ROADMAP.md#settings-recovery-and-model-setup--2026-11-12).

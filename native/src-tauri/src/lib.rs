@@ -6,6 +6,8 @@ mod import;
 mod library;
 mod migrations;
 mod model;
+mod model_catalog;
+mod model_install;
 mod onnx_metadata;
 mod speaker_models;
 
@@ -23,7 +25,6 @@ use std::{
 };
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
-use whisper_rs::{WhisperContext, WhisperContextParameters};
 
 /// The library's own normalized audio for one recording. The id has to be a
 /// UUID, so the webview can never name a path outside the `audio/` directory.
@@ -107,7 +108,9 @@ struct Setup {
 
 #[tauri::command]
 fn setup_status(state: State<AppState>) -> Setup {
-    let model_name = model::inspect(&state.root.join("model.bin")).ok();
+    let model_name = model_install::active(&state.root)
+        .and_then(|path| model::inspect(&path))
+        .ok();
     Setup {
         model_ready: model_name.is_some(),
         model_name,
@@ -169,6 +172,9 @@ async fn import_audio(app: tauri::AppHandle) -> Result<Option<Note>, String> {
 #[tauri::command]
 async fn import_model(app: tauri::AppHandle) -> Result<bool, String> {
     let guard = app.state::<AppState>().claim()?;
+    app.state::<AppState>()
+        .cancelled
+        .store(false, Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
         let Some(file) = app
@@ -180,27 +186,33 @@ async fn import_model(app: tauri::AppHandle) -> Result<bool, String> {
             return Ok(false);
         };
         let source = file.into_path().map_err(|e| e.to_string())?;
-        model::inspect(&source)?;
         let state = app.state::<AppState>();
-        let temp = state.root.join("model.pending");
-        let result = (|| {
-            fs::copy(source, &temp).map_err(|e| e.to_string())?;
-            model::inspect(&temp)?;
-            // Load once before replacing a working model: reject corrupt/incompatible files.
-            let mut options = WhisperContextParameters::default();
-            options.use_gpu(false);
-            WhisperContext::new_with_params(
-                temp.to_str().ok_or("Unsupported model path")?,
-                options,
-            )
-            .map_err(|e| format!("Cannot load this model: {e}"))?;
-            fs::rename(&temp, state.root.join("model.bin")).map_err(|e| e.to_string())?;
-            Ok(true)
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(temp);
-        }
-        result
+        model_install::install(&state.root, &source, &state.cancelled, |progress| {
+            let _ = app.emit("model-import-progress", progress);
+        })?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn model_catalog() -> &'static [model_catalog::Model] {
+    model_catalog::models()
+}
+
+#[tauri::command]
+async fn download_model(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let guard = app.state::<AppState>().claim()?;
+    app.state::<AppState>()
+        .cancelled
+        .store(false, Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let state = app.state::<AppState>();
+        model_catalog::download(&state.root, &id, &state.cancelled, |progress| {
+            let _ = app.emit("model-import-progress", progress);
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -319,10 +331,10 @@ async fn transcribe(app: tauri::AppHandle, id: String, language: String) -> Resu
         }
         let event_app = app.clone();
         let note_id = id.clone();
-        let result = engine::transcribe(&state.root.join("model.bin"), &path, &language,
+        let result = model_install::active(&state.root).and_then(|model| engine::transcribe(&model, &path, &language,
             state.cancelled.clone(), move |percent| {
                 let _ = event_app.emit("transcription-progress", Progress { note_id: note_id.clone(), percent });
-            });
+            }));
         let db = state.db()?;
         match result {
             Ok(segments) => { db.execute("UPDATE notes SET status='done',segments=?1,error=NULL WHERE id=?2",
@@ -451,6 +463,7 @@ pub fn run() {
                 );
             }
             audio_recovery::recover(&root, &db).map_err(std::io::Error::other)?;
+            model_install::recover(&root).map_err(std::io::Error::other)?;
             let _ = fs::remove_file(root.join("model.pending"));
             app.manage(AppState {
                 root,
@@ -465,6 +478,8 @@ pub fn run() {
             list_notes,
             import_audio,
             import_model,
+            model_catalog,
+            download_model,
             import_diarization_models,
             detect_speakers,
             transcribe,

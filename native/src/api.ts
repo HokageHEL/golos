@@ -6,12 +6,20 @@ export type Note = {
   status: 'ready' | 'processing' | 'done' | 'failed'; segments: Segment[]; error: string | null;
 };
 export type Setup = { modelReady: boolean; modelName: string | null; dataDirectory: string; diarizationReady: boolean };
+export type ModelOption = { id: string; name: string; fileName: string; bytes: number; description: string };
+export type ModelProgress = {
+  phase: 'connecting' | 'copying' | 'downloading' | 'validating' | 'complete';
+  copiedBytes: number;
+  totalBytes: number;
+};
 export const nativeAvailable = isTauri();
 export const api = {
   setup: () => invoke<Setup>('setup_status'),
+  modelCatalog: () => invoke<ModelOption[]>('model_catalog'),
   list: () => invoke<Note[]>('list_notes'),
   importAudio: () => invoke<Note | null>('import_audio'),
   importModel: () => invoke<boolean>('import_model'),
+  downloadModel: (id: string) => invoke<void>('download_model', { id }),
   importSpeakerModels: () => invoke<boolean>('import_diarization_models'),
   detectSpeakers: (id: string, speakerCount: number | null) => invoke<Segment[]>('detect_speakers', { id, speakerCount }),
   transcribe: (id: string, language: string) => invoke<void>('transcribe', { id, language }),

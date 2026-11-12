@@ -17,7 +17,8 @@ app is a **macOS developer preview**; multiplatform support is planned.
 - Cancel transcription, retry interrupted jobs, and delete local library entries.
 
 No account, backend, API keys, Docker, or paid transcription service is needed
-for the native app. Models are imported separately. Local storage is not encrypted
+for the native app. Models can be downloaded explicitly in Settings or imported
+from a local file for offline setup. Local storage is not encrypted
 by the app; see [storage and privacy](native/README.md#storage-and-privacy).
 
 ## Start developing
@@ -37,8 +38,8 @@ desktop app with the React/Vite development server.
 `npm run native:dev` runs only the browser UI preview; native file access,
 transcription, and saving require the Tauri app.
 
-To transcribe, import a compatible whisper.cpp GGML `.bin` model, then import an
-audio file and choose **Transcribe**. The current default recommendation
+To transcribe, download or import a compatible whisper.cpp GGML `.bin` model in
+Settings, then import an audio file and choose **Transcribe**. The current default recommendation
 is multilingual `ggml-small-q5_1.bin` (about 190 MB); `.en` models support English
 only. See the [native guide](native/README.md#first-transcription) for model sources,
 codec limitations, storage details, and real-inference test instructions.
@@ -69,8 +70,8 @@ priorities: durable local data, desktop validation, mobile feasibility, and opti
 device sync before store monetization. The core transcription workflow must remain
 usable offline without an account.
 
-Next work includes bounded-memory inference beyond the 30-minute cap, verified
-model downloads, device benchmarks and acceleration evaluation, microphone
+Next work includes bounded-memory inference beyond the 30-minute cap,
+device benchmarks and acceleration evaluation, microphone
 recording, library-wide search, DOCX export, Ukrainian UI, and accessibility.
 Playback, in-transcript search, and optional offline speaker detection are
 already implemented; see the

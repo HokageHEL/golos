@@ -8,9 +8,9 @@ const mocks = vi.hoisted(() => ({
   api: {
     setup: vi.fn(), list: vi.fn(), audioSource: vi.fn(), save: vi.fn(), delete: vi.fn(), export: vi.fn(),
     cancel: vi.fn(), detectSpeakers: vi.fn(), transcribe: vi.fn(), importAudio: vi.fn(), importModel: vi.fn(),
-    importSpeakerModels: vi.fn(),
+    importSpeakerModels: vi.fn(), modelCatalog: vi.fn(), downloadModel: vi.fn(),
   },
-  listen: vi.fn(), onCloseRequested: vi.fn(),
+  listen: vi.fn(), modelProgressHandler: vi.fn(), onCloseRequested: vi.fn(),
 }));
 
 vi.mock('../api', () => ({ api: mocks.api, nativeAvailable: true }));
@@ -68,7 +68,18 @@ beforeEach(() => {
   mocks.api.delete.mockResolvedValue(undefined);
   mocks.api.detectSpeakers.mockResolvedValue([{ ...segment, speaker: 'Speaker 1' }]);
   mocks.api.importSpeakerModels.mockResolvedValue(true);
-  mocks.listen.mockResolvedValue(vi.fn());
+  mocks.api.modelCatalog.mockResolvedValue([
+    { id: 'tiny', name: 'Tiny', fileName: 'ggml-tiny.bin', bytes: 77_691_713, description: 'Fastest model.' },
+    { id: 'base', name: 'Base', fileName: 'ggml-base.bin', bytes: 147_951_465, description: 'Balanced model.' },
+    { id: 'small', name: 'Small (quantized)', fileName: 'ggml-small-q5_1.bin', bytes: 190_085_487, description: 'Higher quality potential.' },
+  ]);
+  mocks.api.downloadModel.mockResolvedValue(undefined);
+  mocks.api.importModel.mockResolvedValue(true);
+  mocks.api.cancel.mockResolvedValue(undefined);
+  mocks.listen.mockImplementation(async (name, handler) => {
+    if (name === 'model-import-progress') mocks.modelProgressHandler.mockImplementation(handler);
+    return vi.fn();
+  });
   mocks.onCloseRequested.mockResolvedValue(vi.fn());
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 });
@@ -185,4 +196,112 @@ test('unsaved edits disable switching, import, export, and delete actions', asyn
   act(() => { (host.querySelector('.document-menu-trigger') as HTMLButtonElement).click(); }); await settle();
   expect((Array.from(host.querySelectorAll('[role="menuitem"]')).find(item => item.textContent?.includes('Delete recording')) as HTMLButtonElement).disabled).toBe(true);
   expect((host.querySelector('[data-trigger="export"]') as HTMLButtonElement).disabled).toBe(true);
+});
+
+async function openTranscriptionSettings() {
+  act(() => { (host.querySelector('.settings-trigger') as HTMLButtonElement).click(); }); await settle();
+  act(() => { (host.querySelector('#settings-tab-transcription') as HTMLButtonElement).click(); }); await settle();
+}
+
+test('no-model onboarding shows manual offline setup and downloads only after selection', async () => {
+  mocks.api.setup.mockResolvedValue({ ...setup, modelReady: false, modelName: null });
+  await render(<App/>); await settle();
+  await openTranscriptionSettings();
+  expect(host.textContent).toContain('No model selected');
+  expect(Array.from(host.querySelectorAll('button')).some(button => button.textContent === 'Import model')).toBe(true);
+  expect(host.textContent).toContain('For offline setup, transfer a compatible Whisper');
+  expect(host.textContent).toContain('Hugging Face and its CDN only after you click a download button');
+  expect(mocks.api.downloadModel).not.toHaveBeenCalled();
+  const smallCard = Array.from(host.querySelectorAll('.model-download')).find(card => card.textContent?.includes('Small (quantized)'))!;
+  expect(smallCard.textContent).toContain('190 MB');
+  expect(smallCard.textContent).toContain('Higher quality potential.');
+  act(() => { (smallCard.querySelector('button') as HTMLButtonElement).click(); }); await settle();
+  expect(mocks.api.downloadModel).toHaveBeenCalledWith('small');
+  const listenerIndex = mocks.listen.mock.calls.findIndex(([name]) => name === 'model-import-progress');
+  const listenerOrder = mocks.listen.mock.invocationCallOrder[listenerIndex];
+  const downloadOrder = mocks.api.downloadModel.mock.invocationCallOrder[0];
+  expect(listenerOrder).toBeLessThan(downloadOrder);
+});
+
+test('download progress, validation cancel, settings-close cancel, and failure are visible', async () => {
+  let rejectDownload!: (error: Error) => void;
+  mocks.api.downloadModel.mockImplementation(() => new Promise((_, reject) => { rejectDownload = reject; }));
+  await render(<App/>); await settle(); await openTranscriptionSettings();
+  const smallCard = Array.from(host.querySelectorAll('.model-download')).find(card => card.textContent?.includes('Small (quantized)'))!;
+  act(() => { (smallCard.querySelector('button') as HTMLButtonElement).click(); }); await settle();
+  act(() => { mocks.modelProgressHandler({ payload: { phase: 'connecting', copiedBytes: 0, totalBytes: 5_000_000 } }); }); await settle();
+  expect(host.textContent).toContain('Connecting to model host');
+  act(() => { mocks.modelProgressHandler({ payload: { phase: 'downloading', copiedBytes: 2_000_000, totalBytes: 5_000_000 } }); }); await settle();
+  expect(host.textContent).toContain('Downloading model… 2 MB of 5 MB');
+  expect(host.querySelector('.model-operation-status progress')).not.toBeNull();
+  act(() => { mocks.modelProgressHandler({ payload: { phase: 'validating', copiedBytes: 5_000_000, totalBytes: 5_000_000 } }); }); await settle();
+  expect(host.textContent).toContain('Cancellation takes effect after the current check');
+  expect(Array.from(host.querySelectorAll('.model-operation-status button')).some(button => button.textContent === 'Cancel after check')).toBe(true);
+
+  act(() => { (host.querySelector('#settings-tab-appearance') as HTMLButtonElement).click(); }); await settle();
+  expect(host.querySelector('.settings-feedback .model-operation-status button')).not.toBeNull();
+
+  act(() => { (host.querySelector('.settings-close') as HTMLButtonElement).click(); }); await settle();
+  expect(host.textContent).toContain('Checking and preparing model…');
+  act(() => { (Array.from(host.querySelectorAll('.model-operation-status button')).find(button => button.textContent === 'Cancel after check') as HTMLButtonElement).click(); }); await settle();
+  expect(mocks.api.cancel).toHaveBeenCalled();
+  expect(host.textContent).toContain('Cancellation requested…');
+  await act(async () => { rejectDownload(new Error('Model download cancelled. Your previous model is unchanged.')); await Promise.resolve(); });
+  await settle();
+  expect(host.textContent).toContain('Your previous model is unchanged.');
+});
+
+test('manual model import reports copy and validation progress', async () => {
+  let finishImport!: (result: boolean) => void;
+  const unlisten = vi.fn();
+  mocks.api.importModel.mockImplementation(() => new Promise(resolve => { finishImport = resolve; }));
+  mocks.listen.mockImplementation(async (name, handler) => {
+    if (name === 'model-import-progress') mocks.modelProgressHandler.mockImplementation(handler);
+    return name === 'model-import-progress' ? unlisten : vi.fn();
+  });
+  await render(<App/>); await settle(); await openTranscriptionSettings();
+  act(() => { (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Replace model') as HTMLButtonElement).click(); }); await settle();
+  expect(mocks.api.importModel).toHaveBeenCalled();
+  act(() => { mocks.modelProgressHandler({ payload: { phase: 'copying', copiedBytes: 1_000_000, totalBytes: 4_000_000 } }); }); await settle();
+  expect(host.textContent).toContain('Copying model file… 1 MB of 4 MB');
+  act(() => { mocks.modelProgressHandler({ payload: { phase: 'validating', copiedBytes: 4_000_000, totalBytes: 4_000_000 } }); }); await settle();
+  expect(host.textContent).toContain('Checking and preparing model');
+  await act(async () => { finishImport(true); await Promise.resolve(); }); await settle();
+  expect(host.textContent).toContain('Model imported. You’re ready to transcribe offline.');
+  expect(unlisten).toHaveBeenCalledOnce();
+});
+
+test('progress listener failure prevents model import from starting', async () => {
+  mocks.listen.mockImplementation(async (name) => {
+    if (name === 'model-import-progress') throw new Error('Progress listener unavailable');
+    return vi.fn();
+  });
+  await render(<App/>); await settle(); await openTranscriptionSettings();
+  act(() => { (Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Replace model') as HTMLButtonElement).click(); });
+  await settle();
+  expect(mocks.api.importModel).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('Progress listener unavailable');
+});
+
+test('catalog failure does not block the saved library or manual import', async () => {
+  mocks.api.modelCatalog.mockRejectedValue(new Error('Catalog unavailable'));
+  await render(<App/>); await settle();
+  expect(host.textContent).toContain('Interview');
+  await openTranscriptionSettings();
+  expect(host.textContent).toContain('Model downloads are unavailable: Catalog unavailable');
+  expect(Array.from(host.querySelectorAll('button')).some(button => button.textContent === 'Replace model')).toBe(true);
+});
+
+test('an in-flight model listener is released exactly once when App unmounts', async () => {
+  let finishDownload!: () => void;
+  mocks.api.downloadModel.mockImplementation(() => new Promise<void>(resolve => { finishDownload = resolve; }));
+  await render(<App/>); await settle(); await openTranscriptionSettings();
+  act(() => { (host.querySelector('.model-download button') as HTMLButtonElement).click(); }); await settle();
+  const listenerIndex = mocks.listen.mock.calls.findIndex(([name]) => name === 'model-import-progress');
+  const unlisten = await mocks.listen.mock.results[listenerIndex].value;
+  await act(async () => { root.unmount(); });
+  expect(unlisten).toHaveBeenCalledTimes(1);
+  await act(async () => { finishDownload(); await Promise.resolve(); }); await settle();
+  expect(unlisten).toHaveBeenCalledTimes(1);
+  root = createRoot(host);
 });

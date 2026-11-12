@@ -37,7 +37,8 @@ are needed for native use.
 
 ## First transcription
 
-1. Obtain a compatible whisper.cpp GGML `.bin` model from the
+1. In **Settings → Transcription**, choose an explicit Tiny, Base, or quantized
+   Small download, or obtain a compatible whisper.cpp GGML `.bin` model from the
    [upstream model repository](https://huggingface.co/ggerganov/whisper.cpp).
    Recommended: multilingual **`ggml-small-q5_1.bin`** for English/Ukrainian,
    approximately 190 MB on disk. Tiny and Base work for faster/lighter tests.
@@ -47,9 +48,16 @@ are needed for native use.
    header and loaded once before it replaces a working model. `.en` models support
    English only. Model working memory exceeds the file size, even with
    quantization, so larger models need more RAM.
-2. Open **Settings → Transcription** and choose **Import model**. Golos copies and loads the model before activating it.
-   Importing/replacing a model can take time; the previous model is retained if
-   validation fails. Automatic downloads and disk-space estimates are follow-up work.
+2. For a local file, choose **Import model**. This works without internet and is
+   the setup route for air-gapped devices: transfer the `.bin` file from another
+   device, then import it. Downloads contact Hugging Face and its storage CDN only
+   after you click Download. Golos pins the source revision, exact length and
+   SHA-256 hash, then loads the model before activating it. Manual imports also
+   load once before activation. Both routes check room for the new copy plus a
+   16 MiB reserve, show progress and allow cancellation. Loading/validation cannot
+   stop mid-call; cancellation takes effect after that check returns. Network
+   connection/read timeouts also bound waiting on a stalled download. Failed or
+   cancelled staging leaves the working model intact.
 3. Import **WAV, MP3, M4A/MP4 (AAC-LC or ALAC), raw AAC-LC, FLAC, Ogg (Vorbis
    or Opus), or AIFF**, up to **30 minutes / 512 MiB**. Mono/stereo and up to
    8 channels, 8–192 kHz rates, and supported integer/float PCM formats are
@@ -95,11 +103,16 @@ support arrow keys, Home/End, and Escape; closing a menu returns to its opener.
 
 ## Storage and privacy
 
-The app stores `library.sqlite3`, normalized WAV files under `audio/`, and `model.bin`
+The app stores `library.sqlite3`, normalized WAV files under `audio/`, and models
+under `whisper-models/generation-<number>/model.bin`
 in Tauri's application data directory (normally
 `~/Library/Application Support/com.golos.transcription` on macOS). This is local
 storage, not application-level encrypted storage; normal OS permissions and disk
-encryption apply. Exported files go where the user chooses.
+encryption apply. Existing preview `model.bin` files keep working without being
+moved. Replacement publishes a new immutable generation, retaining the previous
+generation; older generated copies are cleaned up after successful activation
+or on restart. A legacy root `model.bin` is preserved for manual rollback.
+Exported files go where the user chooses.
 
 Imports decode packet by packet, downmix to mono, and use a sinc resampler with
 anti-alias filtering to write 16 kHz PCM directly to disk. It does not keep a
@@ -112,7 +125,8 @@ and optimize for size; no FFmpeg executable or model is bundled.
 
 Deleting a library entry removes Golos's normalized audio and transcript; it does not
 delete the original imported file. Recordings are never sent to a transcription
-service. The app has no analytics, ad SDK, or remote model downloader. Development
+service. The app has no analytics or ad SDK. Optional model downloads send only
+requests for the chosen public model, never recordings or transcripts. Development
 tooling does access npm/crates registries, independently of audio processing.
 
 `library.sqlite3` records its schema version in SQLite's `user_version` field.
@@ -126,6 +140,11 @@ Only one desktop instance is allowed, and only one import/transcription/deletion
 operation runs at a time. Interrupted transcription becomes retryable on startup.
 Cancellation does not retain partial transcripts. Saving/discarding edits is
 required before switching recordings or closing the window.
+
+Audio import/deletion also uses a persistent operation journal. Startup discards
+uncommitted imports, finishes committed imports, and restores or finishes interrupted
+deletions according to the database row. It leaves unrelated audio alone. See
+[the recovery protocol and validation limits](../docs/LOCAL_RECOVERY.md).
 
 ### Library backups and manual restoration
 
@@ -202,6 +221,17 @@ cargo test --manifest-path native/src-tauri/Cargo.toml \
 
 Use the public [`whisper.cpp` JFK sample](https://github.com/ggml-org/whisper.cpp/blob/master/samples/jfk.wav)
 for that test. Models and recordings are not committed to the repository.
+
+The default suite tests model-copy progress, cancellation before activation,
+insufficient-space refusal, injected stream errors, exact length/hash validation,
+legacy models, replacement and interrupted staging without network or real models.
+An explicit network test downloads and loads a pinned model in temporary storage
+and removes it afterward; it does not transcribe audio:
+
+```sh
+GOLOS_TEST_DOWNLOAD=tiny cargo test --locked --manifest-path native/src-tauri/Cargo.toml \
+  downloads_and_loads_pinned_model -- --ignored --nocapture
+```
 
 To test actual codec files, use FFmpeg as **test tooling only** to generate local
 fixtures from the public sample, then run the opt-in format test:

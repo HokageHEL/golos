@@ -9,8 +9,8 @@ import TranscriptText from './TranscriptText';
 import RecordingMenu, { type RecordingMenuTarget } from './RecordingMenu';
 import DeleteRecordingDialog from './DeleteRecordingDialog';
 import { activeSegmentIndex, formatClock, type SeekRequest } from './playback';
-import { api, nativeAvailable, type Note, type Setup } from './api';
-import Settings, { type SettingsSection } from './Settings';
+import { api, nativeAvailable, type ModelOption, type ModelProgress, type Note, type Setup } from './api';
+import Settings, { ModelOperationStatus, type SettingsSection } from './Settings';
 import { applyTheme, readTheme, saveTheme, type Theme } from './theme';
 import { findTranscriptMatches, type TranscriptMatch } from './review';
 import { readPreferences, savePreferences } from './preferences';
@@ -23,6 +23,15 @@ export default function App() {
   const [draft, setDraft] = useState<Segment[]>([]);
   const speakerEntries = useRef<number[]>([]);
   const [setup, setSetup] = useState<Setup | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ModelOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(nativeAvailable);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [modelProgress, setModelProgress] = useState<ModelProgress | null>(null);
+  const [modelOperation, setModelOperation] = useState<'import' | 'download' | null>(null);
+  const [downloadModelId, setDownloadModelId] = useState<string | null>(null);
+  const [modelCancelRequested, setModelCancelRequested] = useState(false);
+  const modelProgressUnlisten = useRef<(() => void) | null>(null);
+  const mounted = useRef(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(nativeAvailable);
   const [dirty, setDirty] = useState(false);
@@ -66,6 +75,15 @@ export default function App() {
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      modelProgressUnlisten.current?.();
+      modelProgressUnlisten.current = null;
+    };
+  }, []);
+
   function updatePreferences(changes: Partial<typeof preferences>) {
     setPreferences(current => ({ ...current, ...changes }));
   }
@@ -84,6 +102,19 @@ export default function App() {
     });
     subscription.catch(e => { if (!disposed) setError(errorText(e)); });
     return () => { disposed = true; void subscription.then(unlisten => unlisten()).catch(() => {}); };
+  }, []);
+
+  useEffect(() => {
+    if (!nativeAvailable) return;
+    let disposed = false;
+    api.modelCatalog().then(catalog => {
+      if (!disposed) setModelCatalog(catalog);
+    }).catch(reason => {
+      if (!disposed) setCatalogError(errorText(reason));
+    }).finally(() => {
+      if (!disposed) setCatalogLoading(false);
+    });
+    return () => { disposed = true; };
   }, []);
 
   useEffect(() => {
@@ -145,8 +176,57 @@ export default function App() {
     });
   }
   async function importModel() {
-    await perform('Loading model', async () => {
+    await perform('Loading model', async () => withModelProgress('import', async () => {
       if (await api.importModel()) { setSetup(await api.setup()); setMessage('Model imported. You’re ready to transcribe offline.'); }
+    }));
+  }
+  async function downloadModel(id: string) {
+    const option = modelCatalog.find(model => model.id === id);
+    await perform('Loading model', async () => {
+      setDownloadModelId(id);
+      try {
+        await withModelProgress('download', async () => {
+          await api.downloadModel(id);
+          setSetup(await api.setup());
+          setMessage(`${option?.name ?? 'Model'} is ready for offline transcription.`);
+        });
+      } finally {
+        if (mounted.current) setDownloadModelId(null);
+      }
+    });
+  }
+  async function withModelProgress(operation: 'import' | 'download', task: () => Promise<void>) {
+    setModelProgress(null);
+    setModelCancelRequested(false);
+    const unlisten = await listen<ModelProgress>('model-import-progress', event => {
+      if (mounted.current) setModelProgress(event.payload);
+    });
+    if (!mounted.current) { unlisten(); return; }
+    let listening = true;
+    const cleanupListener = () => {
+      if (!listening) return;
+      listening = false;
+      unlisten();
+    };
+    setModelOperation(operation);
+    modelProgressUnlisten.current = cleanupListener;
+    try {
+      await task();
+    } finally {
+      cleanupListener();
+      if (modelProgressUnlisten.current === cleanupListener) modelProgressUnlisten.current = null;
+      if (mounted.current) {
+        setModelOperation(null);
+        setModelProgress(null);
+        setModelCancelRequested(false);
+      }
+    }
+  }
+  function cancelModelOperation() {
+    setModelCancelRequested(true);
+    void api.cancel().catch(reason => {
+      setModelCancelRequested(false);
+      setError(errorText(reason));
     });
   }
   function navigateMatch(direction: 1 | -1) {
@@ -249,7 +329,8 @@ export default function App() {
         {!nativeAvailable && <div className="notice">Browser preview. Open the Tauri app to import files, transcribe, and save to your local library.</div>}
         {error && !settingsOpen && <div className="notice error" role="alert">{error}</div>}
         {message && !settingsOpen && <div className="notice success" role="status">{message}</div>}
-        {busy && !active && <div className="processing" role="status">{busy}…</div>}
+        {busy && !active && <div className="processing"><span role="status">{busy}…</span>
+          {busy === 'Loading model' && <ModelOperationStatus progress={modelProgress} cancelRequested={modelCancelRequested} onCancel={cancelModelOperation}/>}</div>}
 
         {!active ? <section className="welcome">
           <div className="wave" aria-hidden="true">{[18, 36, 60, 42, 80, 54, 30, 60, 38, 18].map((height, i) => <span key={i} style={{ height }}/>)}</div>
@@ -284,6 +365,7 @@ export default function App() {
           </div>}
 
           {busy && <div className="processing" role="status"><span>{busy}{busy === 'Transcribing on your device' ? ` · ${progress}%` : '…'}</span>
+            {busy === 'Loading model' && <ModelOperationStatus progress={modelProgress} cancelRequested={modelCancelRequested} onCancel={cancelModelOperation}/>}
             {busy === 'Detecting speakers' && <><span>No percentage estimate. Cancellation takes effect after the current processing pass.</span><button className="secondary" disabled={cancelRequested} onClick={() => { setCancelRequested(true); void api.cancel().catch(e => { setCancelRequested(false); setError(errorText(e)); }); }}>{cancelRequested ? 'Cancellation requested…' : 'Cancel after current pass'}</button></>}
             {busy === 'Transcribing on your device' && <><progress value={progress} max={100}/><button className="secondary" onClick={() => { void api.cancel().catch(e => setError(errorText(e))); }}>Cancel</button></>}</div>}
 
@@ -328,6 +410,9 @@ export default function App() {
     {settingsOpen && <Settings initialSection={settingsSection} theme={theme} onThemeChange={value => { saveTheme(value); setTheme(value); }}
       setup={setup} modelDisabled={locked || dirty} loadingModel={busy === 'Loading model'} dirty={dirty}
       nativeAvailable={nativeAvailable} error={error} message={message} onImportModel={importModel}
+      modelCatalog={modelCatalog} catalogLoading={catalogLoading} catalogError={catalogError} onDownloadModel={downloadModel}
+      modelOperation={modelOperation} downloadModelId={downloadModelId} modelProgress={modelProgress}
+      cancelRequested={modelCancelRequested} onCancelModel={cancelModelOperation}
       language={language} onLanguageChange={value => updatePreferences({ language: value as typeof language })}
       autoSpeakers={autoSpeakers} onAutoSpeakersChange={value => updatePreferences({ autoSpeakers: value })}
       speakerCount={speakerCount} onSpeakerCountChange={value => updatePreferences({ speakerCount: value === 'auto' ? value : Number(value) })}

@@ -34,12 +34,14 @@ Cloud services, if introduced, must have separately sustainable pricing.
       multilingual Small recommended; Tiny/Base/Small were the original subset).
 - [ ] Robust long-recording handling and bounded-memory inference beyond the
       current 30-minute cap (inference still loads normalized f32 audio).
-- [ ] Curated model downloads with pinned hashes, progress, cancellation,
-      free-space checks, model metadata, and removal.
+- [x] Explicit Tiny/Base/Small downloads with pinned revision/hashes, progress,
+      cancellation, free-space checks, model metadata, and safe replacement.
+- [ ] Model removal/rollback controls and real-device replacement validation.
 - [ ] Device benchmarks and acceleration evaluation (Metal first on Apple silicon).
 - [x] Local playback, seeking, and transcript highlighting.
 - [x] Transcript search, including unsaved edits, with occurrence navigation.
 - [x] Persistent Light/Dark/System themes and model controls in Settings.
+- [x] Persistent language/speaker preferences, tabbed Settings and recording actions.
 - [ ] Microphone recording, library-wide search, and DOCX export.
 - [ ] Ukrainian UI, accessibility, keyboard operation, and native lifecycle QA.
 - [ ] Complete the desktop platform rollout and acceptance checks below.
@@ -225,3 +227,26 @@ the retained frontend helper tests; `npm run native:test` runs the Rust suite.
   search selection in the compact editor, unsaved edits, retained speaker fields,
   timestamp playback, and dark-mode styling. This was not a new real-model or
   signed/sandboxed release validation.
+
+## Settings, recovery and model setup — 2026-11-12
+
+- Finished the current workspace/settings redesign, persisted language/speaker
+  preferences, corrected dialog focus, and added component regressions for
+  menus, unsaved edits, settings routing, model setup and listener cleanup.
+- Added a persistent audio operation journal without a schema bump. Reopen tests
+  cover interrupted imports/deletions, failed writes/database mutations,
+  conflicting destinations, missing audio and unrelated-file preservation.
+- Added explicit Tiny/Base/quantized Small downloads pinned to upstream revision
+  `5359861c739e955e79d9a303bcbc70fb988958b1`, exact lengths and SHA-256 hashes.
+  Manual offline import remains supported. Staging checks free space, reports
+  progress, supports cancellation and loads the model before publishing an
+  immutable generation. The current and previous generated copies are retained.
+- Build, typecheck, lint, 36 frontend tests, 75 Rust tests, all-target Clippy and
+  Rust formatting passed locally. Four opt-in Rust tests are ignored by default:
+  real inference, broader codecs, diarization, and the network model setup test.
+- Ran the explicit Tiny network test successfully: actual download, length/hash
+  verification, Whisper load and activation in temporary storage, then cleanup.
+  This did not run transcription or measure English/Ukrainian quality.
+- Built an unsigned macOS debug `.app`. It was not launched for interactive QA.
+  Windows/Linux device behavior, physical power loss/disk-full scenarios, signed
+  distribution, accessibility tooling and real-language benchmarks remain open.

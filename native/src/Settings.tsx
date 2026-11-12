@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Setup } from './api';
+import type { ModelOption, ModelProgress, Setup } from './api';
 import type { Theme } from './theme';
 import './settings.css';
 
@@ -24,6 +24,15 @@ type Props = {
   error: string | null;
   message: string | null;
   onImportModel: () => void;
+  modelCatalog: ModelOption[];
+  catalogLoading: boolean;
+  catalogError: string | null;
+  onDownloadModel: (id: string) => void;
+  modelOperation: 'import' | 'download' | null;
+  downloadModelId: string | null;
+  modelProgress: ModelProgress | null;
+  cancelRequested: boolean;
+  onCancelModel: () => void;
   onImportSpeakerModels: () => void;
   loadingSpeakers: boolean;
   onClose: () => void;
@@ -38,6 +47,8 @@ const themes = [
 export default function Settings({ initialSection, theme, onThemeChange, language, onLanguageChange,
   autoSpeakers, onAutoSpeakersChange, speakerCount, onSpeakerCountChange, preferencesDisabled,
   setup, modelDisabled, loadingModel, dirty, nativeAvailable, error, message, onImportModel,
+  modelCatalog, catalogLoading, catalogError, onDownloadModel, modelOperation, downloadModelId,
+  modelProgress, cancelRequested, onCancelModel,
   onImportSpeakerModels, loadingSpeakers, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [section, setSection] = useState<SettingsSection>(initialSection);
@@ -74,9 +85,10 @@ export default function Settings({ initialSection, theme, onThemeChange, languag
           }}>{value === 'appearance' ? 'Appearance' : value === 'transcription' ? 'Transcription' : 'Speakers'}</button>)}
       </div>
 
-      {(error || message) && <div className="settings-feedback">
+      {(error || message || modelOperation) && <div className="settings-feedback">
         {error && <div className="notice error" role="alert">{error}</div>}
         {message && <div className="notice success" role="status">{message}</div>}
+        {modelOperation && <ModelOperationStatus progress={modelProgress} cancelRequested={cancelRequested} onCancel={onCancelModel}/>}
       </div>}
 
       <section className="settings-section" role="tabpanel" id="settings-panel-appearance"
@@ -109,6 +121,21 @@ export default function Settings({ initialSection, theme, onThemeChange, languag
             {loadingModel ? 'Loading model…' : setup?.modelReady ? 'Replace model' : 'Import model'}
           </button>
         </div>
+        <section className="model-downloads" aria-labelledby="model-downloads-title">
+          <h3 id="model-downloads-title">Optional model downloads</h3>
+          <p>Choose a model to download it now. Downloads contact Hugging Face and its CDN only after you click a download button. Your audio and transcripts stay on this device. Downloads are checked and loaded before they can replace your current model.</p>
+          <p className="offline-model-hint">For offline setup, transfer a compatible Whisper <code>.bin</code> file to this device, then use Import model above.</p>
+          {catalogLoading && <p role="status">Checking available models…</p>}
+          {catalogError && <p className="notice error" role="alert">Model downloads are unavailable: {catalogError} You can still import a model file.</p>}
+          {!catalogLoading && !catalogError && modelCatalog.length === 0 && <p>No downloadable models are available. You can still import a model file.</p>}
+          {modelCatalog.map(model => <div className="model-download" key={model.id}>
+            <div><h4>{model.name}</h4><p><code>{model.fileName}</code> · {formatBytes(model.bytes)}</p><p>{model.description}</p></div>
+            <button className="secondary" aria-label={`Download ${model.name}`} disabled={modelDisabled || !nativeAvailable || Boolean(modelOperation)}
+              onClick={() => onDownloadModel(model.id)}>
+              {modelOperation === 'download' && downloadModelId === model.id ? 'Downloading…' : 'Download'}
+            </button>
+          </div>)}
+        </section>
         <details className="settings-guidance"><summary>Choosing a transcription model</summary>
           <p>For multilingual audio, we recommend Whisper Small (<code>ggml-small-q5_1.bin</code>, about 190 MB). Tiny, Base, Medium, Large and Large V3 Turbo also work. Larger models need more memory; English-only models support English audio only.</p>
         </details>
@@ -142,4 +169,36 @@ export default function Settings({ initialSection, theme, onThemeChange, languag
       <footer className="settings-footer"><button className="primary" onClick={onClose}>Done</button></footer>
     </div>
   </dialog>;
+}
+
+export function ModelOperationStatus({ progress, cancelRequested, onCancel }: {
+  progress: ModelProgress | null; cancelRequested: boolean; onCancel: () => void;
+}) {
+  if (!progress) return <div className="model-operation-status" aria-live="polite"><p role="status">Preparing model operation…</p></div>;
+  const phaseText = {
+    connecting: 'Connecting to model host…',
+    copying: 'Copying model file…',
+    downloading: 'Downloading model…',
+    validating: 'Checking and preparing model…',
+    complete: 'Model is ready.',
+  }[progress.phase];
+  const total = Math.max(0, progress.totalBytes);
+  const copied = Math.max(0, Math.min(progress.copiedBytes, total || progress.copiedBytes));
+  const showProgress = (progress.phase === 'copying' || progress.phase === 'downloading') && total > 0;
+  return <div className="model-operation-status" aria-live="polite">
+    <p role="status">{phaseText}{showProgress ? ` ${formatBytes(copied)} of ${formatBytes(total)}` : ''}</p>
+    {showProgress && <progress max={total} value={copied} aria-label="Model setup progress"/>}
+    {progress.phase !== 'complete' && <>
+      {progress.phase === 'validating' && <p>Cancellation takes effect after the current check.</p>}
+      <button className="secondary" disabled={cancelRequested} onClick={onCancel}>
+        {cancelRequested ? 'Cancellation requested…' : progress.phase === 'validating' ? 'Cancel after check' : 'Cancel'}
+      </button>
+    </>}
+  </div>;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return 'Unknown size';
+  if (bytes < 1_000_000) return `${Math.round(bytes / 1_000)} kB`;
+  return `${(bytes / 1_000_000).toFixed(0)} MB`;
 }

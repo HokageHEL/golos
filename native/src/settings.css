@@ -54,6 +54,21 @@
 .settings-dialog .settings-guidance summary { cursor: pointer; color: var(--text); font-weight: 600; }
 .settings-dialog .settings-guidance p { margin-top: 8px; overflow-wrap: anywhere; }
 .settings-dialog .settings-guidance code { overflow-wrap: anywhere; }
+.settings-dialog .model-downloads { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.settings-dialog .model-downloads > h3 { font-size: 14px; }
+.settings-dialog .model-downloads > p { margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.settings-dialog .model-downloads .offline-model-hint { color: var(--text); }
+.settings-dialog .model-download { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.settings-dialog .model-download > div { min-width: 0; }
+.settings-dialog .model-download h4 { margin: 0; font-size: 13px; }
+.settings-dialog .model-download p { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.settings-dialog .model-download button { flex: none; }
+.settings-dialog .model-operation-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--subtle); font-size: 12px; }
+.settings-dialog .model-operation-status p { margin: 0; }
+.settings-dialog .model-operation-status progress { flex: 1 1 100%; }
+.settings-dialog .model-operation-status > button { margin-left: auto; }
+.settings-dialog .model-operation-status[role="status"] { color: var(--text); }
+.settings-dialog .model-downloads .notice { margin-top: 10px; }
 .settings-dialog .settings-feedback .notice { margin: 14px 0 0; overflow-wrap: anywhere; }
 .settings-dialog .settings-hints { margin-top: 14px; color: var(--warning); font-size: 12px; }
 .settings-dialog .settings-footer { justify-content: flex-end; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
