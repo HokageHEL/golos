@@ -373,6 +373,24 @@ mod tests {
         assert!(!exists(&f.db, &note.id).unwrap());
     }
 
+    #[test]
+    fn conflicting_destination_preserves_both_files_and_the_note() {
+        for kind in ["import", "delete"] {
+            let f = Fixture::new();
+            let note = Fixture::note();
+            library::insert(&f.db, &note).unwrap();
+            let op = operation(&f.root, kind, &note.id).unwrap();
+            let stage = op.join("audio.wav");
+            let target = audio_path(&f.root, &note.id).unwrap();
+            fs::write(&stage, b"staged recording").unwrap();
+            fs::write(&target, b"different recording").unwrap();
+            assert!(recover(&f.root, &f.db).unwrap_err().contains("different"));
+            assert_eq!(fs::read(&stage).unwrap(), b"staged recording");
+            assert_eq!(fs::read(&target).unwrap(), b"different recording");
+            assert!(exists(&f.db, &note.id).unwrap());
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlinks_are_never_followed() {
