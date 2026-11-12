@@ -1,4 +1,5 @@
 mod audio;
+mod audio_recovery;
 mod diarize;
 mod engine;
 mod import;
@@ -140,32 +141,26 @@ async fn import_audio(app: tauri::AppHandle) -> Result<Option<Note>, String> {
         let source = file.into_path().map_err(|e| e.to_string())?;
         let state = app.state::<AppState>();
         let id = uuid::Uuid::new_v4().to_string();
-        let target = state.audio_path(&id)?;
-        let result = (|| {
-            let duration_seconds = import::normalize(&source, &target)?;
-            let note = Note {
-                id,
-                title: source
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into(),
-                created_at: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| e.to_string())?
-                    .as_secs() as i64,
-                duration_seconds,
-                status: "ready".into(),
-                segments: vec![],
-                error: None,
-            };
-            library::insert(&*state.db()?, &note)?;
-            Ok(Some(note))
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(target);
-        }
-        result
+        let mut note = Note {
+            id,
+            title: source
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into(),
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs() as i64,
+            duration_seconds: 0.0,
+            status: "ready".into(),
+            segments: vec![],
+            error: None,
+        };
+        audio_recovery::import_audio(&state.root, &*state.db()?, &mut note, |target| {
+            import::normalize(&source, target)
+        })?;
+        Ok(Some(note))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -370,17 +365,9 @@ fn delete_note(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<AppState>();
     let _guard = state.claim()?;
     let path = state.audio_path(&id)?;
-    match fs::remove_file(&path) {
-        Ok(()) => (),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-        Err(e) => return Err(e.to_string()),
-    }
+    audio_recovery::delete_audio(&state.root, &*state.db()?, &id)?;
     // The file is gone; take back the asset-protocol grant for it as well.
     let _ = app.asset_protocol_scope().forbid_file(&path);
-    state
-        .db()?
-        .execute("DELETE FROM notes WHERE id=?1", [&id])
-        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -463,6 +450,7 @@ pub fn run() {
                     backup.display()
                 );
             }
+            audio_recovery::recover(&root, &db).map_err(std::io::Error::other)?;
             let _ = fs::remove_file(root.join("model.pending"));
             app.manage(AppState {
                 root,
