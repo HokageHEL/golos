@@ -189,7 +189,9 @@ pub fn import_audio(
         if !regular(&stage)? {
             return Err("Decoded audio is missing.".into());
         }
-        fs::File::open(&stage)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&stage)
             .and_then(|f| f.sync_all())
             .map_err(|e| e.to_string())?;
         sync_dir(&op)?;

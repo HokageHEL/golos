@@ -73,11 +73,17 @@ fn install_validated(
     let result = (|| {
         for (source, name) in [(segmentation, SEGMENTATION), (embedding, EMBEDDING)] {
             let destination = pending.join(name);
-            fs::copy(source, &destination)
-                .map_err(|e| format!("Cannot copy speaker model: {e}"))?;
-            fs::File::open(&destination)
-                .and_then(|file| file.sync_all())
+            let mut input = fs::File::open(source).map_err(|e| e.to_string())?;
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&destination)
                 .map_err(|e| e.to_string())?;
+            std::io::copy(&mut input, &mut output)
+                .map_err(|e| format!("Cannot copy speaker model: {e}"))?;
+            // Windows FlushFileBuffers requires a writable handle. Creating
+            // the copy also avoids inheriting read-only source permissions.
+            output.sync_all().map_err(|e| e.to_string())?;
         }
         validate(&pending.join(SEGMENTATION), &pending.join(EMBEDDING))?;
         let _ = fs::File::open(&pending).and_then(|file| file.sync_all());
